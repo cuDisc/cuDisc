@@ -43,12 +43,12 @@ OBJ := grid.o integrate_z.o scan.o scan3d.o zero_bounds.o copy.o \
 OBJ := $(addprefix $(BUILD_DIR)/, $(OBJ))
 HEADERS := $(addprefix $(HEADER_DIR)/, $(HEADERS))
 
-TESTS_CPP = $(wildcard tests/test_*.cpp)
-TESTS_CU =  $(wildcard tests/test_*.cu)
+TESTS_CPP = $(wildcard tests/codes/test_*.cpp)
+TESTS_CU =  $(wildcard tests/codes/test_*.cu)
 
 TEST_OBJ = \
-	$(patsubst tests/%.cpp,%, $(TESTS_CPP)) \
-	$(patsubst tests/%.cu,%, $(TEST_CU))
+	$(patsubst tests/codes/%.cpp,%, $(TESTS_CPP)) \
+	$(patsubst tests/codes/%.cu,%, $(TEST_CU))
 
 LIBRARY = lib/libcudisc.a
 
