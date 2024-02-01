@@ -6,7 +6,7 @@ BUILD_DIR = build
 CUDA_HOME = /usr/local/cuda-12.0
 
 CPP = g++  
-CFLAGS = -O3 -g  -std=c++17 -Wall -Wextra -march=native
+CFLAGS = -O3 -g  -std=c++17 -Wall -Wextra -march=native 
 
 ARCH=--generate-code arch=compute_60,code=sm_60 \
 	--generate-code arch=compute_61,code=sm_61 \
@@ -21,7 +21,7 @@ CUDA = nvcc
 CUDAFLAGS = -O3 -g --std=c++17 -Wno-deprecated-gpu-targets $(ARCH)
 INCLUDE = -I./$(HEADER_DIR) -I$(CUDA_HOME)/include
 
-LIB = -L$(CUDA_HOME)/lib64 -lcudart -lcublas -lcusparse
+LIB = -L$(CUDA_HOME)/lib64 -lcudart -lcublas -lcusparse -lstdc++fs
 
 COAG_HEADERS := coagulation.h kernels.h fragments.h size_grid.h integration.h
 COAG_HEADERS := $(addprefix coagulation/, $(COAG_HEADERS))
@@ -50,10 +50,16 @@ TEST_OBJ = \
 	$(patsubst tests/%.cpp,%, $(TESTS_CPP)) \
 	$(patsubst tests/%.cu,%, $(TEST_CU))
 
+LIBRARY = lib/libcudisc.a
 
-.PHONY: tests clean tidy
+.PHONY: tests clean tidy lib
 
 tests : $(TEST_OBJ)
+
+lib : $(LIBRARY)
+
+$(LIBRARY): $(OBJ)
+	ar -rcs $@ $(OBJ)
 
 $(BUILD_DIR)/%.o: src/%.cpp $(HEADERS) makefile
 	$(CPP) $(CFLAGS) $(INCLUDE) -c $< -o $@
@@ -61,17 +67,17 @@ $(BUILD_DIR)/%.o: src/%.cpp $(HEADERS) makefile
 $(BUILD_DIR)/%.o: src/%.cu  $(HEADERS) makefile
 	$(CUDA) $(CUDAFLAGS) $(INCLUDE) -c $< -o $@
 
-test_%: tests/codes/test_%.cpp $(OBJ) $(HEADERS) makefile 
-	$(CPP) $(CFLAGS) $(INCLUDE) $(OBJ) $< -o $@ $(LIB)
+test_%: tests/codes/test_%.cpp $(LIBRARY) $(HEADERS) makefile 
+	$(CPP) $(CFLAGS) $(INCLUDE) $< -o $@ $(LIBRARY) $(LIB)
 
-test_%: tests/codes/test_%.cu $(OBJ) $(HEADERS) makefile 
-	$(CUDA) $(CUDAFLAGS) $(INCLUDE) $(OBJ) $< -o $@ $(LIB)
+test_%: tests/codes/test_%.cu $(LIBRARY) $(HEADERS) makefile 
+	$(CUDA) $(CUDAFLAGS) $(INCLUDE) $< -o $@ $(LIBRARY) $(LIB)
 
-%: codes/%.cpp $(OBJ) $(HEADERS) makefile 
-	$(CPP) $(CFLAGS) $(INCLUDE) $(OBJ) $< -o $@ $(LIB) 
+%: codes/%.cpp $(LIBRARY) $(HEADERS) makefile 
+	$(CPP) $(CFLAGS) $(INCLUDE)  $< -o $@ $(LIBRARY) $(LIB) 
 
 clean:
-	rm -rf build/*.o $(TEST_OBJ)
+	rm -rf build/*.o $(TEST_OBJ) $(LIBRARY)
 
 bintidy:
 	rm ./test_*
