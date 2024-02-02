@@ -17,6 +17,8 @@ ARCH=--generate-code arch=compute_60,code=sm_60 \
 	--generate-code arch=compute_80,code=sm_80 \
 	--generate-code arch=compute_86,code=sm_86 
 
+ARCH=--generate-code arch=compute_75,code=sm_75 \
+
 CUDA = nvcc 
 CUDAFLAGS = -O3 -g --std=c++17 -Wno-deprecated-gpu-targets $(ARCH)
 INCLUDE = -I./$(HEADER_DIR) -I$(CUDA_HOME)/include
@@ -45,13 +47,16 @@ HEADERS := $(addprefix $(HEADER_DIR)/, $(HEADERS))
 
 TESTS_CPP = $(wildcard tests/test_*.cpp)
 TESTS_CU =  $(wildcard tests/test_*.cu)
+UNITS = $(wildcard unit_tests/unit_*.cpp)
 
 TEST_OBJ = \
 	$(patsubst tests/%.cpp,%, $(TESTS_CPP)) \
 	$(patsubst tests/%.cu,%, $(TEST_CU))
 
+UNIT_TESTS := $(patsubst unit_tests/%.cpp,%,$(UNITS))
 
-.PHONY: tests clean tidy
+
+.PHONY: tests clean tidy run_units
 
 tests : $(TEST_OBJ)
 
@@ -69,6 +74,21 @@ test_%: tests/codes/test_%.cu $(OBJ) $(HEADERS) makefile
 
 %: codes/%.cpp $(OBJ) $(HEADERS) makefile 
 	$(CPP) $(CFLAGS) $(INCLUDE) $(OBJ) $< -o $@ $(LIB) 
+
+unit_%: unit_tests/unit_%.cpp $(OBJ) $(HEADERS) makefile
+			$(CPP) $(CFLAGS) $(INCLUDE) $(OBJ) $< -o $@ $(LIB)
+
+$(UNIT_TESTS): unit_%: unit_tests/unit_%.cpp $(OBJ) $(HEADERS) makefile
+			$(CPP) $(CFLAGS) $(INCLUDE) $(OBJ) $< -o $@ $(LIB)
+
+run_units: $(UNIT_TESTS)
+		for executable in $(UNIT_TESTS); do \
+			if [ -x "$$executable" ]; then \
+				echo "Executing: $$executable \n"; \
+				./$$executable \
+				wait; \
+			fi; \
+		done
 
 clean:
 	rm -rf build/*.o $(TEST_OBJ)
