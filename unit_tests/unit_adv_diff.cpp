@@ -24,9 +24,6 @@ int main() {
 
     for (int i=0; i<2; i++) {
 
-        std::filesystem::path dir = std::string("../outputs/adv_diff/run_"+std::to_string(Ns[i]));
-        std::filesystem::create_directories(dir);
-
         Grid::params p;
         p.NR = Ns[i];
         p.Nphi = Ns[i];
