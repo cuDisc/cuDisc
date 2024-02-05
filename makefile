@@ -17,7 +17,6 @@ ARCH=--generate-code arch=compute_60,code=sm_60 \
 	--generate-code arch=compute_80,code=sm_80 \
 	--generate-code arch=compute_86,code=sm_86 
 
-ARCH=--generate-code arch=compute_75,code=sm_75 \
 
 CUDA = nvcc 
 CUDAFLAGS = -O3 -g --std=c++17 -Wno-deprecated-gpu-targets $(ARCH)
@@ -82,12 +81,12 @@ $(UNIT_TESTS): unit_%: unit_tests/unit_%.cpp $(OBJ) $(HEADERS) makefile
 			$(CPP) $(CFLAGS) $(INCLUDE) $(OBJ) $< -o $@ $(LIB)
 
 run_units: $(UNIT_TESTS)
-		@for executable in $(UNIT_TESTS); do \
-			if [ -x "$$executable" ]; then \
-				./$$executable \
-				wait; \
-			fi; \
-		done
+	@for executable in $(UNIT_TESTS); do \
+		if [ -x "$$executable" ]; then \
+			./$$executable \
+			wait; \
+		fi; \
+	done
 
 clean:
 	rm -rf build/*.o $(TEST_OBJ)
