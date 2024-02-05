@@ -55,7 +55,7 @@ TEST_OBJ = \
 UNIT_TESTS = $(patsubst unit_tests/%.cpp,%,$(UNITS))
 LIBRARY = lib/libcudisc.a
 
-.PHONY: tests clean tidy lib run_units
+.PHONY: tests clean bintidy lib run_units
 
 tests : $(TEST_OBJ)
 
@@ -79,11 +79,9 @@ test_%: $(PWD)/tests/codes/test_%.cu $(LIBRARY) $(HEADERS) makefile
 %: codes/%.cpp $(LIBRARY) $(HEADERS) makefile 
 	$(CPP) $(CFLAGS) $(INCLUDE)  $< -o $@ $(LIBRARY) $(LIB) 
 
-unit_%: unit_tests/unit_%.cpp $(OBJ) $(HEADERS) makefile
-			$(CPP) $(CFLAGS) $(INCLUDE) $(OBJ) $< -o $@ $(LIB)
+unit_%: unit_tests/unit_%.cpp $(LIBRARY) $(HEADERS) makefile
+	$(CPP) $(CFLAGS) $(INCLUDE)  $< -o $@ $(LIBRARY) $(LIB) 
 
-$(UNIT_TESTS): unit_%: unit_tests/unit_%.cpp $(OBJ) $(HEADERS) makefile
-			$(CPP) $(CFLAGS) $(INCLUDE) $(OBJ) $< -o $@ $(LIB)
 
 run_units: $(UNIT_TESTS)
 	@for executable in $(UNIT_TESTS); do \
@@ -97,4 +95,4 @@ clean:
 	rm -rf build/*.o $(TEST_OBJ) $(LIBRARY)
 
 bintidy:
-	rm ./test_*
+	rm -f ./test_* unit_adv_diff  unit_coag  unit_temp
