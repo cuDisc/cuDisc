@@ -15,7 +15,8 @@ double P(double x, double y, double t, double D, double A) {
 
 int main() {
 
-    std::cout << "Test advection-diffusion...\n";
+    std::cout << "Test advection-diffusion... ";
+    std::cout.flush() ;
 
     int Ns[2] = {128,256};
     double L2_bench[2] = {0.002114, 0.0004294};
@@ -120,11 +121,11 @@ int main() {
     }
     else {
         if (L2[0] <= L2_bench[0]) {std::cout << "L2_128 = " << L2[0] << ", pass.\n";}
-        else {std::cout << "L2_128 = " << L2[0] << ", fail.\n";}
+        else {std::cout << "\n\tL2_128 = " << L2[0] << ", fail.\n";}
         if (L2[1] <= L2_bench[1]) {std::cout << "L2_256 = " << L2[1] << ", pass.\n";;}
-        else {std::cout << "L2_256 = " << L2[1] << ", fail.\n";}
+        else {std::cout << "\n\tL2_256 = " << L2[1] << ", fail.\n";}
         if (slope >= slope_bench) {std::cout << "Slope = " << slope << ", pass.\n";}
-        else {std::cout << "Slope = " << slope << ", fail.\n";}
+        else {std::cout << "\n\tSlope = " << slope << ", fail.\n";}
     }
 
 

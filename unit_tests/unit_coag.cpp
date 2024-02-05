@@ -79,7 +79,8 @@ double rho_bench[100] = {1.01172e-17, 6.14468e-18, 5.22943e-18, 5.07278e-18, 4.8
 
 int main() {
 
-    std::cout << "Test coag...\n";
+    std::cout << "Test coag... ";
+    std::cout.flush() ;
     
     Grid::params p;
     p.NR = 1;
@@ -150,7 +151,7 @@ int main() {
     L2 = std::sqrt(L2);
 
     if (L2 <= 2.e-23) {printf("Pass.\n");}
-    else {printf("L2 = %g, fail.\n", L2);}
+    else {printf("\n\tL2 = %g, fail.\n", L2);}
 
     return 0;
 } 

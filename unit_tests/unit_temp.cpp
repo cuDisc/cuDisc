@@ -115,7 +115,8 @@ void compute_total_density(Grid& g, Field3D<double>& rho, Field<double>& rhotot)
 
 int main() {
 
-    std::cout << "Test temp...\n";
+    std::cout << "Test temp... ";
+    std::cout.flush() ;
 
     std::filesystem::path path = __FILE__;
     path = path.parent_path();
@@ -226,9 +227,9 @@ int main() {
     }
     else {
         if (L2_mid <= 1e-4) {printf("L2_mid = %g, pass.\n", L2_mid); } 
-        else {printf("L2_mid = %g, fail.\n", L2_mid); }
+        else {printf("\n\tL2_mid = %g, fail.\n", L2_mid); }
         if (L2_surf <= 1e-5) {printf("L2_surf = %g, pass.\n", L2_surf); } 
-        else {printf("L2_surf = %g, fail.\n", L2_surf);}  
+        else {printf("\n\tL2_surf = %g, fail.\n", L2_surf);}  
     }
 
 }
