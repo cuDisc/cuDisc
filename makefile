@@ -17,6 +17,7 @@ ARCH=--generate-code arch=compute_60,code=sm_60 \
 	--generate-code arch=compute_80,code=sm_80 \
 	--generate-code arch=compute_86,code=sm_86 
 
+
 CUDA = nvcc 
 CUDAFLAGS = -O3 -g --std=c++17 -Wno-deprecated-gpu-targets $(ARCH)
 INCLUDE = -I./$(HEADER_DIR) -I$(CUDA_HOME)/include
@@ -45,14 +46,16 @@ HEADERS := $(addprefix $(HEADER_DIR)/, $(HEADERS))
 
 TESTS_CPP = $(wildcard tests/codes/test_*.cpp)
 TESTS_CU =  $(wildcard tests/codes/test_*.cu)
+UNITS = $(wildcard unit_tests/unit_*.cpp)
 
 TEST_OBJ = \
 	$(patsubst tests/codes/%.cpp,%, $(TESTS_CPP)) \
 	$(patsubst tests/codes/%.cu,%, $(TEST_CU))
 
+UNIT_TESTS = $(patsubst unit_tests/%.cpp,%,$(UNITS))
 LIBRARY = lib/libcudisc.a
 
-.PHONY: tests clean tidy lib
+.PHONY: tests clean tidy lib run_units
 
 tests : $(TEST_OBJ)
 
@@ -67,14 +70,28 @@ $(BUILD_DIR)/%.o: src/%.cpp $(HEADERS) makefile
 $(BUILD_DIR)/%.o: src/%.cu  $(HEADERS) makefile
 	$(CUDA) $(CUDAFLAGS) $(INCLUDE) -c $< -o $@
 
-test_%: tests/codes/test_%.cpp $(LIBRARY) $(HEADERS) makefile 
+test_%: $(PWD)/tests/codes/test_%.cpp $(LIBRARY) $(HEADERS) makefile 
 	$(CPP) $(CFLAGS) $(INCLUDE) $< -o $@ $(LIBRARY) $(LIB)
 
-test_%: tests/codes/test_%.cu $(LIBRARY) $(HEADERS) makefile 
+test_%: $(PWD)/tests/codes/test_%.cu $(LIBRARY) $(HEADERS) makefile 
 	$(CUDA) $(CUDAFLAGS) $(INCLUDE) $< -o $@ $(LIBRARY) $(LIB)
 
 %: codes/%.cpp $(LIBRARY) $(HEADERS) makefile 
 	$(CPP) $(CFLAGS) $(INCLUDE)  $< -o $@ $(LIBRARY) $(LIB) 
+
+unit_%: unit_tests/unit_%.cpp $(OBJ) $(HEADERS) makefile
+			$(CPP) $(CFLAGS) $(INCLUDE) $(OBJ) $< -o $@ $(LIB)
+
+$(UNIT_TESTS): unit_%: unit_tests/unit_%.cpp $(OBJ) $(HEADERS) makefile
+			$(CPP) $(CFLAGS) $(INCLUDE) $(OBJ) $< -o $@ $(LIB)
+
+run_units: $(UNIT_TESTS)
+	@for executable in $(UNIT_TESTS); do \
+		if [ -x "$$executable" ]; then \
+			./$$executable \
+			wait; \
+		fi; \
+	done
 
 clean:
 	rm -rf build/*.o $(TEST_OBJ) $(LIBRARY)

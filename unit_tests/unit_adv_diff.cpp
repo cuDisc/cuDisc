@@ -2,32 +2,29 @@
 #include <fstream>
 #include <cmath>
 #include <sstream>
-#include <chrono>
-#include <iomanip>
 #include <filesystem>
 
 #include "grid.h"
-#include "field.h"
-#include "cuda_array.h"
-#include "advection.h"
-#include "constants.h"
 #include "dustdynamics.h"
 #include "sources.h"
 #include "file_io.h"
 
+double P(double x, double y, double t, double D, double A) {
+    return A/(t) * std::exp(-std::pow(x-30.-(5.*(t-0.1)),2.)/(4.*D*t)) * std::exp(-std::pow(y-(2.*(t-0.1)),2.)/(4.*D*t));
+}
+
 int main() {
 
-    int Ns[3] = {128,256,512};//,1024};
+    std::cout << "Test advection-diffusion... ";
+    std::cout.flush() ;
 
-    for (int i=0; i<3; i++) {
+    int Ns[2] = {128,256};
+    double L2_bench[2] = {0.002114, 0.0004294};
+    double slope_bench = 2.;
+    double L2[2] = {0,0};
 
-        std::filesystem::path path = __FILE__;
-        path = (path.parent_path()).parent_path();
-        std::filesystem::path dir = path / std::string("outputs/adv_diff/run_" + std::to_string(Ns[i]));
-        std::filesystem::create_directories(dir);
+    for (int i=0; i<2; i++) {
 
-        std::cout << "Output directory: " << dir  << "\n";
-        
         Grid::params p;
         p.NR = Ns[i];
         p.Nphi = Ns[i];
@@ -43,9 +40,6 @@ int main() {
         Grid g(p); 
 
         g.set_coord_system(Coords::cart);
-        g.write_grid(dir);
-
-        std::cout << "N = " << g.NR << "\n";
 
         Field3D<Prims> Ws = Field3D<Prims>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, 1);
         Field<Prims> Ws_gas = Field<Prims>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost);
@@ -97,31 +91,44 @@ int main() {
         double t = 0, dt;
         double ts[1] = {0.9};
         
-        write_prims(dir, 0, g, Ws, Ws_gas);
 
         int boundary = BoundaryFlags::open_R_inner | BoundaryFlags::open_R_outer | BoundaryFlags::open_Z_inner | BoundaryFlags::open_Z_outer;
 
         dyn.set_boundaries(boundary);
-        auto start = std::chrono::high_resolution_clock::now();
-        int nsteps=0;
         for (double ti : ts) {
-
             while (t < ti) {
                 dt = std::min(dt_cfl, ti-t);
                 dyn(g, Ws, Ws_gas, dt);
                 t += dt;
                 dt_cfl = dyn.get_CFL_limit(g, Ws, Ws_gas);
-                nsteps+=1;
             }
-
-            write_prims(dir, 1, g, Ws, Ws_gas);
-
         }
-        auto stop = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-        std::cout << "Time taken by function: " << duration.count()/1.e6 << " seconds" << std::endl;     
-        std::cout << "N_steps = " << nsteps << "\n\n" ;
+
+        for (int j=g.Nghost; j<g.NR+g.Nghost; j++) {
+            for (int k=g.Nghost; k<g.Nphi+g.Nghost; k++) {
+                L2[i] += (std::pow(Ws(j,k,0).rho-P(g.Rc(j), g.Zc(j,k), 1.,1.,1.), 2.)/(g.NR*g.Nphi));
+            }
+        }
+
+        L2[i] = std::sqrt(L2[i]);
+
     }
 
+    double slope = - std::log(L2[1]/L2[0]) / std::log(Ns[1]/Ns[0]);
+
+    if (L2[0] <= L2_bench[0] && L2[1] <= L2_bench[1] && slope >= slope_bench) {
+        std::cout << "Pass.\n";
+    }
+    else {
+        if (L2[0] <= L2_bench[0]) {std::cout << "L2_128 = " << L2[0] << ", pass.\n";}
+        else {std::cout << "\n\tL2_128 = " << L2[0] << ", fail.\n";}
+        if (L2[1] <= L2_bench[1]) {std::cout << "L2_256 = " << L2[1] << ", pass.\n";;}
+        else {std::cout << "\n\tL2_256 = " << L2[1] << ", fail.\n";}
+        if (slope >= slope_bench) {std::cout << "Slope = " << slope << ", pass.\n";}
+        else {std::cout << "\n\tSlope = " << slope << ", fail.\n";}
+    }
+
+
+    
     return 0;
 }

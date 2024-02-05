@@ -3,13 +3,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from constants import *
 
-if os.path.exists("../outputs/coag_const/coag_const_4.txt"):
-    print("Test completed.")
-else:
-    print("Making and running test...\n")
+print("Making and running test...\n")
 
-    os.system('make -j -C ../../ test_coagconst')
-    os.system('../../test_coagconst')
+os.system('cd ../../ && make -j test_coagconst')
+os.system('../../test_coagconst')
 
 class ConstSolution(object):
     '''Assympotic solution for constant coagulation kernel,

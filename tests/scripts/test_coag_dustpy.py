@@ -4,13 +4,10 @@ from fileIO import *
 import numpy as np
 import matplotlib.pyplot as plt
 
-if os.path.exists("../outputs/coag_dustpy/prims_0.dat"):
-    print("Test completed.")
-else:
-    print("Making and running test...\n")
+print("Making and running test...\n")
 
-    os.system('make -j -C ../../ test_coagdustpy')
-    os.system('../../test_coagdustpy')
+os.system('cd ../../ && make -j test_coagdustpy')
+os.system('../../test_coagdustpy')
 
 sim = CuDiscModel("../outputs/coag_dustpy")
 sizes = sim.load_grain_sizes()

@@ -196,9 +196,13 @@ int main() {
     const double masses[2] = {3.01798e-8, 3.01798e-5};
 
     for (int i=0; i<2; i++) {
-
-        std::filesystem::path dir = std::string("../outputs/pinte/run_") + run[i];
+        
+        std::filesystem::path path = __FILE__;
+        path = (path.parent_path()).parent_path();
+        std::filesystem::path dir = path / (std::string("outputs/pinte/run_")+ run[i]);
         std::filesystem::create_directories(dir);
+
+        std::cout << "Output directory: " << dir  << "\n";
 
         double tau_max = taus[i] ; 
         Grid g = setup_grid(tau_max);
@@ -214,7 +218,7 @@ int main() {
         int num_wavelengths = 100 ;
         int n_bands = 20;
 
-        DSHARP_opacs opac_tab("../../codes/opacities/dustkappa_Draine.txt", false);
+        DSHARP_opacs opac_tab(path / "../codes/opacities/dustkappa_Draine.txt", false);
 
         DSHARP_opacs opacs(n_spec, num_wavelengths); 
         opacs.generate_lam(1.e-1,3.e3); 

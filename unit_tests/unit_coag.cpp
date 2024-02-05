@@ -3,7 +3,6 @@
 #include <sstream>
 #include <fstream>
 #include <string>
-#include <chrono>
 #include <iomanip>
 
 #include "cuda_array.h"
@@ -16,41 +15,21 @@
 #include "coagulation/integration.h"
 
 
-/*
-Dynamics + Coag + FLD for a dustpy comparison
-*/
-
-
-void set_up_gas(Grid& g, Field<Prims>& wg, CudaArray<double>& Sig_g, Field<double>& T, Field<double>& cs) {
+void set_up(Grid& g, Field<Prims>& wg, Field<double>& cs, Field3D<Prims>& qd, SizeGrid& sizes) {
 
     double M_star = 1.;
-    double p = -2.25;
-    double q = -0.5;
 
     for (int i=0; i<g.NR+2*g.Nghost; i++) {
         for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
 
-            double h_g = 1.048*au; 
-
-            Sig_g[i] = 1.69779673e+001;
-            double eta = - std::pow(h_g/g.Rc(i), 2) * std::exp(-std::pow(0.2/(g.Rc(i)/au),10)) * (p + q + ((q+3)/2)*std::pow(g.Zc(i,j)/h_g, 2) + 10*std::pow(0.2/(g.Rc(i)/au),10));
-
-            wg(i,j).rho = Sig_g[i];
+            wg(i,j).rho = 5e-13;
             wg(i,j).v_R = 0.;
-            wg(i,j).v_phi = g.Rc(i) * std::pow(GMsun*M_star/std::pow(g.Rc(i)*g.Rc(i)+g.Zc(i,j)*g.Zc(i,j),1.5), 0.5) * std::pow(1 - eta, 0.5);
+            wg(i,j).v_phi = g.Rc(i) * std::pow(GMsun*M_star/std::pow(g.Rc(i)*g.Rc(i)+g.Zc(i,j)*g.Zc(i,j),1.5), 0.5) * std::pow(0.9996, 0.5);
             wg(i,j).v_Z = 0.;
         
-            T(i,j) = 35.59275531 ;
-            cs(i,j) = 34987.90450412;
+            cs(i,j) = 35000;
         }
     }
-
-}
-void set_up_dust(Grid& g, Field3D<Prims>& qd, SizeGrid& sizes, double M_gas) {
-
-    double d_to_g = 0.01;
-    double M_star = 1.;
-    double M_dust=0;
 
     for (int i=0; i<g.NR+2*g.Nghost; i++) {
         for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
@@ -59,9 +38,10 @@ void set_up_dust(Grid& g, Field3D<Prims>& qd, SizeGrid& sizes, double M_gas) {
             }
         }
     }
+    double rho_dust=0;
     for (int i=0; i<g.NR+2*g.Nghost; i++) {
         for (int k=0; k<qd.Nd; k++) {
-            M_dust += 2.*M_PI * qd(i,2,k).rho * g.Rc(i) * g.dRe(i);
+            rho_dust += qd(i,2,k).rho;
         }
     }
     
@@ -71,27 +51,37 @@ void set_up_dust(Grid& g, Field3D<Prims>& qd, SizeGrid& sizes, double M_gas) {
             double vk = std::sqrt(GMsun*M_star/g.Rc(i));
 
             for (int k=0; k < sizes.size(); k++) {
-                qd(i,j,k).rho = qd(i,j,k).rho * d_to_g*M_gas/M_dust + 1.e-40;
+                qd(i,j,k).rho = qd(i,j,k).rho * 0.01*wg(i,j).rho/rho_dust + 1.e-40;
                 qd(i,j,k).v_R  =  0.;
                 qd(i,j,k).v_phi = vk;
                 qd(i,j,k).v_Z   = 0;
             }
         }
     }
-
 }
+
+double rho_bench[100] = {1.01172e-17, 6.14468e-18, 5.22943e-18, 5.07278e-18, 4.89298e-18, 4.70835e-18, 4.5615e-18, 
+                        4.518e-18, 4.44084e-18, 4.39954e-18, 4.38231e-18, 4.38283e-18, 4.39778e-18, 4.42472e-18, 
+                        4.46224e-18, 4.50836e-18, 4.56224e-18, 4.62307e-18, 4.69022e-18, 4.7631e-18, 4.84128e-18, 
+                        4.92456e-18, 5.01257e-18, 5.10507e-18, 5.20187e-18, 5.30274e-18, 5.40748e-18, 5.51587e-18, 
+                        5.62772e-18, 5.74263e-18, 5.86045e-18, 5.98071e-18, 6.10302e-18, 6.22693e-18, 6.35182e-18, 
+                        6.47698e-18, 6.60166e-18, 6.7249e-18, 6.84571e-18, 6.9628e-18, 7.07479e-18, 7.18022e-18, 
+                        7.27715e-18, 7.36397e-18, 7.43798e-18, 7.49713e-18, 7.53875e-18, 7.56056e-18, 7.55935e-18, 
+                        7.53222e-18, 7.47604e-18, 6.9193e-18, 5.92419e-18, 6.03152e-18, 6.53026e-18, 7.16145e-18, 
+                        7.82226e-18, 8.49126e-18, 9.15495e-18, 9.81558e-18, 1.04826e-17, 1.11829e-17, 1.1895e-17, 
+                        1.26529e-17, 1.34689e-17, 1.43669e-17, 1.53614e-17, 1.64751e-17, 1.77189e-17, 1.91186e-17, 
+                        2.06978e-17, 2.24537e-17, 2.43725e-17, 2.62347e-17, 2.8712e-17, 3.11464e-17, 3.44122e-17, 
+                        3.6666e-17, 3.84513e-17, 3.99633e-17, 3.9531e-17, 3.73046e-17, 3.35239e-17, 2.76661e-17, 
+                        2.0809e-17, 1.42185e-17, 8.46591e-18, 4.35038e-18, 1.91013e-18, 6.84909e-19, 1.98854e-19, 
+                        4.59633e-20, 8.44969e-21, 1.21433e-21, 1.38931e-22, 1.30316e-23, 1.00176e-24, 6.45616e-26, 
+                        3.44367e-27, 5e-53};
+
 
 int main() {
 
-    std::filesystem::path path = __FILE__;
-    path = (path.parent_path()).parent_path();
-    std::filesystem::path dir = path / std::string("outputs/coag_dustpy");
-    std::filesystem::create_directories(dir);
-
-    std::cout << "Output directory: " << dir  << "\n";
-
-    // Set up spatial grid 
-
+    std::cout << "Test coag... ";
+    std::cout.flush() ;
+    
     Grid::params p;
     p.NR = 1;
     p.Nphi = 1;
@@ -110,14 +100,11 @@ int main() {
 
     // Setup a size distribution
 
-    int n_spec = 200;
+    int n_spec = 100;
     double rho_p = 1.6;
     double a0 = 5e-5 ; // Grain size lower bound in cm
     double a1 = 0.1   ;  // Grain size upper bound in cm
     SizeGrid sizes(a0, a1, n_spec, rho_p) ;
-
-    write_grids(dir, &g, &sizes);
-
 
     // Disc & Star parameters
     
@@ -127,10 +114,8 @@ int main() {
 
     Field3D<Prims> Ws_d = create_field3D<Prims>(g, n_spec); // Dust quantities 
     Field<Prims> Ws_g = create_field<Prims>(g); // Gas primitives
-    CudaArray<double> Sig_g = make_CudaArray<double>(g.NR+2*g.Nghost); // Gas surface density
     Field<double> T = create_field<double>(g); // Temperature
     Field<double> cs = create_field<double>(g); // Sound speed
-    Field<double> cs2 = create_field<double>(g); // Sound speed squared
     Field<double> alpha2D = create_field<double>(g);
 
     for (int i=0; i<g.NR+2*g.Nghost; i++) {
@@ -139,23 +124,12 @@ int main() {
         }
     }
 
-    // Set up initial dust and gas variables
-
-    set_up_gas(g, Ws_g, Sig_g, T, cs);
-
-    double M_gas=0;
-
-    for (int i=0; i<g.NR+2*g.Nghost; i++ ) { M_gas += Sig_g[i]*2.*M_PI*g.Rc(i)*g.dRe(i);}
-    std::cout << "Initial gas mass: " << M_gas/Msun << " M_sun\n";
-
-    set_up_dust(g, Ws_d, sizes, M_gas);
+    set_up(g, Ws_g, cs, Ws_d, sizes);
 
     // Set up coagulation kernel
-    BirnstielKernelVertInt kernel = BirnstielKernelVertInt(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu, 1.);
+    BirnstielKernel kernel = BirnstielKernel(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu, 1.);
     kernel.set_fragmentation_threshold(100.);
-    double Re = 0.5 * alpha * Sig_g[2] * 2.e-15 / (2.4 * m_p);
-    kernel.set_turbulence_Reynolds_Number(Re);
-    BS32Integration<CoagulationRate<BirnstielKernelVertInt, SimpleErosion>>
+    BS32Integration<CoagulationRate<BirnstielKernel, SimpleErosion>>
         coagulation_integrate(
             create_coagulation_rate(
                 sizes, 
@@ -164,17 +138,20 @@ int main() {
             1e-2, 1e-10
         ) ;
 
-    std::chrono::_V2::system_clock::time_point start,stop;
-    start = std::chrono::high_resolution_clock::now();
-    std::chrono::microseconds duration;
     double dt_coag = 0;
 
-    coagulation_integrate.integrate(g, Ws_d, Ws_g, 1e5*year, dt_coag, 1e-40) ;
-    write_prims(dir, 0, g, Ws_d, Ws_g);
+    std::cout.setstate(std::ios_base::failbit);
+    coagulation_integrate.integrate(g, Ws_d, Ws_g, 5e5*year, dt_coag, 1e-40) ;
+    std::cout.clear();
 
-    stop = std::chrono::high_resolution_clock::now();
-    
-    duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-    std::cout << "Time taken: " << duration.count()/(1.e6*60.) << " mins" << std::endl;  
+    double L2 = 0;
+    for (int i=0; i<sizes.size(); i++) {
+        L2 += (std::pow(Ws_d(2,2,i).rho-rho_bench[i], 2.)/(sizes.size()));
+    }
+    L2 = std::sqrt(L2);
+
+    if (L2 <= 2.e-23) {printf("Pass.\n");}
+    else {printf("\n\tL2 = %g, fail.\n", L2);}
+
     return 0;
 } 

@@ -4,13 +4,10 @@ from fileIO import *
 import numpy as np
 import matplotlib.pyplot as plt
 
-if os.path.exists("../outputs/pinte/run_thick/temp_0.dat"):
-    print("Test completed.")
-else:
-    print("Making and running test...\n")
+print("Making and running test...\n")
 
-    os.system('make -j -C ../../ test_pinte_graindist')
-    os.system('../../test_pinte_graindist')
+os.system('cd ../../ && make -j test_pinte_graindist')
+os.system('../../test_pinte_graindist')
 
 sim1 = CuDiscModel("../outputs/pinte/run_thick")
 sim2 = CuDiscModel("../outputs/pinte/run_thin")
