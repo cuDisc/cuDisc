@@ -83,8 +83,12 @@ void set_up_dust(Grid& g, Field3D<Prims>& qd, SizeGrid& sizes, double M_gas) {
 
 int main() {
 
-    std::filesystem::path dir = std::string("../outputs/coag_dustpy");
+    std::filesystem::path path = __FILE__;
+    path = (path.parent_path()).parent_path();
+    std::filesystem::path dir = path / std::string("outputs/coag_dustpy");
     std::filesystem::create_directories(dir);
+
+    std::cout << "Output directory: " << dir  << "\n";
 
     // Set up spatial grid 
 

@@ -61,7 +61,7 @@ $(BUILD_DIR)/%.o: src/%.cpp $(HEADERS) makefile
 $(BUILD_DIR)/%.o: src/%.cu  $(HEADERS) makefile
 	$(CUDA) $(CUDAFLAGS) $(INCLUDE) -c $< -o $@
 
-test_%: tests/codes/test_%.cpp $(OBJ) $(HEADERS) makefile 
+test_%: $(PWD)/tests/codes/test_%.cpp $(OBJ) $(HEADERS) makefile 
 	$(CPP) $(CFLAGS) $(INCLUDE) $(OBJ) $< -o $@ $(LIB)
 
 test_%: tests/codes/test_%.cu $(OBJ) $(HEADERS) makefile 

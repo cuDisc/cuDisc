@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 print("Making and running test...\n")
 
-os.system('make -j -C ../../ test_adv_diff')
+os.system('cd ../../ && make -j test_adv_diff')
 os.system('../../test_adv_diff')
 
 sim1 = CuDiscModel("../outputs/adv_diff/run_128/")
