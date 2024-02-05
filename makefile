@@ -6,7 +6,7 @@ BUILD_DIR = build
 CUDA_HOME = /usr/local/cuda-12.0
 
 CPP = g++  
-CFLAGS = -O3 -g  -std=c++17 -Wall -Wextra -march=native
+CFLAGS = -O3 -g  -std=c++17 -Wall -Wextra -march=native 
 
 ARCH=--generate-code arch=compute_60,code=sm_60 \
 	--generate-code arch=compute_61,code=sm_61 \
@@ -44,20 +44,25 @@ OBJ := grid.o integrate_z.o scan.o scan3d.o zero_bounds.o copy.o \
 OBJ := $(addprefix $(BUILD_DIR)/, $(OBJ))
 HEADERS := $(addprefix $(HEADER_DIR)/, $(HEADERS))
 
-TESTS_CPP = $(wildcard tests/test_*.cpp)
-TESTS_CU =  $(wildcard tests/test_*.cu)
+TESTS_CPP = $(wildcard tests/codes/test_*.cpp)
+TESTS_CU =  $(wildcard tests/codes/test_*.cu)
 UNITS = $(wildcard unit_tests/unit_*.cpp)
 
 TEST_OBJ = \
-	$(patsubst tests/%.cpp,%, $(TESTS_CPP)) \
-	$(patsubst tests/%.cu,%, $(TEST_CU))
+	$(patsubst tests/codes/%.cpp,%, $(TESTS_CPP)) \
+	$(patsubst tests/codes/%.cu,%, $(TEST_CU))
 
-UNIT_TESTS := $(patsubst unit_tests/%.cpp,%,$(UNITS))
+UNIT_TESTS = $(patsubst unit_tests/%.cpp,%,$(UNITS))
+LIBRARY = lib/libcudisc.a
 
-
-.PHONY: tests clean tidy run_units
+.PHONY: tests clean bintidy lib run_units
 
 tests : $(TEST_OBJ)
+
+lib : $(LIBRARY)
+
+$(LIBRARY): $(OBJ)
+	ar -rcs $@ $(OBJ)
 
 $(BUILD_DIR)/%.o: src/%.cpp $(HEADERS) makefile
 	$(CPP) $(CFLAGS) $(INCLUDE) -c $< -o $@
@@ -65,20 +70,18 @@ $(BUILD_DIR)/%.o: src/%.cpp $(HEADERS) makefile
 $(BUILD_DIR)/%.o: src/%.cu  $(HEADERS) makefile
 	$(CUDA) $(CUDAFLAGS) $(INCLUDE) -c $< -o $@
 
-test_%: $(PWD)/tests/codes/test_%.cpp $(OBJ) $(HEADERS) makefile 
-	$(CPP) $(CFLAGS) $(INCLUDE) $(OBJ) $< -o $@ $(LIB)
+test_%: $(PWD)/tests/codes/test_%.cpp $(LIBRARY) $(HEADERS) makefile 
+	$(CPP) $(CFLAGS) $(INCLUDE) $< -o $@ $(LIBRARY) $(LIB)
 
-test_%: tests/codes/test_%.cu $(OBJ) $(HEADERS) makefile 
-	$(CUDA) $(CUDAFLAGS) $(INCLUDE) $(OBJ) $< -o $@ $(LIB)
+test_%: $(PWD)/tests/codes/test_%.cu $(LIBRARY) $(HEADERS) makefile 
+	$(CUDA) $(CUDAFLAGS) $(INCLUDE) $< -o $@ $(LIBRARY) $(LIB)
 
-%: codes/%.cpp $(OBJ) $(HEADERS) makefile 
-	$(CPP) $(CFLAGS) $(INCLUDE) $(OBJ) $< -o $@ $(LIB) 
+%: codes/%.cpp $(LIBRARY) $(HEADERS) makefile 
+	$(CPP) $(CFLAGS) $(INCLUDE)  $< -o $@ $(LIBRARY) $(LIB) 
 
-unit_%: unit_tests/unit_%.cpp $(OBJ) $(HEADERS) makefile
-			$(CPP) $(CFLAGS) $(INCLUDE) $(OBJ) $< -o $@ $(LIB)
+unit_%: unit_tests/unit_%.cpp $(LIBRARY) $(HEADERS) makefile
+	$(CPP) $(CFLAGS) $(INCLUDE)  $< -o $@ $(LIBRARY) $(LIB) 
 
-$(UNIT_TESTS): unit_%: unit_tests/unit_%.cpp $(OBJ) $(HEADERS) makefile
-			$(CPP) $(CFLAGS) $(INCLUDE) $(OBJ) $< -o $@ $(LIB)
 
 run_units: $(UNIT_TESTS)
 	@for executable in $(UNIT_TESTS); do \
@@ -89,7 +92,7 @@ run_units: $(UNIT_TESTS)
 	done
 
 clean:
-	rm -rf build/*.o $(TEST_OBJ)
+	rm -rf build/*.o $(TEST_OBJ) $(LIBRARY)
 
 bintidy:
-	rm ./test_*
+	rm -f ./test_* unit_adv_diff  unit_coag  unit_temp
