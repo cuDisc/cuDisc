@@ -82,9 +82,8 @@ $(UNIT_TESTS): unit_%: unit_tests/unit_%.cpp $(OBJ) $(HEADERS) makefile
 			$(CPP) $(CFLAGS) $(INCLUDE) $(OBJ) $< -o $@ $(LIB)
 
 run_units: $(UNIT_TESTS)
-		for executable in $(UNIT_TESTS); do \
+		@for executable in $(UNIT_TESTS); do \
 			if [ -x "$$executable" ]; then \
-				echo "Executing: $$executable \n"; \
 				./$$executable \
 				wait; \
 			fi; \

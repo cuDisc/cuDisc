@@ -3,6 +3,7 @@
 #include <sstream>
 #include <fstream>
 #include <string>
+#include <filesystem>
 
 #include "cuda_array.h"
 #include "grid.h"
@@ -116,6 +117,9 @@ int main() {
 
     std::cout << "Test temp...\n";
 
+    std::filesystem::path path = __FILE__;
+    path = path.parent_path();
+
     Grid::params p;
     p.NR = 100;
     p.Nphi = 100;
@@ -142,7 +146,7 @@ int main() {
     int num_wavelengths = 100 ;
     int n_bands = 20;
 
-    DSHARP_opacs opac_tab("./codes/opacities/dustkappa_Draine.txt", false);
+    DSHARP_opacs opac_tab(path / "../codes/opacities/dustkappa_Draine.txt", false);
 
     DSHARP_opacs opacs(n_spec, num_wavelengths); 
     opacs.generate_lam(1.e-1,3.e3); 
@@ -217,17 +221,14 @@ int main() {
     L2_mid = std::sqrt(L2_mid);
     L2_surf = std::sqrt(L2_surf);
 
-    if (L2_mid <= 1e-5) {printf("\nL2_mid = %g, pass\n", L2_mid);}
-    else {printf("\nL2_mid = %g, fail\n", L2_mid);}
-    if (L2_surf <= 1e-5) {printf("L2_surf = %g, pass\n\n", L2_surf);}
-    else {printf("L2_surf = %g, fail\n\n", L2_surf);}
+    if (L2_mid <= 1e-4 && L2_surf <= 1e-5) {
+        std::cout << "Pass.\n";
+    }
+    else {
+        if (L2_mid <= 1e-4) {printf("L2_mid = %g, pass.\n", L2_mid); } 
+        else {printf("L2_mid = %g, fail.\n", L2_mid); }
+        if (L2_surf <= 1e-5) {printf("L2_surf = %g, pass.\n", L2_surf); } 
+        else {printf("L2_surf = %g, fail.\n", L2_surf);}  
+    }
 
-    // for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-    //     printf("%1.6f, ", T(i,1));
-    // }
-    // std::cout << "\n";
-    // for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-    //     printf("%1.6f, ", T(i,60));
-    // }
-    // std::cout << "\n";
 }

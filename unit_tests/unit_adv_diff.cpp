@@ -115,11 +115,19 @@ int main() {
 
     double slope = - std::log(L2[1]/L2[0]) / std::log(Ns[1]/Ns[0]);
 
-    if (L2[0] <= L2_bench[0]) {std::cout << "\nL2_128 = " << L2[0] << ", pass\n";}
-    else {std::cout << "\nL2_128 = " << L2[0] << ", fail\n";}
-    if (L2[1] <= L2_bench[1]) {std::cout << "L2_256 = " << L2[1] << ", pass\n";;}
-    else {std::cout << "L2_256 = " << L2[1] << ", fail\n";}
-    if (slope >= slope_bench) {std::cout << "Slope = " << slope << ", pass\n\n";}
-    else {std::cout << "Slope = " << slope << ", fail\n\n";}
+    if (L2[0] <= L2_bench[0] && L2[1] <= L2_bench[1] && slope >= slope_bench) {
+        std::cout << "Pass.\n";
+    }
+    else {
+        if (L2[0] <= L2_bench[0]) {std::cout << "L2_128 = " << L2[0] << ", pass.\n";}
+        else {std::cout << "L2_128 = " << L2[0] << ", fail.\n";}
+        if (L2[1] <= L2_bench[1]) {std::cout << "L2_256 = " << L2[1] << ", pass.\n";;}
+        else {std::cout << "L2_256 = " << L2[1] << ", fail.\n";}
+        if (slope >= slope_bench) {std::cout << "Slope = " << slope << ", pass.\n";}
+        else {std::cout << "Slope = " << slope << ", fail.\n";}
+    }
+
+
+    
     return 0;
 }

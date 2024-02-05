@@ -149,9 +149,8 @@ int main() {
     }
     L2 = std::sqrt(L2);
 
-
-    if (L2 <= 1e-5) {printf("\nL2 = %g, pass\n\n", L2);}
-    else {printf("\nL2 = %g, fail\n\n", L2);}
+    if (L2 <= 2.e-23) {printf("Pass.\n");}
+    else {printf("L2 = %g, fail.\n", L2);}
 
     return 0;
 } 
