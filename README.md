@@ -10,9 +10,23 @@ To get the code, clone this repository to your machine. To compile the source fi
 
 in the makefile must be set to the correct location for your machine's CUDA installation.
 
-Tests from Robinson et al. 2024 can be run by running the python scripts in the /tests/scripts directory.
+The source files can then be compiled by making one of the example tests using
 
-/codes contains two example simulations, a 1D run and a 2D run. In codes/python, an ipython notebook contains examples of how to plot the results from these example simulations.
+    make test_*
+
+replacing * with the desired test (e.g. adv_diff), or by making one of the example simulations (e.g. steadyTD) using
+
+    make steadyTD
+
+You can also build the code as a static library with the command
+
+    make lib
+
+There is a second makefile in the codes/ directory that shows an example of how to use the static library for your own simulation files.
+
+Tests from Robinson et al. 2024 can be run by running the python scripts in the tests/scripts/ directory.
+
+codes/ contains two example simulations, a 1D run (1Ddisc.cpp) and a 2D run (steadyTD.cpp). In codes/python/, an ipython notebook contains examples of how to plot the results from these example simulations.
 
 ### Authors ###
 
@@ -21,4 +35,4 @@ Tests from Robinson et al. 2024 can be run by running the python scripts in the 
 
 ### Contact ###
 
-If you have any questions or discover any issues, feel free to [email Alfie](mailto:a.robinson21@imperial.ac.uk). 
+If you have any questions or discover any issues, feel free to email [Alfie](mailto:a.robinson21@imperial.ac.uk) or [Richard](r.a.booth@leeds.ac.uk). 
