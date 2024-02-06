@@ -54,4 +54,4 @@ For a list of works using cuDisc, see the citations [here]().
 
 ### Contact ###
 
-If you have any questions or discover any issues, feel free to email us: [Alfie](mailto:a.robinson21@imperial.ac.uk), [Richard](r.a.booth@leeds.ac.uk). 
+If you have any questions or discover any issues, please open an issue on [github](https://github.com/cuDisc/cuDisc/issues). Alternatively, feel free to email us: [Alfie](mailto:a.robinson21@imperial.ac.uk), [Richard](r.a.booth@leeds.ac.uk). 
