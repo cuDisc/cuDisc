@@ -31,7 +31,7 @@ or
     make 1Ddisc
 
 These examples are contained in  `codes/` directory, and includes both a 1D run (`1Ddisc.cpp`) and a 2D run (`steadyTD.cpp`). The 1D run is a gas + two-population dust model (following Birnstiel et al. 2012) with photoevaporation. The 2D run is similar to the 2D-coagulation, fragmentation and radiative transfer model included presented in the code paper.
-An ipython notebook (In `codes/python/disc_plotter.ipynb`) contains examples of how to plot the results from these example simulations.
+An ipython notebook (`codes/python/disc_plotter.ipynb`) contains examples of how to plot the results from these example simulations.
 
 You can also build the code as a static library with the command
 
