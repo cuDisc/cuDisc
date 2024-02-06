@@ -1,6 +1,6 @@
 # cuDisc: a GPU accelerated protoplanetary disc model
 
-cuDisc is a code that allows the study of axisymmetric protoplanetary discs in both the radial and vertical dimensions. Dust dynamics, growth and fragmentation, and 2D radiative transfer are all included, alongside a 1D gas evolution model with 2D gas structure calculated through hydrostatic equilibrium. For more details, see Robinson et al. 2024. If you use cuDisc in any of your research, this is also the paper we wish you to cite. 
+cuDisc is a code that allows the study of axisymmetric protoplanetary discs in both the radial and vertical dimensions. 2D dust dynamics, coagulation/fragmentation, and radiative transfer are all included, alongside a 1D gas evolution model with 2D gas structure calculated through hydrostatic equilibrium. For more details, see Robinson et al. 2024. If you use cuDisc in any of your research, this is also the paper we wish you to cite. 
 
 ### Usage ###
 
