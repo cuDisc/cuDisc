@@ -6,7 +6,7 @@ cuDisc is designed for studying the evolution protoplanetary discs in both the r
 
 You will need a NVIDIA GPU to use cuDisc.
 
-To get the code, clone this repository to your machine. To compile the source files successfully, the line 
+To get the code, clone this repository to your machine or download one of the releases. To compile the source files successfully, the line 
 
     CUDA_HOME = /usr/local/cuda-12.0
 
