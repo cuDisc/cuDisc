@@ -126,15 +126,18 @@ class CuDiscModel:
     Parameters
     ----------
     sim_dir : string, None
-        Base directory of the simulation output.
+        Base directory of the simulation output.#
+    prim_base : sting, default="dens"
+        Base string of the files containing the primitive quantities.
+        prim_base="dens" is always correct for current code versions.
     """
-    def __init__(self, sim_dir=None):
+    def __init__(self, sim_dir=None, prim_base="dens"):
         if sim_dir is None:
             sim_dir = os.getcwd() 
         self.sim_dir = sim_dir
 
         self.grid = self.load_grid()
-        self._prim_base = None
+        self._prim_base = prim_base
 
         self._temp_base = 'temp'
 

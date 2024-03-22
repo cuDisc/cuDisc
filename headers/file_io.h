@@ -2,6 +2,7 @@
 #define _FILE_IO_H_
 
 #include <iostream>
+#include <limits>
 #include <string>
 #include <sstream>
 #include <fstream>
@@ -357,7 +358,7 @@ void append_dens(std::string filename, Grid &g, Field3D<Prims>& qd, Field<Prims>
 }
 
 template<typename out_type>
-void write_file(std::filesystem::path folder, out_type out, Grid &g, Field3D<Prims>& qd, Field<Prims>& wg, CudaArray<double>& Sig_g, 
+void write_file(std::filesystem::path folder, out_type out, Grid &g, Field3D<Prims>& wd, Field<Prims>& wg, CudaArray<double>& Sig_g, 
                     Field<double> &T, Field3D<double> &J) {
 
     std::stringstream out_string ;
@@ -365,7 +366,7 @@ void write_file(std::filesystem::path folder, out_type out, Grid &g, Field3D<Pri
     
     std::ofstream f(folder / ("dens_" + out_string.str()  + ".dat"), std::ios::binary);
 
-    int NR = g.NR+2*g.Nghost, NZ = g.Nphi+2*g.Nghost, nspec = qd.Nd, nbands = J.Nd;
+    int NR = g.NR+2*g.Nghost, NZ = g.Nphi+2*g.Nghost, nspec = wd.Nd, nbands = J.Nd;
 
     f.write((char*) &NR, sizeof(int));
     f.write((char*) &NZ, sizeof(int));
@@ -373,11 +374,11 @@ void write_file(std::filesystem::path folder, out_type out, Grid &g, Field3D<Pri
     for (int i=0; i<g.NR+2*g.Nghost; i++) {
         for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
             for (int k=0; k<4; k++) {
-            f.write((char*) &wg(i,j)[k], sizeof(double));
+                f.write((char*) &wg(i,j)[k], sizeof(double));
             }
-            for (int k=0; k<qd.Nd; k++) {
+            for (int k=0; k<wd.Nd; k++) {
                 for (int l=0; l<4; l++) {
-                    f.write((char*) &qd(i,j,k)[l], sizeof(double));
+                    f.write((char*) &wd(i,j,k)[l], sizeof(double));
                 }
             }
         }
@@ -407,9 +408,11 @@ void write_prims(std::filesystem::path folder, out_type out, Grid &g, Field3D<Pr
     std::stringstream out_string ;
     out_string << out ;
 
-    std::ofstream f(folder / ("prims_" + out_string.str() + ".dat"), std::ios::binary);
+    std::ofstream f(folder / ("dens_" + out_string.str() + ".dat"), std::ios::binary);
 
     int NR = g.NR+2*g.Nghost, NZ = g.Nphi+2*g.Nghost, nspec = wd.Nd;
+
+    double Sig_g = std::numeric_limits<double>::quiet_NaN() ;
 
     f.write((char*) &NR, sizeof(int));
     f.write((char*) &NZ, sizeof(int));
@@ -425,6 +428,7 @@ void write_prims(std::filesystem::path folder, out_type out, Grid &g, Field3D<Pr
                 }
             }
         }
+        f.write((char*) &Sig_g, sizeof(double));
     }  
     f.close();
 }
