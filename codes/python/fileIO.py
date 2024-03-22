@@ -126,15 +126,18 @@ class CuDiscModel:
     Parameters
     ----------
     sim_dir : string, None
-        Base directory of the simulation output.
+        Base directory of the simulation output.#
+    prim_base : sting, default="dens"
+        Base string of the files containing the primitive quantities.
+        prim_base="dens" is always correct for current code versions.
     """
-    def __init__(self, sim_dir=None):
+    def __init__(self, sim_dir=None, prim_base="dens"):
         if sim_dir is None:
             sim_dir = os.getcwd() 
         self.sim_dir = sim_dir
 
         self.grid = self.load_grid()
-        self._prim_base = None
+        self._prim_base = prim_base
 
         self._temp_base = 'temp'
 
@@ -202,15 +205,15 @@ class CuDiscModel:
         NR, NZ, Ndust = np.fromfile(snap_file, dtype=np.intc, count=3)
         data = np.fromfile(snap_file, dtype=np.double, offset=3*np.dtype(np.intc).itemsize)
             
-        # First try the case without surface density:
+        # First try the case with surface density:
         try:
-            data = data.reshape(NR, NZ, 4*(Ndust+1))
-            Sigma_g = None
-        except ValueError:
-            # Read surface density
             data = data.reshape(NR, 4*(Ndust+1)*NZ + 1)
             Sigma_g = data[:,-1]
             data = data[:,:-1].reshape(NR, NZ, 4*(Ndust+1))
+        except ValueError:
+            # Read without surface density
+            data = data.reshape(NR, NZ, 4*(Ndust+1))
+            Sigma_g = None
         
         g = FieldData(data[:,:,0], data[:,:,1], data[:,:,2], data[:,:,3])
         if Sigma_g is not None:

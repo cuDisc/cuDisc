@@ -205,15 +205,15 @@ class CuDiscModel:
         NR, NZ, Ndust = np.fromfile(snap_file, dtype=np.intc, count=3)
         data = np.fromfile(snap_file, dtype=np.double, offset=3*np.dtype(np.intc).itemsize)
             
-        # First try the case without surface density:
+        # First try the case with surface density:
         try:
-            data = data.reshape(NR, NZ, 4*(Ndust+1))
-            Sigma_g = None
-        except ValueError:
-            # Read surface density
             data = data.reshape(NR, 4*(Ndust+1)*NZ + 1)
             Sigma_g = data[:,-1]
             data = data[:,:-1].reshape(NR, NZ, 4*(Ndust+1))
+        except ValueError:
+            # Read without surface density
+            data = data.reshape(NR, NZ, 4*(Ndust+1))
+            Sigma_g = None
         
         g = FieldData(data[:,:,0], data[:,:,1], data[:,:,2], data[:,:,3])
         if Sigma_g is not None:
