@@ -454,7 +454,7 @@ int main() {
 
         std::cout << "Restart params: " << count << " " << t/year << " " << dt_CFL/year << "\n";
 
-        read_file(dir, "restart", Ws_d, Ws_g, Sig_g, T, J);
+        read_restart_quants(dir, Ws_d, Ws_g, Sig_g, T, J);
 
         compute_cs2(g,T,cs2,mu);
         cs2_to_cs(g, cs, cs2);
@@ -642,10 +642,10 @@ int main() {
             t += dt;
             dt_CFL = dyn.get_CFL_limit(g, Ws_d, Ws_g); // Calculate new CFL condition time-step
 
-            if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start).count()/60. > 10.) {
+            if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start).count()/3600. > 20.) {
                 std::cout << "Writing restart at t = " << t/year << " years.\n" ;
                 write_restart_file(dir / ("restart_params.dat"), count, t, dt_CFL, t_coag, t_temp, dt_coag, dt_1perc, dummy);
-                write_file(dir, "restart", g, Ws_d, Ws_g, Sig_g, T, J);  
+                write_restart_quants(dir, g, Ws_d, Ws_g, Sig_g, T, J);  
                 return 0;
             } 
 
