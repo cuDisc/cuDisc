@@ -418,62 +418,6 @@ int main() {
     } 
     f_times.close();
 
-    // Compute initial temperature structure
-    std::cout << "Computing initial temperature structure\n"; 
-
-
-    while (n<50 && tol>0.00001) {
-
-        Field<double> oldT = create_field<double>(g);
-        copy_field(g, T, oldT); 
-        
-        std::cout << "Iteration: " << n << "\n" ;  
-
-        compute_total_density(g, Ws_g, Ws_d, rho_tot);
-
-        calculate_total_rhokappa(g, Ws_d, Ws_g, opacs, rhok_abs, rhok_sca);
-
-        rhok_abs_binned = bins.bin_planck(g, rhok_abs, T);
-        bin_central(g, rhok_sca, rhok_sca_binned, num_wavelengths, n_bands);
-
-        compute_stellar_heating_with_scattering(star, g, rhok_abs, rhok_sca, heat, scattering);
-        binned_scattering = bins.bin_field(g, scattering, bins.SUM);
-
-        if (n==0) {
-            setup_init_J(g,heat,J);
-        }
-
-        double dt = 0;
-        if (n==0) { dt = 0; }
-
-        FLD.solve_multi_band(g, dt, Cv, rhok_abs_binned, rhok_sca_binned, rho_tot, heat, binned_scattering, bins.edges, T, J);
-
-        compute_cs2(g,T,cs2,mu);
-        compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g);
-        cs2_to_cs(g, cs, cs2);
-        set_up_dust(g, Ws_d, Ws_g, Sig_g, D, sizes, alpha, cs, M_gas, floor);
-
-        std::cout << "T:" << T[T.index(1,1)] << " " << T[T.index(g.NR, 1)] 
-                 << " "<< T[T.index(1, g.Nphi)] << " " <<  T[T.index(g.NR, g.Nphi)]
-                 << "\n" << std::endl ;
-
-        tol = fracerr(g, oldT, T);
-        std::cout << "Fractional error: "<< tol << "\n" << "\n";
-
-        n += 1;
-    }
-    calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, M_star, gas_boundary, gas_floor, Rcav);   
-    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-        for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
-
-            Ws_g(i,j).v_R = 0.;
-
-        }
-    }
-
-    compute_nu(g, nu, cs2, M_star, alpha);
-    compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);
-
     // Initialise diffusion-advection solver
 
     Sources src(T, Ws_g, sizes, floor, M_star, mu);
@@ -510,8 +454,7 @@ int main() {
 
         std::cout << "Restart params: " << count << " " << t/year << " " << dt_CFL/year << "\n";
 
-        read_density(dir / ("dens_restart.dat"), Ws_d, Ws_g, Sig_g, 1);
-        read_temp(dir / ("temp_restart.dat"), T, J, n_bands, 1);
+        read_restart_quants(dir, Ws_d, Ws_g, Sig_g, T, J);
 
         compute_cs2(g,T,cs2,mu);
         cs2_to_cs(g, cs, cs2);
@@ -520,6 +463,62 @@ int main() {
         t_restart = t;
     }
     else {
+
+        // Compute initial temperature structure
+        std::cout << "Computing initial temperature structure\n"; 
+
+
+        while (n<50 && tol>0.00001) {
+
+            Field<double> oldT = create_field<double>(g);
+            copy_field(g, T, oldT); 
+            
+            std::cout << "Iteration: " << n << "\n" ;  
+
+            compute_total_density(g, Ws_g, Ws_d, rho_tot);
+
+            calculate_total_rhokappa(g, Ws_d, Ws_g, opacs, rhok_abs, rhok_sca);
+
+            rhok_abs_binned = bins.bin_planck(g, rhok_abs, T);
+            bin_central(g, rhok_sca, rhok_sca_binned, num_wavelengths, n_bands);
+
+            compute_stellar_heating_with_scattering(star, g, rhok_abs, rhok_sca, heat, scattering);
+            binned_scattering = bins.bin_field(g, scattering, bins.SUM);
+
+            if (n==0) {
+                setup_init_J(g,heat,J);
+            }
+
+            double dt = 0;
+            if (n==0) { dt = 0; }
+
+            FLD.solve_multi_band(g, dt, Cv, rhok_abs_binned, rhok_sca_binned, rho_tot, heat, binned_scattering, bins.edges, T, J);
+
+            compute_cs2(g,T,cs2,mu);
+            compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g);
+            cs2_to_cs(g, cs, cs2);
+            set_up_dust(g, Ws_d, Ws_g, Sig_g, D, sizes, alpha, cs, M_gas, floor);
+
+            std::cout << "T:" << T[T.index(1,1)] << " " << T[T.index(g.NR, 1)] 
+                    << " "<< T[T.index(1, g.Nphi)] << " " <<  T[T.index(g.NR, g.Nphi)]
+                    << "\n" << std::endl ;
+
+            tol = fracerr(g, oldT, T);
+            std::cout << "Fractional error: "<< tol << "\n" << "\n";
+
+            n += 1;
+        }
+        calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, M_star, gas_boundary, gas_floor, Rcav);   
+        for (int i=0; i<g.NR + 2*g.Nghost; i++) {
+            for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
+
+                Ws_g(i,j).v_R = 0.;
+
+            }
+        }
+
+        compute_nu(g, nu, cs2, M_star, alpha);
+        compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);
         write_file(dir, 0, g, Ws_d, Ws_g, Sig_g, T, J);
     }
 
@@ -643,11 +642,10 @@ int main() {
             t += dt;
             dt_CFL = dyn.get_CFL_limit(g, Ws_d, Ws_g); // Calculate new CFL condition time-step
 
-            if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start).count()/3600. > 29.) {
+            if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start).count()/3600. > 20.) {
                 std::cout << "Writing restart at t = " << t/year << " years.\n" ;
                 write_restart_file(dir / ("restart_params.dat"), count, t, dt_CFL, t_coag, t_temp, dt_coag, dt_1perc, dummy);
-                write_init_dens(dir / ("dens_restart.dat"), g, Ws_d, Ws_g, Sig_g, 1, n_spec);
-                write_init_temp(dir / ("temp_restart.dat"), g, T, J);
+                write_restart_quants(dir, g, Ws_d, Ws_g, Sig_g, T, J);  
                 return 0;
             } 
 

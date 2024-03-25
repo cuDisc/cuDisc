@@ -6,18 +6,6 @@
 #include "dustdynamics.h"
 #include "coagulation/size_grid.h"
 
-void testTpcu(const Field3D<double> &t_stop, const Field3D<Quants> &q, 
-                        double dt, int l, int m) ;
-
-void source_term_updateTL(Grid& g, Field3D<Prims>& q, const Field<Prims>& w_gas, const Field<double>& T, 
-                        const CudaArray<double>& s, double dt, double Mstar, double rho_m, double mu, int bound, double floor=1e-40) ;
-                        
-void source_term_update(Grid& g, Field3D<Prims>& q, const Field<Prims>& w_gas, const Field<double>& T, 
-                        const SizeGrid& s, double dt, double Mstar, double rho_m, double mu, int bound, double floor) ;
-
-void source_term_update(Grid& g, Field3D<Prims>& q, const Field<Prims>& w_gas, const Field<double>& T, const Field3D<double>& f_rad, 
-                        const SizeGrid& s, double dt, double Mstar, double rho_m, double mu, int bound, double floor) ;
-
 
 class SourcesBase {
 
