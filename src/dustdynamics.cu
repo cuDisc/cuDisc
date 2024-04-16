@@ -367,15 +367,6 @@ void dust_fluxR(GridRef& g, Field3DConstRef<Prims>& w, int i, int j, int k, Fiel
     double rhorat = std::sqrt(w_r[0]/w_l[0]);
     double v_av = (v_l + rhorat * v_r) / (1. + rhorat);
 
-    if (i==g.Nghost && v_av>0.) {
-        fluxR(i,j,k) = {0.,0.,0.,0.};
-        return;
-    } 
-    else if (i==g.NR+g.Nghost && v_av<0.) {
-        fluxR(i,j,k) = {0.,0.,0.,0.};
-        return;
-    }
-
     // Construct fluxes depending on sign of interface velocities
 
     fluxR(i,j,k) = construct_fluxes(v_l, v_r, v_av, w_l, w_r);
@@ -403,15 +394,6 @@ void dust_fluxZ(GridRef& g, Field3DConstRef<Prims>& w, int i, int j, int k, Fiel
 
     double rhorat = std::sqrt(w_r[0]/w_l[0]);
     double v_av = (v_l + rhorat * v_r) / (1. + rhorat);
-
-    if (j==g.Nghost && v_av>0.) {
-        fluxZ(i,j,k) = {0.,0.,0.,0.};
-        return;
-    } 
-    else if (j==g.NR+g.Nghost && v_av<0.) {
-        fluxZ(i,j,k) = {0.,0.,0.,0.};
-        return;
-    }
 
     fluxZ(i,j,k) = construct_fluxes(v_l, v_r, v_av, w_l, w_r);
     if (do_diffusion) 
@@ -443,15 +425,6 @@ void dust_flux_vlR(GridRef& g, Field3DConstRef<Prims>& w, int i, int j, int k, F
 
     double rhorat = std::sqrt(w_r[0]/w_l[0]);
     double v_av = (v_l + rhorat * v_r) / (1. + rhorat);
-
-    if (i==g.Nghost && v_av>0.) {
-        fluxR(i,j,k) = {0.,0.,0.,0.};
-        return;
-    } 
-    else if (i==g.NR+g.Nghost && v_av<0.) {
-        fluxR(i,j,k) = {0.,0.,0.,0.};
-        return;
-    }
 
     // Construct fluxes depending on sign of interface velocities
 
@@ -486,15 +459,6 @@ void dust_flux_vlZ(GridRef& g, Field3DConstRef<Prims>& w, int i, int j, int k, F
 
     double rhorat = std::sqrt(w_r[0]/w_l[0]);
     double v_av = (v_l + rhorat * v_r) / (1. + rhorat);
-
-    if (j==g.Nghost && v_av>0.) {
-        fluxZ(i,j,k) = {0.,0.,0.,0.};
-        return;
-    } 
-    else if (j==g.NR+g.Nghost && v_av<0.) {
-        fluxZ(i,j,k) = {0.,0.,0.,0.};
-        return;
-    }
 
     // Construct fluxes depending on sign of interface velocities
 
@@ -629,7 +593,8 @@ __global__ void _set_boundary_flux(GridRef g, int bound, Field3DRef<Quants> flux
 
                 if (i <= g.Nghost) {
                     if (bound & BoundaryFlags::open_R_inner) {  //outflow
-                        continue;
+                        if (fluxR(i,j,k).rho > 0) // prevent inflow
+                            fluxR(i,j,k) = {0.,0.,0.,0.};
                     }
                     else {  //reflecting
                         fluxR(i,j,k) = {0.,0.,0.,0.};
@@ -638,7 +603,8 @@ __global__ void _set_boundary_flux(GridRef g, int bound, Field3DRef<Quants> flux
 
                 if (j>=g.Nphi+g.Nghost) {
                     if (bound & BoundaryFlags::open_Z_outer) {
-                        continue;
+                        if (fluxZ(i,j,k).rho < 0) // prevent inflow
+                            fluxZ(i,j,k) = {0.,0.,0.,0.};
                     }
                     else {
                         fluxZ(i,j,k) = {0.,0.,0.,0.};
@@ -647,7 +613,8 @@ __global__ void _set_boundary_flux(GridRef g, int bound, Field3DRef<Quants> flux
 
                 if (i>=g.NR+g.Nghost) {
                     if (bound & BoundaryFlags::open_R_outer) {
-                        continue;
+                        if (fluxR(i,j,k).rho < 0) // prevent inflow
+                            fluxR(i,j,k) = {0.,0.,0.,0.};
                     }
                     else {
                         fluxR(i,j,k) = {0.,0.,0.,0.};
@@ -656,7 +623,8 @@ __global__ void _set_boundary_flux(GridRef g, int bound, Field3DRef<Quants> flux
                 
                 if (j <= g.Nghost) {
                     if (bound & BoundaryFlags::open_Z_inner) {  
-                        continue;
+                        if (fluxZ(i,j,k).rho > 0) // prevent inflow
+                            fluxZ(i,j,k) = {0.,0.,0.,0.};
                     }
                     else {  
                         fluxZ(i,j,k) = {0.,0.,0.,0.};
@@ -713,6 +681,7 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
         _calc_donor_flux<false><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
 
     // Update quantities a half time step and and source terms.
+    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
     _update_quants<<<blocks,threads>>>(g, q_mids, q, dt/2., fluxR, fluxZ);
     _sources.source_exp(g, w_dust, q_mids, dt/2.);
     _calc_prim<<<blocks,threads>>>(g, q_mids, w_dust);

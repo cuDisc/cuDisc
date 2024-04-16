@@ -27,7 +27,7 @@ LIB = -L$(CUDA_HOME)/lib64 -lcudart -lcublas -lcusparse
 COAG_HEADERS := coagulation.h kernels.h fragments.h size_grid.h integration.h
 COAG_HEADERS := $(addprefix coagulation/, $(COAG_HEADERS))
 
-HEADERS := grid.h field.h cuda_array.h reductions.h utils.h matrix_types.h \
+HEADERS := grid.h field.h cuda_array.h reductions.h utils.h matrix_types.h scan.h \
 	stellar_irradiation.h planck.h opacity.h constants.h FLD.h  FLD_device.h \
 	pcg_solver.h radmc3d_utils.h star.h timing.h bins.h advection.h \
 	diffusion_device.h sources.h gas1d.h DSHARP_opacs.h file_io.h errorfuncs.h \

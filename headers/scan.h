@@ -39,14 +39,20 @@ enum class ScanKind {
  * Reference: Sengupta, Harris, & Garland
  */
 template <class OP, ScanKind Kind, class T>
-__device__ T scan_warp(volatile T *ptr , const unsigned int idx=threadIdx.x) {
+__device__ T scan_warp(volatile T *ptr) {
+    const unsigned int idx=threadIdx.x;
     const unsigned int lane = idx & 31; // index of thread in warp (0..31)
-    
-    if (lane >=  1) ptr[idx] = OP::apply(ptr[idx -  1], ptr[idx]);
-    if (lane >=  2) ptr[idx] = OP::apply(ptr[idx -  2], ptr[idx]);
-    if (lane >=  4) ptr[idx] = OP::apply(ptr[idx -  4], ptr[idx]);
-    if (lane >=  8) ptr[idx] = OP::apply(ptr[idx -  8], ptr[idx]);
-    if (lane >= 16) ptr[idx] = OP::apply(ptr[idx - 16], ptr[idx]);
+    T v = ptr[idx] ;
+    if (lane >=  1) v = OP::apply(ptr[idx -  1], ptr[idx]); __syncwarp() ;
+    ptr[idx] = v; __syncwarp() ;
+    if (lane >=  2) v = OP::apply(ptr[idx -  2], ptr[idx]); __syncwarp() ; 
+    ptr[idx] = v; __syncwarp() ;
+    if (lane >=   4) v = OP::apply(ptr[idx -  4], ptr[idx]); __syncwarp() ; 
+    ptr[idx] = v; __syncwarp() ;
+    if (lane >=  8) v = OP::apply(ptr[idx -  8], ptr[idx]); __syncwarp() ; 
+    ptr[idx] = v; __syncwarp() ;
+    if (lane >= 16) v = OP::apply(ptr[idx -  16], ptr[idx]); __syncwarp() ; 
+    ptr[idx] = v; __syncwarp() ;
     
     if (Kind == ScanKind::inclusive) 
         return  ptr[idx];
@@ -61,12 +67,13 @@ __device__ T scan_warp(volatile T *ptr , const unsigned int idx=threadIdx.x) {
  * Reference: Sengupta, Harris, & Garland
  */
 template <class OP, ScanKind Kind, class T>
-__device__ T scan_block(volatile T *ptr , const unsigned int idx=threadIdx.x) {
+__device__ T scan_block(volatile T *ptr) {
+    const unsigned int idx=threadIdx.x;
     const unsigned int lane = idx & 31;
     const unsigned int warpid = idx  >> 5;
     
     // Step 1: Intra-warp scan in each warp
-    T val = scan_warp <OP,Kind>(ptr, idx);
+    T val = scan_warp <OP,Kind>(ptr);
     __syncthreads();
     
     // Step 2: Collect per-warp partial results
@@ -74,7 +81,7 @@ __device__ T scan_block(volatile T *ptr , const unsigned int idx=threadIdx.x) {
     __syncthreads();
     
     // Step 3: Use 1st warp to scan per-warp results
-    if(warpid == 0) scan_warp <OP,ScanKind::inclusive>(ptr , idx);
+    if(warpid == 0) scan_warp <OP,ScanKind::inclusive>(ptr);
     __syncthreads();
     
     // Step 4:  Accumulate  results  from  Steps 1 and 3
