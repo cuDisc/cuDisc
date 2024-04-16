@@ -19,7 +19,7 @@ ARCH=--generate-code arch=compute_60,code=sm_60 \
 
 
 CUDA = nvcc 
-CUDAFLAGS = -O3 -g --std=c++17 -Wno-deprecated-gpu-targets $(ARCH) -lineinfo
+CUDAFLAGS = -O3 -g --std=c++17 -Wno-deprecated-gpu-targets $(ARCH)
 INCLUDE = -I./$(HEADER_DIR) -I$(CUDA_HOME)/include
 
 LIB = -L$(CUDA_HOME)/lib64 -lcudart -lcublas -lcusparse
