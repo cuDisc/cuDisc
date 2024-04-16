@@ -78,7 +78,7 @@ __global__ void scan_Z_generic_device(GridRef g, FieldRef<T> f) {
 
     extern __shared__ double tmp[] ;
     tmp[tid] = OP::identity() ;
-
+    
     // Step 1: Reduce work to a block of at most blockDim.xelements.
     int worksize = (g.Nphi + 2*g.Nghost + blockDim.x - 1) / blockDim.x ;
     int i = threadIdx.y + blockIdx.y * blockDim.y ;
@@ -99,7 +99,7 @@ __global__ void scan_Z_generic_device(GridRef g, FieldRef<T> f) {
 
     // Step 2: Perform an exclusive on reduced array:
     scan_block<OP, ScanKind::exclusive,T>
-        (tmp + threadIdx.y*blockDim.x, threadIdx.x) ;
+        (tmp + threadIdx.y*blockDim.x) ;
 
     // Step3: Add the result of step 2 to 1 to get the final result
     for (int k=0; k < worksize; k++) {
@@ -146,7 +146,7 @@ __global__ void scan_R_generic_device(GridRef g, FieldRef<T> f) {
  
     // Step 2: Perform an exclusive on reduced array:
     scan_block<OP, ScanKind::exclusive,T>
-        (tmp + threadIdx.y*blockDim.x, threadIdx.x) ;
+        (tmp + threadIdx.y*blockDim.x) ;
  
     // Step3: Add the result of step 2 to 1 to get the final result
     for (int k=0; k < worksize; k++) {

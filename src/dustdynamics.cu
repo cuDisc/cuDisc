@@ -491,7 +491,7 @@ void dust_flux_vlZ(GridRef& g, Field3DConstRef<Prims>& w, int i, int j, int k, F
         fluxZ(i,j,k) = {0.,0.,0.,0.};
         return;
     } 
-    else if (j==g.NR+g.Nghost && v_av<0.) {
+    else if (j==g.Nphi+g.Nghost && v_av<0.) {
         fluxZ(i,j,k) = {0.,0.,0.,0.};
         return;
     }
