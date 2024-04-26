@@ -448,6 +448,10 @@ class OrthGrid {
 
 class GridManager {
     public:
+
+        std::vector<int> in_idx;
+        std::vector<int> out_idx;
+
         GridManager(Grid& g_main) : g(g_main) {}
 
         Grid add_subgrid(double R_in, double R_out);
@@ -465,8 +469,6 @@ class GridManager {
         void copy_from_subgrid(Grid& g_sub, Field3D<T>& F_main, const Field3D<T>& F_sub) ;
 
     private:
-        std::vector<int> in_idx;
-        std::vector<int> out_idx;
         GridRef g;
         std::vector<GridRef> subgrids;
 } ;
