@@ -395,40 +395,40 @@ void _copy_to_subgrid(GridRef g_sub, int idx_in, int idx_out, Field3DConstRef<T>
 }
 
 template<typename T>
-void GridManager::copy_to_subgrid(Grid& g, const Field<T>& F_main, Field<T>& F_sub) {
+void GridManager::copy_to_subgrid(Grid& g_sub, const Field<T>& F_main, Field<T>& F_sub) {
 
-    int sg_idx = g.index;
+    int sg_idx = g_sub.index;
 
-    if (g.Re(0) != subgrids[sg_idx].Re(0) || g.Re(g.NR+2*g.Nghost) != subgrids[sg_idx].Re(subgrids[sg_idx].NR+2*subgrids[sg_idx].Nghost)) {
+    if (g_sub.Re(0) != subgrids[sg_idx].Re(0) || g_sub.Re(g_sub.NR+2*g_sub.Nghost) != subgrids[sg_idx].Re(subgrids[sg_idx].NR+2*subgrids[sg_idx].Nghost)) {
         throw std::runtime_error("Incorrect subgrid passed to copier.");
     }
 
     dim3 threads(32,32,1);
-    dim3 blocks((g.NR + 2*g.Nghost+31)/32,(g.Nphi + 2*g.Nghost+31)/32, 1) ;
+    dim3 blocks((g_sub.NR + 2*g_sub.Nghost+31)/32,(g_sub.Nphi + 2*g_sub.Nghost+31)/32, 1) ;
 
-    _copy_to_subgrid<<<blocks,threads>>>(g, in_idx[sg_idx], out_idx[sg_idx], Field3DConstRef<T>(F_main), Field3DRef<T>(F_sub));
-    check_CUDA_errors("_copy_to_subgrid");
+    _copy_to_subgrid<<<blocks,threads>>>(g_sub, in_idx[sg_idx], out_idx[sg_idx], Field3DConstRef<T>(F_main), Field3DRef<T>(F_sub));
+    check_CUDA_errors("_copy_from_subgrid");
 }
 
 template<typename T>
-void GridManager::copy_to_subgrid(Grid& g, const Field3D<T>& F_main, Field3D<T>& F_sub) {
+void GridManager::copy_to_subgrid(Grid& g_sub, const Field3D<T>& F_main, Field3D<T>& F_sub) {
 
-    int sg_idx = g.index;
+    int sg_idx = g_sub.index;
 
-    if (g.Re(0) != subgrids[sg_idx].Re(0) || g.Re(g.NR+2*g.Nghost) != subgrids[sg_idx].Re(subgrids[sg_idx].NR+2*subgrids[sg_idx].Nghost)) {
+    if (g_sub.Re(0) != subgrids[sg_idx].Re(0) || g_sub.Re(g_sub.NR+2*g_sub.Nghost) != subgrids[sg_idx].Re(subgrids[sg_idx].NR+2*subgrids[sg_idx].Nghost)) {
         throw std::runtime_error("Incorrect subgrid passed to copier.");
     }
 
     dim3 threads(32,32,1);
-    dim3 blocks((g.NR + 2*g.Nghost+31)/32,(g.Nphi + 2*g.Nghost+31)/32, 1) ;
+    dim3 blocks((g_sub.NR + 2*g_sub.Nghost+31)/32,(g_sub.Nphi + 2*g_sub.Nghost+31)/32, 1) ;
 
-    _copy_to_subgrid<<<blocks,threads>>>(g, in_idx[sg_idx], out_idx[sg_idx], Field3DConstRef<T>(F_main), Field3DRef<T>(F_sub));
-    check_CUDA_errors("_copy_to_subgrid");
+    _copy_to_subgrid<<<blocks,threads>>>(g_sub, in_idx[sg_idx], out_idx[sg_idx], Field3DConstRef<T>(F_main), Field3DRef<T>(F_sub));
+    check_CUDA_errors("_copy_from_subgrid");
 }
 
 template<typename T>
 __global__
-void _copy_from_subgrid(GridRef g_sub, int idx_in, int idx_out, Field3DRef<T> F_main, Field3DConstRef<T> F_sub) {
+void _copy_from_subgrid(GridRef g_main, GridRef g_sub, int idx_in, int idx_out, Field3DRef<T> F_main, Field3DConstRef<T> F_sub) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -436,45 +436,55 @@ void _copy_from_subgrid(GridRef g_sub, int idx_in, int idx_out, Field3DRef<T> F_
     int jstride = gridDim.y * blockDim.y ;
 
     for (int i=iidx; i<g_sub.NR+2*g_sub.Nghost; i+=istride) {
-        for (int j=jidx; j<g_sub.Nphi+2*g_sub.Nghost; j+=jstride) { 
-            for (int k=0; k<F_main.Nd; k++) { 
-                F_main(idx_in+i,j,k) = F_sub(i,j,k);
+
+        if (i<g_sub.Nghost && idx_in != 0) {
+            continue;
+        }
+        else if (i>g_sub.NR+g_sub.Nghost-1 && idx_out != g_main.NR+2*g_main.Nghost) {
+            continue;
+        }
+        else {  
+            for (int j=jidx; j<g_sub.Nphi+2*g_sub.Nghost; j+=jstride) { 
+                for (int k=0; k<F_main.Nd; k++) { 
+                    F_main(idx_in+i,j,k) = F_sub(i,j,k);
+                }
             }
         }
     }
 }
 
 template<typename T>
-void GridManager::copy_from_subgrid(Grid& g, Field<T>& F_main, const Field<T>& F_sub) {
+void GridManager::copy_from_subgrid(Grid& g_sub, Field<T>& F_main, const Field<T>& F_sub) {
 
-    int sg_idx = g.index;
+    int sg_idx = g_sub.index;
 
-    if (g.Re(0) != subgrids[sg_idx].Re(0) || g.Re(g.NR+2*g.Nghost) != subgrids[sg_idx].Re(subgrids[sg_idx].NR+2*subgrids[sg_idx].Nghost)) {
+    if (g_sub.Re(0) != subgrids[sg_idx].Re(0) || g_sub.Re(g_sub.NR+2*g_sub.Nghost) != subgrids[sg_idx].Re(subgrids[sg_idx].NR+2*subgrids[sg_idx].Nghost)) {
         throw std::runtime_error("Incorrect subgrid passed to copier.");
     }
 
     dim3 threads(32,32,1);
-    dim3 blocks((g.NR + 2*g.Nghost+31)/32,(g.Nphi + 2*g.Nghost+31)/32, 1) ;
+    dim3 blocks((g_sub.NR + 2*g_sub.Nghost+31)/32,(g_sub.Nphi + 2*g_sub.Nghost+31)/32, 1) ;
 
-    _copy_from_subgrid<<<blocks,threads>>>(g, in_idx[sg_idx], out_idx[sg_idx], Field3DRef<T>(F_main), Field3DConstRef<T>(F_sub));
+    _copy_from_subgrid<<<blocks,threads>>>(g, g_sub, in_idx[sg_idx], out_idx[sg_idx], Field3DRef<T>(F_main), Field3DConstRef<T>(F_sub));
     check_CUDA_errors("_copy_from_subgrid");
 }
 
 template<typename T>
-void GridManager::copy_from_subgrid(Grid& g, Field3D<T>& F_main, const Field3D<T>& F_sub) {
+void GridManager::copy_from_subgrid(Grid& g_sub, Field3D<T>& F_main, const Field3D<T>& F_sub) {
 
-    int sg_idx = g.index;
+    int sg_idx = g_sub.index;
 
-    if (g.Re(0) != subgrids[sg_idx].Re(0) || g.Re(g.NR+2*g.Nghost) != subgrids[sg_idx].Re(subgrids[sg_idx].NR+2*subgrids[sg_idx].Nghost)) {
+    if (g_sub.Re(0) != subgrids[sg_idx].Re(0) || g_sub.Re(g_sub.NR+2*g_sub.Nghost) != subgrids[sg_idx].Re(subgrids[sg_idx].NR+2*subgrids[sg_idx].Nghost)) {
         throw std::runtime_error("Incorrect subgrid passed to copier.");
     }
 
     dim3 threads(32,32,1);
-    dim3 blocks((g.NR + 2*g.Nghost+31)/32,(g.Nphi + 2*g.Nghost+31)/32, 1) ;
+    dim3 blocks((g_sub.NR + 2*g_sub.Nghost+31)/32,(g_sub.Nphi + 2*g_sub.Nghost+31)/32, 1) ;
 
-    _copy_from_subgrid<<<blocks,threads>>>(g, in_idx[sg_idx], out_idx[sg_idx], Field3DRef<T>(F_main), Field3DConstRef<T>(F_sub));
+    _copy_from_subgrid<<<blocks,threads>>>(g, g_sub, in_idx[sg_idx], out_idx[sg_idx], Field3DRef<T>(F_main), Field3DConstRef<T>(F_sub));
     check_CUDA_errors("_copy_from_subgrid");
 }
+
 
 
 
