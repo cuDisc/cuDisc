@@ -336,6 +336,9 @@ Grid GridManager::add_subgrid(double R_in, double R_out) {
         if (i==g.NR+g.Nghost) {throw std::runtime_error("Inner radius of subgrid at outer edge of main grid; check R_in for subgrid!");}
     }
 
+    if (R_out < g.Re(g.Nghost))
+        throw std::runtime_error("Outer edge of sub-grid is less than inner edge of main grid!") ;
+
     for (int i=in_idx[sg_idx]; i<g.NR+2*g.Nghost+1; i++) {
         if (g.Re(i) > R_out) {
             if (i >= g.NR+g.Nghost) {
