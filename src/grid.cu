@@ -404,7 +404,7 @@ void GridManager::copy_to_subgrid(Grid& g, const Field<T>& F_main, Field<T>& F_s
     dim3 blocks((g.NR + 2*g.Nghost+31)/32,(g.Nphi + 2*g.Nghost+31)/32, 1) ;
 
     _copy_to_subgrid<<<blocks,threads>>>(g, in_idx[sg_idx], out_idx[sg_idx], Field3DConstRef<T>(F_main), Field3DRef<T>(F_sub));
-    cudaDeviceSynchronize();
+    check_CUDA_errors("_copy_to_subgrid");
 }
 
 template<typename T>
@@ -420,7 +420,7 @@ void GridManager::copy_to_subgrid(Grid& g, const Field3D<T>& F_main, Field3D<T>&
     dim3 blocks((g.NR + 2*g.Nghost+31)/32,(g.Nphi + 2*g.Nghost+31)/32, 1) ;
 
     _copy_to_subgrid<<<blocks,threads>>>(g, in_idx[sg_idx], out_idx[sg_idx], Field3DConstRef<T>(F_main), Field3DRef<T>(F_sub));
-    cudaDeviceSynchronize();
+    check_CUDA_errors("_copy_to_subgrid");
 }
 
 template<typename T>
@@ -454,7 +454,7 @@ void GridManager::copy_from_subgrid(Grid& g, Field<T>& F_main, const Field<T>& F
     dim3 blocks((g.NR + 2*g.Nghost+31)/32,(g.Nphi + 2*g.Nghost+31)/32, 1) ;
 
     _copy_from_subgrid<<<blocks,threads>>>(g, in_idx[sg_idx], out_idx[sg_idx], Field3DRef<T>(F_main), Field3DConstRef<T>(F_sub));
-    cudaDeviceSynchronize();
+    check_CUDA_errors("_copy_from_subgrid");
 }
 
 template<typename T>
@@ -470,7 +470,7 @@ void GridManager::copy_from_subgrid(Grid& g, Field3D<T>& F_main, const Field3D<T
     dim3 blocks((g.NR + 2*g.Nghost+31)/32,(g.Nphi + 2*g.Nghost+31)/32, 1) ;
 
     _copy_from_subgrid<<<blocks,threads>>>(g, in_idx[sg_idx], out_idx[sg_idx], Field3DRef<T>(F_main), Field3DConstRef<T>(F_sub));
-    cudaDeviceSynchronize();
+    check_CUDA_errors("_copy_from_subgrid");
 }
 
 
@@ -478,11 +478,17 @@ void GridManager::copy_from_subgrid(Grid& g, Field3D<T>& F_main, const Field3D<T
 template void GridManager::copy_to_subgrid<double>(Grid& g_sub, const Field<double>& F_main, Field<double>& F_sub);
 template void GridManager::copy_from_subgrid<double>(Grid& g_sub, Field<double>& F_main, const Field<double>& F_sub);
 
+template void GridManager::copy_to_subgrid<int>(Grid& g_sub, const Field<int>& F_main, Field<int>& F_sub);
+template void GridManager::copy_from_subgrid<int>(Grid& g_sub, Field<int>& F_main, const Field<int>& F_sub);
+
 template void GridManager::copy_to_subgrid<Prims>(Grid& g_sub, const Field<Prims>& F_main, Field<Prims>& F_sub);
 template void GridManager::copy_from_subgrid<Prims>(Grid& g_sub, Field<Prims>& F_main, const Field<Prims>& F_sub);
 
 template void GridManager::copy_to_subgrid<double>(Grid& g_sub, const Field3D<double>& F_main, Field3D<double>& F_sub);
 template void GridManager::copy_from_subgrid<double>(Grid& g_sub, Field3D<double>& F_main, const Field3D<double>& F_sub);
+
+template void GridManager::copy_to_subgrid<int>(Grid& g_sub, const Field3D<int>& F_main, Field3D<int>& F_sub);
+template void GridManager::copy_from_subgrid<int>(Grid& g_sub, Field3D<int>& F_main, const Field3D<int>& F_sub);
 
 template void GridManager::copy_to_subgrid<Prims>(Grid& g_sub, const Field3D<Prims>& F_main, Field3D<Prims>& F_sub);
 template void GridManager::copy_from_subgrid<Prims>(Grid& g_sub, Field3D<Prims>& F_main, const Field3D<Prims>& F_sub);
