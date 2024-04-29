@@ -5,10 +5,11 @@
 #include "cuda_array.h"
 #include "field.h"
 #include <filesystem>
+#include <vector>
 
 // Variables for controlling the grid spacing in the radial / theta directions
 enum class RadialSpacing {
-    linear, log 
+    linear, log, power 
 } ;
 
 enum class ThetaSpacing {
@@ -131,14 +132,16 @@ class Grid {
         ThetaSpacing theta_spacing = ThetaSpacing::linear ;
         double theta_subdiv = 0.;
         double theta_power = 0.;
+        double R_power = 0.;
+        int index = -1;
     } ;
 
-    int NR, Nphi, Nghost ;
+    int NR, Nphi, Nghost, index;
     Coords coord_system = Coords::cyl;
 
     Grid(Grid::params) ;
     Grid(int NR, int Nphi, int Nghost, 
-         CudaArray<double> R, CudaArray<double> phi);
+         CudaArray<double> R, CudaArray<double> phi, int index=-1);
 
     void set_coord_system(Coords system) {
         coord_system = system;
@@ -238,11 +241,11 @@ class Grid {
  */
 class GridRef {
   public:
-    int NR, Nphi, Nghost ;
+    int NR, Nphi, Nghost, index ;
     Coords coord_system;
 
     GridRef(const Grid& g)
-     : NR(g.NR), Nphi(g.Nphi), Nghost(g.Nghost), coord_system(g.coord_system),
+     : NR(g.NR), Nphi(g.Nphi), Nghost(g.Nghost), index(g.index), coord_system(g.coord_system),
        _Re(g._Re.get()), _Rc(g._Rc.get()), 
        _sin_theta_e(g._sin_theta_e.get()), _sin_theta_c(g._sin_theta_c.get()),
        _cos_theta_e(g._cos_theta_e.get()), _cos_theta_c(g._cos_theta_c.get()),
@@ -441,6 +444,35 @@ class OrthGrid {
         CudaArray<double> _Ze, _Zc ;
 
 } ;
+
+
+class GridManager {
+    public:
+
+        std::vector<int> in_idx;
+        std::vector<int> out_idx;
+
+        GridManager(Grid& g_main) : g(g_main) {}
+
+        Grid add_subgrid(double R_in, double R_out);
+
+        template<typename T>
+        void copy_to_subgrid(Grid& g_sub, const Field<T>& F_main, Field<T>& F_sub) ;
+
+        template<typename T>
+        void copy_from_subgrid(Grid& g_sub, Field<T>& F_main, const Field<T>& F_sub) ;
+        
+        template<typename T>
+        void copy_to_subgrid(Grid& g_sub, const Field3D<T>& F_main, Field3D<T>& F_sub) ;
+
+        template<typename T>
+        void copy_from_subgrid(Grid& g_sub, Field3D<T>& F_main, const Field3D<T>& F_sub) ;
+
+    private:
+        GridRef g;
+        std::vector<GridRef> subgrids;
+} ;
+
 
 
 #endif//_CUDISC_GRID_H_

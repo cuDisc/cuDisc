@@ -153,6 +153,19 @@ class CuDiscModel:
                                  "in the simulation directory")
 
         return Grid(NR, NZ,data)
+
+    def load_subgrid(self, index):
+        grid_file = os.path.join(self.sim_dir, '2Dgrid_sub'+str(index)+'.dat')
+
+        try:
+            NR, NZ = np.fromfile(grid_file, dtype=np.intc, count=2)
+            data = np.fromfile(grid_file, dtype=np.double, 
+                               offset=2*np.dtype(np.intc).itemsize)
+        except IOError:
+            raise AttributeError("Could not find the grid file (2Dgrid_sub"+str(index)+".dat) "
+                                 "in the simulation directory")
+
+        return Grid(NR, NZ,data)
     
     def load_wle_grids(self):
         wle_file = os.path.join(self.sim_dir, 'wle_grid.dat')

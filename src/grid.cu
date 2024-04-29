@@ -6,6 +6,7 @@
 #include <fstream>
 #include <filesystem>
 
+#include "dustdynamics.h"
 #include "grid.h"
 
 
@@ -27,6 +28,7 @@ Grid::Grid(Grid::params p)
     // Step 1: Radial grids:
     NR = p.NR ;
     Nghost = p.Nghost ;
+    index = p.index ;
 
     _Rc = make_CudaArray<double>(NR + 2*Nghost) ;
     _Re = make_CudaArray<double>(NR + 2*Nghost + 1) ;
@@ -47,6 +49,15 @@ Grid::Grid(Grid::params p)
         _Re[0] = p.Rmin / std::pow(1+dR, Nghost) ;
         for (int i=0; i < NR + 2*Nghost; i++) {
             _Re[i+1] = _Re[i] * (1 + dR) ;
+            _Rc[i] = centroid(_Re[i],  _Re[i+1]) ;
+        }
+        break ; 
+      case RadialSpacing::power:
+        dR = (std::pow(p.Rmax,p.R_power) - std::pow(p.Rmin,p.R_power)) / NR ;
+        _Re[0] = std::pow(std::pow(p.Rmin,p.R_power) - Nghost*dR, 1./p.R_power)  ;
+        if (std::isnan(_Re[0])) {throw std::runtime_error("Inner radial edge < 0: either increase NR, decrease exponent, or increase Rmin") ;}
+        for (int i=0; i < NR + 2*Nghost; i++) {
+            _Re[i+1] = std::pow(std::pow(p.Rmin,p.R_power) + (i+1 - Nghost)*dR, 1./p.R_power);
             _Rc[i] = centroid(_Re[i],  _Re[i+1]) ;
         }
         break ; 
@@ -193,11 +204,12 @@ Grid::Grid(Grid::params p)
 } 
 
 Grid::Grid(int NR_, int Nphi_, int Nghost_, 
-           CudaArray<double> R, CudaArray<double> phi) {
+           CudaArray<double> R, CudaArray<double> phi, int index_) {
 
     NR = NR_ ;
     Nphi = Nphi_ ;
     Nghost = Nghost_ ;
+    index = index_;
 
     // Set up radial grid
     _Rc = make_CudaArray<double>(NR + 2*Nghost) ;
@@ -264,8 +276,14 @@ OrthGrid::OrthGrid(int _NR, int _NZ, int _Nghost, double Rmin, double Rmax, doub
 
 void Grid::write_grid(std::filesystem::path fname) const {
     
-    std::ofstream fout(fname / ("2Dgrid.dat"), std::ios::binary) ;
-
+    std::ofstream fout;
+    if (index == -1) {
+        fout.open(fname / ("2Dgrid.dat"), std::ios::binary) ;
+    }
+    else {
+        fout.open(fname / ("2Dgrid_sub"+std::to_string(index+1)+".dat"), std::ios::binary) ;
+    }
+    
     if (!fout) {
         throw std::runtime_error("Could not open file " + std::string(fname) + " for writing grid structure") ;
     }
@@ -288,3 +306,202 @@ void Grid::write_grid(std::filesystem::path fname) const {
         }
     }
 }
+
+// Sub-grid functions
+
+Grid GridManager::add_subgrid(double R_in, double R_out) {
+
+    int sg_idx = in_idx.size();
+
+    if (R_in > R_out) {
+        throw std::runtime_error("Subgrid R_in greater than R_out; check values!");
+    }
+
+    for (int i=0; i<g.NR+2*g.Nghost+1; i++) {
+        if (g.Re(i) > R_in) {
+            
+            if (i <= g.Nghost) {
+                in_idx.push_back(0);
+                break;
+            } // Check whether we are nearer Re(i) or Re(i-1) and use the closest
+            else if ((g.Re(i)-R_in) < (R_in-g.Re(i-1))) {
+                in_idx.push_back(i - g.Nghost);
+                break;
+            }
+            else {
+                in_idx.push_back(i-1 - g.Nghost);
+                break;
+            }
+        }
+        if (i==g.NR+g.Nghost) {throw std::runtime_error("Inner radius of subgrid at outer edge of main grid; check R_in for subgrid!");}
+    }
+
+    if (R_out < g.Re(g.Nghost))
+        throw std::runtime_error("Outer edge of sub-grid is less than inner edge of main grid!") ;
+
+    for (int i=in_idx[sg_idx]; i<g.NR+2*g.Nghost+1; i++) {
+        if (g.Re(i) > R_out) {
+            if (i >= g.NR+g.Nghost) {
+                out_idx.push_back(g.NR+2*g.Nghost);
+                break;
+            } // Check whether we are nearer Re(i) or Re(i-1) and use the closest
+            else if ((g.Re(i)-R_out) < (R_out-g.Re(i-1))) {
+                out_idx.push_back(i + g.Nghost);
+                break;
+            }
+            else {
+                out_idx.push_back(i-1 + g.Nghost);
+                break;
+            }
+        }
+    }
+
+    CudaArray<double> Re_sub = make_CudaArray<double>(out_idx[sg_idx]-in_idx[sg_idx]+1);
+    CudaArray<double> phie_sub = make_CudaArray<double>(g.Nphi+2*g.Nghost+1);
+
+    for (int i=0; i<out_idx[sg_idx]-in_idx[sg_idx]+1; i++) {
+        Re_sub[i] = g.Re(i+in_idx[sg_idx]);
+    }
+    for (int i=0; i<g.Nphi+2*g.Nghost+1; i++) {
+        phie_sub[i] = std::asin(g.sin_th(i));
+    }
+
+    Grid subg = Grid(out_idx[sg_idx]-in_idx[sg_idx] - 2*g.Nghost, g.Nphi, g.Nghost, std::move(Re_sub), std::move(phie_sub), sg_idx);
+
+    subgrids.push_back(subg);
+
+    return subg;
+}
+
+
+template<typename T>
+__global__
+void _copy_to_subgrid(GridRef g_sub, int idx_in, int idx_out, Field3DConstRef<T> F_main, Field3DRef<T> F_sub) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+
+    // printf("%d\n",g_sub.NR);
+
+    for (int i=iidx; i<g_sub.NR+2*g_sub.Nghost; i+=istride) {
+        for (int j=jidx; j<g_sub.Nphi+2*g_sub.Nghost; j+=jstride) { 
+            for (int k=0; k<F_main.Nd; k++) { 
+                F_sub(i,j,k) = F_main(idx_in+i,j,k);
+            }
+        }
+    }
+}
+
+template<typename T>
+void GridManager::copy_to_subgrid(Grid& g_sub, const Field<T>& F_main, Field<T>& F_sub) {
+
+    int sg_idx = g_sub.index;
+
+    if (g_sub.Re(0) != subgrids[sg_idx].Re(0) || g_sub.Re(g_sub.NR+2*g_sub.Nghost) != subgrids[sg_idx].Re(subgrids[sg_idx].NR+2*subgrids[sg_idx].Nghost)) {
+        throw std::runtime_error("Incorrect subgrid passed to copier.");
+    }
+
+    dim3 threads(32,32,1);
+    dim3 blocks((g_sub.NR + 2*g_sub.Nghost+31)/32,(g_sub.Nphi + 2*g_sub.Nghost+31)/32, 1) ;
+
+    _copy_to_subgrid<<<blocks,threads>>>(g_sub, in_idx[sg_idx], out_idx[sg_idx], Field3DConstRef<T>(F_main), Field3DRef<T>(F_sub));
+    check_CUDA_errors("_copy_from_subgrid");
+}
+
+template<typename T>
+void GridManager::copy_to_subgrid(Grid& g_sub, const Field3D<T>& F_main, Field3D<T>& F_sub) {
+
+    int sg_idx = g_sub.index;
+
+    if (g_sub.Re(0) != subgrids[sg_idx].Re(0) || g_sub.Re(g_sub.NR+2*g_sub.Nghost) != subgrids[sg_idx].Re(subgrids[sg_idx].NR+2*subgrids[sg_idx].Nghost)) {
+        throw std::runtime_error("Incorrect subgrid passed to copier.");
+    }
+
+    dim3 threads(32,32,1);
+    dim3 blocks((g_sub.NR + 2*g_sub.Nghost+31)/32,(g_sub.Nphi + 2*g_sub.Nghost+31)/32, 1) ;
+
+    _copy_to_subgrid<<<blocks,threads>>>(g_sub, in_idx[sg_idx], out_idx[sg_idx], Field3DConstRef<T>(F_main), Field3DRef<T>(F_sub));
+    check_CUDA_errors("_copy_from_subgrid");
+}
+
+template<typename T>
+__global__
+void _copy_from_subgrid(GridRef g_main, GridRef g_sub, int idx_in, int idx_out, Field3DRef<T> F_main, Field3DConstRef<T> F_sub) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+
+    for (int i=iidx; i<g_sub.NR+2*g_sub.Nghost; i+=istride) {
+
+        if (i<g_sub.Nghost && idx_in != 0) {
+            continue;
+        }
+        else if (i>g_sub.NR+g_sub.Nghost-1 && idx_out != g_main.NR+2*g_main.Nghost) {
+            continue;
+        }
+        else {  
+            for (int j=jidx; j<g_sub.Nphi+2*g_sub.Nghost; j+=jstride) { 
+                for (int k=0; k<F_main.Nd; k++) { 
+                    F_main(idx_in+i,j,k) = F_sub(i,j,k);
+                }
+            }
+        }
+    }
+}
+
+template<typename T>
+void GridManager::copy_from_subgrid(Grid& g_sub, Field<T>& F_main, const Field<T>& F_sub) {
+
+    int sg_idx = g_sub.index;
+
+    if (g_sub.Re(0) != subgrids[sg_idx].Re(0) || g_sub.Re(g_sub.NR+2*g_sub.Nghost) != subgrids[sg_idx].Re(subgrids[sg_idx].NR+2*subgrids[sg_idx].Nghost)) {
+        throw std::runtime_error("Incorrect subgrid passed to copier.");
+    }
+
+    dim3 threads(32,32,1);
+    dim3 blocks((g_sub.NR + 2*g_sub.Nghost+31)/32,(g_sub.Nphi + 2*g_sub.Nghost+31)/32, 1) ;
+
+    _copy_from_subgrid<<<blocks,threads>>>(g, g_sub, in_idx[sg_idx], out_idx[sg_idx], Field3DRef<T>(F_main), Field3DConstRef<T>(F_sub));
+    check_CUDA_errors("_copy_from_subgrid");
+}
+
+template<typename T>
+void GridManager::copy_from_subgrid(Grid& g_sub, Field3D<T>& F_main, const Field3D<T>& F_sub) {
+
+    int sg_idx = g_sub.index;
+
+    if (g_sub.Re(0) != subgrids[sg_idx].Re(0) || g_sub.Re(g_sub.NR+2*g_sub.Nghost) != subgrids[sg_idx].Re(subgrids[sg_idx].NR+2*subgrids[sg_idx].Nghost)) {
+        throw std::runtime_error("Incorrect subgrid passed to copier.");
+    }
+
+    dim3 threads(32,32,1);
+    dim3 blocks((g_sub.NR + 2*g_sub.Nghost+31)/32,(g_sub.Nphi + 2*g_sub.Nghost+31)/32, 1) ;
+
+    _copy_from_subgrid<<<blocks,threads>>>(g, g_sub, in_idx[sg_idx], out_idx[sg_idx], Field3DRef<T>(F_main), Field3DConstRef<T>(F_sub));
+    check_CUDA_errors("_copy_from_subgrid");
+}
+
+
+
+
+template void GridManager::copy_to_subgrid<double>(Grid& g_sub, const Field<double>& F_main, Field<double>& F_sub);
+template void GridManager::copy_from_subgrid<double>(Grid& g_sub, Field<double>& F_main, const Field<double>& F_sub);
+
+template void GridManager::copy_to_subgrid<int>(Grid& g_sub, const Field<int>& F_main, Field<int>& F_sub);
+template void GridManager::copy_from_subgrid<int>(Grid& g_sub, Field<int>& F_main, const Field<int>& F_sub);
+
+template void GridManager::copy_to_subgrid<Prims>(Grid& g_sub, const Field<Prims>& F_main, Field<Prims>& F_sub);
+template void GridManager::copy_from_subgrid<Prims>(Grid& g_sub, Field<Prims>& F_main, const Field<Prims>& F_sub);
+
+template void GridManager::copy_to_subgrid<double>(Grid& g_sub, const Field3D<double>& F_main, Field3D<double>& F_sub);
+template void GridManager::copy_from_subgrid<double>(Grid& g_sub, Field3D<double>& F_main, const Field3D<double>& F_sub);
+
+template void GridManager::copy_to_subgrid<int>(Grid& g_sub, const Field3D<int>& F_main, Field3D<int>& F_sub);
+template void GridManager::copy_from_subgrid<int>(Grid& g_sub, Field3D<int>& F_main, const Field3D<int>& F_sub);
+
+template void GridManager::copy_to_subgrid<Prims>(Grid& g_sub, const Field3D<Prims>& F_main, Field3D<Prims>& F_sub);
+template void GridManager::copy_from_subgrid<Prims>(Grid& g_sub, Field3D<Prims>& F_main, const Field3D<Prims>& F_sub);
