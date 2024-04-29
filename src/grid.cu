@@ -323,7 +323,7 @@ Grid GridManager::add_subgrid(double R_in, double R_out) {
             if (i <= g.Nghost) {
                 in_idx.push_back(0);
                 break;
-            }
+            } // Check whether we are nearer Re(i) or Re(i-1) and use the closest
             else if ((g.Re(i)-R_in) < (R_in-g.Re(i-1))) {
                 in_idx.push_back(i - g.Nghost);
                 break;
@@ -344,7 +344,7 @@ Grid GridManager::add_subgrid(double R_in, double R_out) {
             if (i >= g.NR+g.Nghost) {
                 out_idx.push_back(g.NR+2*g.Nghost);
                 break;
-            }
+            } // Check whether we are nearer Re(i) or Re(i-1) and use the closest
             else if ((g.Re(i)-R_out) < (R_out-g.Re(i-1))) {
                 out_idx.push_back(i + g.Nghost);
                 break;
