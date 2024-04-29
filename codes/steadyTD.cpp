@@ -363,7 +363,7 @@ int main() {
     compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g);
     double Rcav=0;
     find_Rcav(g,Sig_g, Rcav);
-    calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, M_star, gas_boundary, gas_floor, Rcav);   
+    calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor, Rcav);   
     for (int i=0; i<g.NR + 2*g.Nghost; i++) {
         for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
             alpha2D(i,j) = alpha;
@@ -508,7 +508,7 @@ int main() {
 
             n += 1;
         }
-        calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, M_star, gas_boundary, gas_floor, Rcav);   
+        calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor, Rcav);   
         for (int i=0; i<g.NR + 2*g.Nghost; i++) {
             for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
 
@@ -606,7 +606,7 @@ int main() {
                     compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g);
                     compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);
                     compute_nu(g, nu, cs2, M_star, alpha);
-                    calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, M_star, gas_boundary, gas_floor, Rcav);   
+                    calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor, Rcav);   
                     for (int i=0; i<g.NR + 2*g.Nghost; i++) {
                         for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
                             Ws_g(i,j).v_R = 0.;

@@ -9,6 +9,7 @@
 #include "grid.h"
 #include "field.h"
 #include "gas1d.h"
+#include "star.h"
 #include "cuda_array.h"
 #include "constants.h"
 #include "flags.h"
@@ -19,15 +20,14 @@
     Also includes example PE wind profile from Owen et al. 2011 https://academic.oup.com/mnras/article/412/1/13/984147 
 */
 
-void setup_gas(Grid& g, CudaArray<double>& Sig_g, CudaArray<double>& u_gas, CudaArray<double>& nu, double alpha) {
+void setup_gas(Grid& g, CudaArray<double>& Sig_g, CudaArray<double>& u_gas, CudaArray<double>& nu, double alpha, Star& star) {
 
     double r_c = 30*au;
     double Sig_0 = 0.;
     double q = 0.5;
     double p = 1.;
-    double Mstar = 0.7;
     double mu = 2.4;
-    double T0 = 150.;
+    double T0 = std::pow(6.25e-3 * star.L / (M_PI *au*au * sigma_SB), 0.25);
 
     double Mtot = 0.;
     double Mdisc = 0.07*Msun;
@@ -38,7 +38,7 @@ void setup_gas(Grid& g, CudaArray<double>& Sig_g, CudaArray<double>& u_gas, Cuda
 
         Sig_g[i] = std::pow(g.Rc(i)/r_c, -p) * std::exp(-std::pow(g.Rc(i)/r_c, 2-p));
         Mtot += 2.*M_PI*g.Rc(i)*Sig_g[i]*g.dRe(i);
-        v_k = std::sqrt(GMsun*Mstar/g.Rc(i));
+        v_k = std::sqrt(star.GM/g.Rc(i));
         T = T0*std::pow(g.Rc(i)/au, -q);
         c_s = std::sqrt(k_B*T/(mu*m_H));
 
@@ -133,6 +133,10 @@ int main() {
     double u_f = 1000.;
     double Rcav=0.;
 
+    double M_star = 0.7, T_star=4500., R_star = 1.7*Rsun;
+    double L_star = 4.*M_PI*sigma_SB*std::pow(T_star, 4.)*std::pow(R_star, 2.);
+    Star star(GMsun*M_star, L_star, T_star);
+
     CudaArray<double> Sig_g = make_CudaArray<double>(g.NR+2*g.Nghost);
     CudaArray<double> Sigdot_w = make_CudaArray<double>(g.NR+2*g.Nghost);
     CudaArray<double> u_g = make_CudaArray<double>(g.NR+2*g.Nghost);
@@ -141,16 +145,16 @@ int main() {
     CudaArray<double> Sig_d = make_CudaArray<double>(g.NR+2*g.Nghost);
     CudaArray<double> ubar = make_CudaArray<double>(g.NR+2*g.Nghost);
 
-    setup_gas(g, Sig_g, u_g, nu, alpha);
+    setup_gas(g, Sig_g, u_g, nu, alpha, star);
     setup_dust(g, Sig_d, Sig_g);
     find_Rcav(g, Sig_g, Rcav);
     printf("Rcav = %g\n",Rcav/au);
-    Sigdot_w_JO(g, Sigdot_w, 30.3, 0.7);
+    Sigdot_w_JO(g, Sigdot_w, 30.3, M_star);
 
     int boundary = 0;
     int boundaryg = BoundaryFlags::open_R_inner | BoundaryFlags::open_R_outer;
 
-    calculate_ubar(g, Sig_d, Sig_g, ubar, u_g, 0, u_f, rho_s, alpha, a0, 0.7, boundary, boundaryg);
+    calculate_ubar(g, Sig_d, Sig_g, ubar, u_g, 0, u_f, rho_s, alpha, a0, star, boundary, boundaryg);
 
     double ts[20];
     for (int i=0; i<20; i++) {
@@ -189,12 +193,12 @@ int main() {
             if (count < 100) {dt_CFL = 1e5;}
             dt = std::min(dt_CFL, ti-t);
             if (count > 0) {
-                calculate_ubar(g, Sig_d, Sig_g, ubar, u_g, t, u_f, rho_s, alpha, a0, 0.7, boundary, boundaryg);
+                calculate_ubar(g, Sig_d, Sig_g, ubar, u_g, t, u_f, rho_s, alpha, a0, star, boundary, boundaryg);
             }
             update_dust_sigma(g, Sig_d, Sig_g, ubar, nu, dt, boundary);
             update_gas_sources(g, Sig_g, Sigdot_w, dt, boundaryg,1e-10);
             update_gas_sigma(g, Sig_g, dt, nu, boundaryg,1e-10);
-            update_gas_vel(g, Sig_g, u_g, alpha, 0.7);
+            update_gas_vel(g, Sig_g, u_g, alpha, star);
             t += dt;
             dt_CFL = 0.2*calc_dt(g, nu); //compute_CFL(g, ubar, nu, 0.2, 0.1);
             count += 1;
