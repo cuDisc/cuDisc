@@ -411,6 +411,18 @@ void read_restart_quants(std::filesystem::path folder, Field3D<Prims>& wd, Field
     read_file(folder, "restart", wd, wg, Sig_g, T, J) ;       
 }
 
+void write_restart_prims(std::filesystem::path folder, Grid &g, Field3D<Prims>& wd, Field<Prims>& wg, CudaArray<double>& Sig_g) {
+    
+    // Backup existing files.
+    backup_file(folder / ("dens_restart.dat")) ;
+
+    write_prims(folder, "restart", g, wd, wg, Sig_g) ;             
+}
+void read_restart_prims(std::filesystem::path folder, Field3D<Prims>& wd, Field<Prims>& wg, CudaArray<double>& Sig_g) {
+
+    read_prims(folder, "restart", wd, wg, Sig_g) ;       
+}
+
 void write_restart_file(std::string filename, int count, double t, double dt, double t_coag, double t_temp, double dt_coag, double dt_1perc, double t_interp) {
 
     backup_file(filename) ;
