@@ -43,9 +43,6 @@ class BirnstielKernel {
         return _g.Nphi + 2*_g.Nghost ;
     }
 
-    void set_turbulence_Reynolds_Number(double Re) {
-        _sqrtRe = std::sqrt(Re) ;
-    }
     void set_fragmentation_threshold(double v_frag) {
         _v_frag = v_frag ;
     }
@@ -59,7 +56,7 @@ class BirnstielKernel {
     FieldConstRef<Prims> _wg ;
     FieldConstRef<double> _alpha_t ;
 
-    RealType _sqrtRe=1e4, _GMstar, _mu;
+    RealType _GMstar, _mu;
     RealType _v_frag=1e3, _rho_grain ;
 
 } ;
@@ -88,9 +85,6 @@ class BirnstielKernelVertInt {
         return _g.Nphi + 2*_g.Nghost ;
     }
 
-    void set_turbulence_Reynolds_Number(double Re) {
-        _sqrtRe = std::sqrt(Re) ;
-    }
     void set_fragmentation_threshold(double v_frag) {
         _v_frag = v_frag ;
     }
@@ -104,7 +98,7 @@ class BirnstielKernelVertInt {
     FieldConstRef<Prims> _wg ;
     FieldConstRef<double> _alpha_t ;
 
-    RealType _sqrtRe=1e4, _GMstar, _mu;
+    RealType  _GMstar, _mu;
     RealType _v_frag=1e3, _rho_grain ;
 
 } ;

@@ -353,12 +353,12 @@ void TimeIntegration::integrate(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, d
     while (t < tmax) {
         dt = std::min(dt, tmax-t) ;
         t += take_step(g, rhos, wg, dt) ;
-        if (!(count%100)) {
-            std::cout << "Count = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
-        }
         count += 1;
+        if ((count%100) == 0) {
+            std::cout << "Coagulation Steps = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
+        }
     }
-    std::cout << "Count = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
+    std::cout << "Coagulation Steps = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
     
     dt_coag = dt;
 

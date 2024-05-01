@@ -35,7 +35,7 @@ void set_up_gas(Grid& g, CudaArray<double>& Sig_g, CudaArray<double>& nu, Field<
     for (int i=0; i<g.NR+2*g.Nghost; i++) {
 
         Sig_g[i] =  std::pow(g.Rc(i)/r_c, -1.) * std::exp(-g.Rc(i)/r_c);
-        Mtot += 2.*M_PI*g.Rc(i)*Sig_g[i]*g.dRe(i);
+        Mtot += M_PI*Sig_g[i]*(g.Re(i+1)*g.Re(i+1) - g.Re(i)*g.Re(i));
         for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
             T(i,j) = std::pow(6.25e-3 * star.L / (M_PI * g.Rc(i)*g.Rc(i) * sigma_SB), 0.25);
             cs(i,j) = std::sqrt(k_B*T(i,j) / (mu*m_H));
@@ -51,7 +51,7 @@ void set_up_gas(Grid& g, CudaArray<double>& Sig_g, CudaArray<double>& nu, Field<
 
 }
 
-void set_up_dust(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, CudaArray<double>& Sig_g, Field3D<double>& D, SizeGrid& sizes, double alpha, Field<double>& cs, double floor) {
+void set_up_dust(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, Field3D<double>& D, SizeGrid& sizes, double alpha, Field<double>& cs, double floor) {
 
     double d_to_g = 0.01;
     double M_star = 1.;
@@ -59,20 +59,16 @@ void set_up_dust(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, CudaArray<double
 
     for (int i=0; i<g.NR+2*g.Nghost; i++) {
 
-        double h_g = cs(i,2)/std::sqrt(GMsun/(g.Rc(i)*g.Rc(i)*g.Rc(i)));
         for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
-            double Sig_tot = 0;
+            double rho_tot = 0;
             for (int k=0; k<qd.Nd; k++) {
                 // Initialise dust with MRN profile and exponential cut off at 0.1 micron
-                double St = sizes.solid_density() * sizes.centre_size(k) * (M_PI/2.) / Sig_g[i];
-                double hp =  h_g * std::sqrt(1/(1+St/alpha));
-                double Sig_k = std::pow(sizes.centre_size(k)/sizes.centre_size(0), 0.5) * std::exp(-std::pow(sizes.centre_size(k)/1e-5, 10.));
-                qd(i,j,k).rho = Sig_k/(std::sqrt(2.*M_PI)*hp) * std::exp(-g.Zc(i,j)*g.Zc(i,j)/(2.*hp*hp));
+                qd(i,j,k).rho = std::pow(sizes.centre_size(k)/sizes.centre_size(0), 0.5) * std::exp(-std::pow(sizes.centre_size(k)/1e-5, 10.));
                 D(i,j,k) = wg(i,j).rho * (alpha * cs(i,j) * cs(i,j) / std::sqrt(GMsun/std::pow(g.Rc(i), 3.))) / Sc ;
-                Sig_tot += Sig_k;
+                rho_tot += qd(i,j,k).rho;
             }
             for (int k=0; k<qd.Nd; k++) {
-                qd(i,j,k).rho = qd(i,j,k).rho * d_to_g*Sig_g[i]/Sig_tot ;
+                qd(i,j,k).rho *= d_to_g*wg(i,j).rho/rho_tot ;
             }
         }
     }
@@ -172,8 +168,9 @@ int main() {
     double a0 = 1e-5 ; // Grain size lower bound in cm
     double a1 = 10.   ;  // Grain size upper bound in cm
     int n_spec = 7.*3.*std::log10(a1/a0) + 1;
-    double v_frag = 100.;
-    std::cout << n_spec << "\n";
+    double v_frag = 100.; // Fragmentation threshold
+
+    std::cout << "Number of dust species: "<< n_spec << "\n";
     SizeGrid sizes(a0, a1, n_spec, rho_p) ;
 
     write_grids(dir, &g, &sizes); // Write grids to file
@@ -221,7 +218,7 @@ int main() {
         }
     }
 
-    set_up_dust(g, Ws_d, Ws_g, Sig_g, D, sizes, alpha, cs, floor);
+    set_up_dust(g, Ws_d, Ws_g, D, sizes, alpha, cs, floor);
 
     for (int i=g.Nghost; i<g.NR + g.Nghost; i++) {
         for (int j=g.Nghost; j<g.Nphi + g.Nghost; j++) { 
@@ -231,10 +228,12 @@ int main() {
         }
     }
 
-    // Set up coagulation kernel and integrator
+    // Set up coagulation kernel, storing the fragmentation velocity
 
     BirnstielKernel kernel = BirnstielKernel(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu);
     kernel.set_fragmentation_threshold(v_frag);
+
+    // Setup the integrator
     BS32Integration<CoagulationRate<BirnstielKernel, SimpleErosion>>
         coagulation_integrate(
             create_coagulation_rate(
@@ -310,6 +309,7 @@ int main() {
         compute_nu(g, nu, cs2, M_star, alpha);
         compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);
         write_prims(dir, 0, g, Ws_d, Ws_g, Sig_g);
+        write_temp(dir, 0, g, T) ; 
     }
 
 
@@ -366,6 +366,7 @@ int main() {
         // Record densities to file at time snapshots
 
         write_prims(dir, Nout, g, Ws_d, Ws_g, Sig_g);  
+        //write_temp(dir, Nout, g, T) ; Skip because constant
         Nout+=1;
     }
     
