@@ -56,26 +56,23 @@ void set_up_dust(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, CudaArray<double
     double d_to_g = 0.01;
     double M_star = 1.;
     double Sc = 1.;
-    double M_dust=0;
 
     for (int i=0; i<g.NR+2*g.Nghost; i++) {
 
         double h_g = cs(i,2)/std::sqrt(GMsun/(g.Rc(i)*g.Rc(i)*g.Rc(i)));
         for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
+            double Sig_tot = 0;
             for (int k=0; k<qd.Nd; k++) {
-                // Initialise dust with MRN profile and exponential cut off for large grains
+                // Initialise dust with MRN profile and exponential cut off at 0.1 micron
                 double St = sizes.solid_density() * sizes.centre_size(k) * (M_PI/2.) / Sig_g[i];
                 double hp =  h_g * std::sqrt(1/(1+St/alpha));
-                double Sig_d = std::pow(sizes.centre_size(k)/sizes.centre_size(0), 0.5) * std::exp(-std::pow(sizes.centre_size(k)/0.2, 10.)) * Sig_g[i] * std::exp(-g.Rc(i)/(20.*au));
-                qd(i,j,k).rho = Sig_d/(std::sqrt(2.*M_PI)*hp) * std::exp(-g.Zc(i,j)*g.Zc(i,j)/(2.*hp*hp));
+                double Sig_k = std::pow(sizes.centre_size(k)/sizes.centre_size(0), 0.5) * std::exp(-std::pow(sizes.centre_size(k)/1e-5, 10.));
+                qd(i,j,k).rho = Sig_k/(std::sqrt(2.*M_PI)*hp) * std::exp(-g.Zc(i,j)*g.Zc(i,j)/(2.*hp*hp));
                 D(i,j,k) = wg(i,j).rho * (alpha * cs(i,j) * cs(i,j) / std::sqrt(GMsun/std::pow(g.Rc(i), 3.))) / Sc ;
+                Sig_tot += Sig_k;
             }
-        }
-    }
-    for (int i=g.Nghost; i<g.NR + g.Nghost; i++) {
-        for (int j=g.Nghost; j<g.Nphi + g.Nghost; j++) {
             for (int k=0; k<qd.Nd; k++) {
-                M_dust += 4.*M_PI * qd(i,j,k).rho * g.volume(i,j);
+                qd(i,j,k).rho = qd(i,j,k).rho * d_to_g*Sig_g[i]/Sig_tot ;
             }
         }
     }
@@ -86,7 +83,6 @@ void set_up_dust(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, CudaArray<double
             double vk = std::sqrt(GMsun*M_star/g.Rc(i));
 
             for (int k=0; k < sizes.size(); k++) {
-                qd(i,j,k).rho = qd(i,j,k).rho * d_to_g*M_gas/M_dust ;
                 qd(i,j,k).rho = std::max(qd(i,j,k).rho, 0.1*floor*wg(i,j).rho);
 
                 // Set initial dust velocity to Keplerian orbit
@@ -235,6 +231,8 @@ int main() {
         }
     }
 
+    // Set up coagulation kernel and integrator
+
     BirnstielKernel kernel = BirnstielKernel(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu);
     kernel.set_fragmentation_threshold(v_frag);
     BS32Integration<CoagulationRate<BirnstielKernel, SimpleErosion>>
@@ -338,14 +336,15 @@ int main() {
             
             dyn(g, Ws_d, Ws_g, dt); // Diffusion-advection update
 
-            // Coagulation update
+            // Coagulation update when 1 internal coagulation time-step has passed in the global simulation time
 
-            if ((t+dt >= t_coag+dt_coag)|| (t+2*dt >= t_coag+dt_coag && dt < dt_coag) || ((t+dt)-t_coag)>50.*year || dt == ti-t || t_temp == t+dt) {
+            if ((t+dt >= t_coag+dt_coag)|| (t+2*dt >= t_coag+dt_coag && dt < dt_coag) || ((t+dt)-t_coag)>50.*year || dt == ti-t) {
                 std::cout << "Coag step at count = " << count << "\n";
-                cs2_to_cs(g, cs, cs2);
+                // Reset coagulation kernel with updated quantities
                 kernel = BirnstielKernel(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu);
                 kernel.set_fragmentation_threshold(v_frag);
                 coagulation_integrate.set_kernel(kernel);
+                // Run coagulation internal integration (routine calculates its own sub-steps to integrate over the timestep passed into it)
                 coagulation_integrate.integrate(g, Ws_d, Ws_g, (t+dt)-t_coag, dt_coag, floor) ;
                 t_coag = t+dt;
             } 
