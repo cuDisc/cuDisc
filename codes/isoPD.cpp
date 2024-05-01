@@ -51,7 +51,7 @@ void set_up_gas(Grid& g, CudaArray<double>& Sig_g, CudaArray<double>& nu, Field<
 
 }
 
-void set_up_dust(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, CudaArray<double>& Sig_g, Field3D<double>& D, SizeGrid& sizes, double alpha, Field<double>& cs, double M_gas, double floor) {
+void set_up_dust(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, CudaArray<double>& Sig_g, Field3D<double>& D, SizeGrid& sizes, double alpha, Field<double>& cs, double floor) {
 
     double d_to_g = 0.01;
     double M_star = 1.;
@@ -221,7 +221,7 @@ int main() {
         }
     }
 
-    set_up_dust(g, Ws_d, Ws_g, Sig_g, D, sizes, alpha, cs, M_gas, floor);
+    set_up_dust(g, Ws_d, Ws_g, Sig_g, D, sizes, alpha, cs, floor);
 
     for (int i=g.Nghost; i<g.NR + g.Nghost; i++) {
         for (int j=g.Nghost; j<g.Nphi + g.Nghost; j++) { 
