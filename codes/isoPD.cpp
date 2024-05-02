@@ -51,10 +51,9 @@ void set_up_gas(Grid& g, CudaArray<double>& Sig_g, CudaArray<double>& nu, Field<
 
 }
 
-void set_up_dust(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, Field3D<double>& D, SizeGrid& sizes, double alpha, Field<double>& cs, double floor) {
+void set_up_dust(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, Field3D<double>& D, SizeGrid& sizes, double alpha, Field<double>& cs, double floor, double gfloor, double Mstar) {
 
     double d_to_g = 0.01;
-    double M_star = 1.;
     double Sc = 1.;
 
     for (int i=0; i<g.NR+2*g.Nghost; i++) {
@@ -68,7 +67,12 @@ void set_up_dust(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, Field3D<double>&
                 rho_tot += qd(i,j,k).rho;
             }
             for (int k=0; k<qd.Nd; k++) {
-                qd(i,j,k).rho *= d_to_g*wg(i,j).rho/rho_tot ;
+                if (wg(i,j).rho <= 1.1*gfloor) {
+                    qd(i,j,k).rho = 0.1*wg(i,j).rho*floor;
+                }
+                else {
+                    qd(i,j,k).rho *= d_to_g*wg(i,j).rho/rho_tot ;
+                }
             }
         }
     }
@@ -76,7 +80,7 @@ void set_up_dust(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, Field3D<double>&
     for (int i=0; i<g.NR+2*g.Nghost; i++) {
         for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
 
-            double vk = std::sqrt(GMsun*M_star/g.Rc(i));
+            double vk = std::sqrt(GMsun*Mstar/g.Rc(i));
 
             for (int k=0; k < sizes.size(); k++) {
                 qd(i,j,k).rho = std::max(qd(i,j,k).rho, 0.1*floor*wg(i,j).rho);
@@ -218,7 +222,7 @@ int main() {
         }
     }
 
-    set_up_dust(g, Ws_d, Ws_g, D, sizes, alpha, cs, floor);
+    set_up_dust(g, Ws_d, Ws_g, D, sizes, alpha, cs, floor, gas_floor, M_star);
 
     for (int i=g.Nghost; i<g.NR + g.Nghost; i++) {
         for (int j=g.Nghost; j<g.Nphi + g.Nghost; j++) { 
@@ -336,9 +340,15 @@ int main() {
             
             dyn(g, Ws_d, Ws_g, dt); // Diffusion-advection update
 
+            // Gas updates
+
+            update_gas_sigma(g, Sig_g, dt, nu, gas_boundary, gas_floor);
+            compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, Ws_d, gas_floor);
+            calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor);  
+
             // Coagulation update when 1 internal coagulation time-step has passed in the global simulation time
 
-            if ((t+dt >= t_coag+dt_coag)|| (t+2*dt >= t_coag+dt_coag && dt < dt_coag) || ((t+dt)-t_coag)>50.*year || dt == ti-t) {
+            if ((t+dt >= t_coag+dt_coag)|| (t+2*dt >= t_coag+dt_coag && dt < dt_coag) || dt == ti-t) {
                 std::cout << "Coag step at count = " << count << "\n";
                 // Reset coagulation kernel with updated quantities
                 kernel = BirnstielKernel(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu);
@@ -351,8 +361,14 @@ int main() {
 
             count += 1;
             t += dt;
-            dt_CFL = std::min(dyn.get_CFL_limit(g, Ws_d, Ws_g), 1.1*dt); // Calculate new CFL condition time-step 
 
+            if (count < 500) {
+                dt_CFL = std::min(dyn.get_CFL_limit(g, Ws_d, Ws_g), 1.025*dt); // Calculate new CFL condition time-step 
+            }
+            else {
+                dt_CFL = dyn.get_CFL_limit(g, Ws_d, Ws_g);
+            }
+                
             // Uncomment this section for writing restart files for jobs on clusters that need to be re-batched after a certain amount of time; here a restart file is written after 20 hrs
             // if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start).count()/3600. > 20.) {
             //     std::cout << "Writing restart at t = " << t/year << " years.\n" ;
