@@ -211,7 +211,7 @@ int main() {
     std::cout << "Initial gas mass: " << M_gas/Msun << " M_sun\n";
         
     int gas_boundary = BoundaryFlags::open_R_inner | BoundaryFlags::open_R_outer | BoundaryFlags::open_Z_outer;
-    double gas_floor = 1e-27;
+    double gas_floor = 1e-100;
     double floor = 1.e-10;
 
     compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, gas_floor);
@@ -362,7 +362,7 @@ int main() {
             count += 1;
             t += dt;
 
-            if (count < 500) {
+            if (count < 1000) {
                 dt_CFL = std::min(dyn.get_CFL_limit(g, Ws_d, Ws_g), 1.025*dt); // Calculate new CFL condition time-step 
             }
             else {
