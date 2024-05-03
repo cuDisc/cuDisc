@@ -30,8 +30,7 @@ or
 
     make 1Ddisc
 
-These examples are contained in  `codes/` directory, and includes both a 1D run (`1Ddisc.cpp`) and a 2D run (`steadyTD.cpp`). The 1D run is a gas + two-population dust model (following Birnstiel et al. 2012) with photoevaporation. The 2D run is similar to the 2D-coagulation, fragmentation and radiative transfer model included presented in the code paper.
-An ipython notebook (`codes/python/disc_plotter.ipynb`) contains examples of how to plot the results from these example simulations.
+These examples are contained in  `codes/` directory, and includes both a 1D run (`1Ddisc.cpp`) and a 2D run (`steadyTD.cpp`). The 1D run is a gas + two-population dust model (following Birnstiel et al. 2012) with photoevaporation. The 2D run is similar to the 2D-coagulation, fragmentation and radiative transfer model included presented in the code paper. We also include `isoPD.cpp`, a 2D run without the temperature solver that uses a fixed, vertically isothermal temperature structure. An ipython notebook (`codes/python/disc_plotter.ipynb`) contains examples of how to plot the results from these example simulations.
 
 You can also build the code as a static library with the command
 
@@ -44,8 +43,8 @@ The tests in Robinson et al. 2024 can be run via the python scripts in the `test
 
 ### Attribution ###
 
-If you use this code in your research please cite the code paper, Robinson et al. (2024): [MNRAS]() [ADS]() [arXiv](). 
-For a list of works using cuDisc, see the citations [here]().
+If you use this code in your research please cite the code paper, Robinson et al. (2024): [MNRAS](https://academic.oup.com/mnras/article/529/2/1524/7616946) [ADS](https://ui.adsabs.harvard.edu/abs/2024MNRAS.529.1524R/abstract) [arXiv](https://arxiv.org/abs/2402.18471). 
+For a list of works using cuDisc, see the citations [here](https://ui.adsabs.harvard.edu/abs/2024MNRAS.529.1524R/citations).
 
 ### Authors ###
 
