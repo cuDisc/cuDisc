@@ -24,6 +24,10 @@ replacing * with the desired test (e.g. adv_diff). Currently the following tests
 
 The example simulations can be compiled via:
     
+    make isoPD
+
+or
+
     make steadyTD
 
 or
