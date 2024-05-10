@@ -728,26 +728,14 @@ void _compute_CFL_diff(GridRef g, Field3DConstRef<Prims> w, FieldConstRef<Prims>
                 double dtZ = abs(g.dZe(i,j)/w(i,j,k).v_Z);
 
                 double CFL_RZmin = min(dtR, dtZ);
+                CFL_k = min(CFL_k, CFL_adv*CFL_RZmin);
 
-                if (D(i,j,k) == 0) {
-                    CFL_k = min(CFL_k, CFL_adv*CFL_RZmin);
-                }
-                else {
-                    double dtR_diff = abs(g.dRe(i)*g.dRe(i) * w_gas(i,j).rho / D(i,j,k));
-                    double dtZ_diff = abs(g.dZe(i,j)*g.dZe(i,j) * w_gas(i,j).rho / D(i,j,k));
+                if (D(i,j,k) != 0) {
+                    dtR = abs(g.dRe(i)*g.dRe(i) * w_gas(i,j).rho / D(i,j,k));
+                    dtZ = abs(g.dZe(i,j)*g.dZe(i,j) * w_gas(i,j).rho / D(i,j,k));
 
-                    double CFL_RZmin_diff = min(dtR_diff, dtZ_diff);
-
-                    double CFL_advdiffmin; 
-                    
-                    if (CFL_RZmin < CFL_RZmin_diff) {
-                        CFL_advdiffmin = CFL_adv * CFL_RZmin;
-                    }
-                    else {
-                        CFL_advdiffmin = CFL_diff * CFL_RZmin_diff;
-                    }
-
-                    CFL_k = min(CFL_k, CFL_advdiffmin);
+                    CFL_RZmin = min(dtR, dtZ);
+                    CFL_k = min(CFL_k, CFL_diff*CFL_RZmin);
                 }
             }
             CFL_grid(i,j) = CFL_k;
@@ -757,8 +745,8 @@ void _compute_CFL_diff(GridRef g, Field3DConstRef<Prims> w, FieldConstRef<Prims>
 
 double DustDynamics::get_CFL_limit(const Grid& g, const Field3D<Prims>& w, const Field<Prims>& w_gas) {
 
-    dim3 threads(32,16) ;
-    dim3 blocks((g.NR + 2*g.Nghost+31)/32,(g.Nphi + 2*g.Nghost+15)/16) ;
+    dim3 threads(32,32) ;
+    dim3 blocks((g.NR + 2*g.Nghost+31)/32,(g.Nphi + 2*g.Nghost+31)/32) ;
 
     Field<double> CFL_grid = create_field<double>(g);
     set_all(g, CFL_grid, std::numeric_limits<double>::max());
@@ -777,8 +765,8 @@ double DustDynamics::get_CFL_limit(const Grid& g, const Field3D<Prims>& w, const
 
 double DustDynamics::get_CFL_limit_debug(const Grid& g, const Field3D<Prims>& w, const Field<Prims>& w_gas) {
 
-    dim3 threads(32,16) ;
-    dim3 blocks((g.NR + 2*g.Nghost+31)/32,(g.Nphi + 2*g.Nghost+15)/16) ;
+    dim3 threads(32,32) ;
+    dim3 blocks((g.NR + 2*g.Nghost+31)/32,(g.Nphi + 2*g.Nghost+31)/32) ;
 
     Field<double> CFL_grid = create_field<double>(g);
     set_all(g, CFL_grid, std::numeric_limits<double>::max());
