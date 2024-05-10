@@ -672,39 +672,58 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     //dim3 blocks(4,4,4) ;
 
     _set_boundaries<<<blocks,threads>>>(g, w_dust, _boundary, _floor);
+    check_CUDA_errors("_set_boundaries") ;
     _calc_conserved<<<blocks,threads>>>(g, q, w_dust);
+    check_CUDA_errors("_calc_conserved") ;
 
     // Calc donor cell flux
-    if (_DoDiffusion)
+    if (_DoDiffusion) {
         _calc_donor_flux<true><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
-    else
+        check_CUDA_errors("_calc_donor_flux") ;
+    }
+    else {
         _calc_donor_flux<false><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+        check_CUDA_errors("_calc_donor_flux") ;
+    }
 
     // Update quantities a half time step and and source terms.
     _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
+    check_CUDA_errors("_set_boundary_flux") ;
     _update_quants<<<blocks,threads>>>(g, q_mids, q, dt/2., fluxR, fluxZ);
+    check_CUDA_errors("_update_quants") ;
     _sources.source_exp(g, w_dust, q_mids, dt/2.);
     _calc_prim<<<blocks,threads>>>(g, q_mids, w_dust);
+    check_CUDA_errors("_calc_prim") ; 
     _sources.source_imp(g, w_dust, dt/2.);
     _floor_prim<<<blocks,threads>>>(g, w_dust, w_gas, _floor);
+    check_CUDA_errors("_floor_prim") ;
     
     _set_boundaries<<<blocks,threads>>>(g, w_dust, _boundary, _floor);
+    check_CUDA_errors("_set_boundaries") ;
 
     // Compute fluxes with Van Leer
-    if (_DoDiffusion)
+    if (_DoDiffusion) {
         _calc_diff_flux_vl<true><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
-    else
+        check_CUDA_errors("_calc_diff_flux_vl") ;
+    }
+    else {
         _calc_diff_flux_vl<false><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+        check_CUDA_errors("_calc_diff_flux_vl") ;
+    }
 
     // Update quantities a full time step and and source terms.
 
     _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
+    check_CUDA_errors("_set_boundary_flux") ;
     // set_flux_to_zero<<<blocks,threads>>>(g, fluxR);
     _update_quants<<<blocks,threads>>>(g, q_mids, q, dt, fluxR, fluxZ);
+    check_CUDA_errors("_update_quants") ;
     _sources.source_exp(g, w_dust, q_mids, dt);
     _calc_prim<<<blocks, threads>>>(g, q_mids, w_dust);
+    check_CUDA_errors("_calc_prim") ; 
     _sources.source_imp(g, w_dust, dt);
     _floor_prim<<<blocks,threads>>>(g, w_dust, w_gas, _floor);
+    check_CUDA_errors("_floor_prim") ;
 }
 
 
