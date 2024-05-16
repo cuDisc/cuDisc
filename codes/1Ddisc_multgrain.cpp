@@ -11,21 +11,6 @@
 #include "coagulation/kernels.h"
 #include "coagulation/coagulation.h"
 
-double calc_mass(Grid& g, Field3D<Prims1D>& q) {
-
-    double mass=0;
-
-    for (int i=g.Nghost; i<g.NR+g.Nghost; i++) {
-        for (int j=g.Nghost; j<g.Nphi+g.Nghost; j++) {
-            for (int k=0; k<q.Nd; k++) {
-                mass += 2.*M_PI*g.Rc(i)*q(i,j,k).Sig * g.dRe(i);
-            }
-        }
-    }
-
-    return mass;
-}
-
 void set_up(Grid& g, Field3D<Prims1D>& W_d, Field<Prims1D>& W_g, SizeGrid& sizes, Field<double>& T, 
             Field<double>& cs, CudaArray<double>& nu, Field<double>& alpha2D, Field3D<double>& D, double alpha, Star& star) {
 
@@ -98,7 +83,6 @@ int main() {
     double a0 = 1.e-5;
     double a_max = 10.;
     int n_spec = 3*7*std::log10(a_max/a0) + 1;
-    std::cout << n_spec << "\n";
     double v_frag = 100.;
     SizeGrid sizes(a0, a_max, n_spec, rho_s);
 
@@ -140,7 +124,7 @@ int main() {
         
     double t = 0, dt;
     const int ntimes = 9;  
-    double ts[ntimes] = {100*year,1000*year,1e4*year,1e5*year,2e5*year, 5e5*year,1e6*year,2e6*year,5e6*year};
+    double ts[ntimes] = {10*year,100*year,1e3*year,1e5*year,2e5*year, 5e5*year,1e6*year,2e6*year,5e6*year};
 
     std::chrono::_V2::system_clock::time_point start,stop;
     start = std::chrono::high_resolution_clock::now();
@@ -171,7 +155,6 @@ int main() {
                 stop = std::chrono::high_resolution_clock::now();
                 yps = ((t)/year) / std::chrono::duration_cast<std::chrono::seconds>(stop - start).count();
                 std::cout << "Years per second: " << yps << "\n";
-                printf("%1.12g\n", calc_mass(g, W_d));
             }
             dt = std::min(dt_CFL, ti-t);
             dyn(g, W_d, W_g, dt);
@@ -195,6 +178,10 @@ int main() {
             dt_CFL = std::min(dyn.get_CFL_limit(g, W_d, W_g),1.2*dt);
 
         }
+        std::cout << "\nSnapshot " << Nout << " completed: t = " << ti/year << " years\n";
+        stop = std::chrono::high_resolution_clock::now();
+        yps = ((t)/year) / std::chrono::duration_cast<std::chrono::seconds>(stop - start).count();
+        std::cout << "Years per second: " << yps << "\n\n";
         write_prims1D(dir, Nout, g, W_d, W_g);
         Nout +=1;
     }
