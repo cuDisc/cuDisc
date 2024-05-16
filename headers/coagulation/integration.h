@@ -37,15 +37,19 @@ class TimeIntegration {
     { } ;
 
 
-  double take_step(Grid& g, Field3D<double>& y, Field<Prims>& wg, double& dtguess) const ;
-
-  double take_step_debug(Grid& g, Field3D<double>& y, Field<Prims>& wg, double& dtguess, int* idxs) const ;
+  template<typename T>
+  double take_step(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess) const ;
+  
+  template<typename T>
+  double take_step_debug(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess, int* idxs) const ;
 
   void integrate(Grid& g, Field3D<double>& y, double tmax) const ;
   
-  void integrate(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, double tmax, double& dt_coag, double floor = 1.e-40) const ;
+  template<typename T>
+  void integrate(Grid& g, Field3D<T>& ws, Field<T>& wg, double tmax, double& dt_coag, double floor = 1.e-40) const ;
 
-  void integrate_debug(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, double tmax, double& dt_coag, double floor) const ;
+  template<typename T>
+  void integrate_debug(Grid& g, Field3D<T>& ws, Field<T>& wg, double tmax, double& dt_coag, double floor) const ;
 
 
 protected:

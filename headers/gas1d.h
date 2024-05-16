@@ -32,4 +32,9 @@ void update_dust_sigma(Grid& g, CudaArray<double>& sig, CudaArray<double>& sig_g
 double compute_CFL(Grid& g, CudaArray<double>& ubar, CudaArray<double>& D,
                         double CFL_adv, double CFL_diff);
 
+// Prims1D functions
+
+void update_gas_sigma(Grid& g, Field<Prims1D>& W_g, double dt, const CudaArray<double>& nu, int bound, double floor);
+void calc_v_gas(Grid& g, Field<Prims1D>& W_g, CudaArray<double>& nu, double GMstar, double gasfloor);
+
 #endif//_CUDISC_HEADERS_GAS1D_H_
