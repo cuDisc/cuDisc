@@ -80,12 +80,14 @@ void calculate_dust_vel(Grid& g, Field3D<Prims1D>& W_d, const Field<Prims1D>& W_
     CudaArray<double> v_gas = make_CudaArray<double>(g.NR+2*g.Nghost);
     
     _calc_eta<<<blocks,threads>>>(g, W_g, star.GM, cs, eta.get());
+    check_CUDA_errors("_calc_eta");
     cudaDeviceSynchronize();
     // for (int i=0; i<g.NR+2*g.Nghost; i++) {
     //     std::cout << eta[i] << "\n";
     // }
     // _calc_v_gas<<<blocks,threads>>>(g, W_g, nu.get(), v_gas.get(), star.GM, gasfloor);
     _calc_dust_vel<<<blocks2D, threads2D>>>(g, W_d, W_g, eta.get(), cs, star.GM, sizes.solid_density(), sizes.grain_sizes(), floor);
+    check_CUDA_errors("_calc_dust_vel");
 
 }
 
@@ -335,24 +337,30 @@ void DustDyn1D::operator() (Grid& g, Field3D<Prims1D>& W_d, const Field<Prims1D>
     Field3D<double> flux = Field3D<double>(g.NR+2*g.Nghost,1+2*g.Nghost,W_d.Nd);
 
     _set_bounds_d<<<blocks,threads>>>(g, W_d, _boundary, _floor);
+    check_CUDA_errors("_set_bounds_d");
 
     // Calc donor cell flux
 
     _calc_diff_flux<<<blocks,threads>>>(g, W_d, W_g, flux, _D, _gas_floor);
+    check_CUDA_errors("_set_bounds_d");
 
     // Update quantities a half time step
 
     _update_mid_Sig<<<blocks,threads>>>(g, W_d_mid, W_d, W_g, dt, flux, _floor);
+    check_CUDA_errors("_update_mid_Sig");
     cudaDeviceSynchronize();
     calculate_dust_vel(g, W_d_mid, W_g, _nu, _cs, _star, _sizes, _floor);
 
     _set_bounds_d<<<blocks,threads>>>(g, W_d, _boundary, _floor);
+    check_CUDA_errors("_set_bounds_d");
 
     // Compute fluxes with Van Leer
 
     _calc_diff_flux_vl<<<blocks,threads>>>(g, W_d_mid, W_g, flux, _D, _gas_floor);
+    check_CUDA_errors("_calc_diff_flux_vl");
 
     _update_Sig<<<blocks,threads>>>(g, W_d, W_g, dt, flux, _floor);
+    check_CUDA_errors("_update_Sig");
     cudaDeviceSynchronize();
     calculate_dust_vel(g, W_d, W_g, _nu, _cs, _star, _sizes, _floor);
 }
