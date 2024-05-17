@@ -345,6 +345,7 @@ int main() {
             update_gas_sigma(g, Sig_g, dt, nu, gas_boundary, gas_floor);
             compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, Ws_d, gas_floor);
             calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor);  
+            compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);
 
             // Coagulation update when 1 internal coagulation time-step has passed in the global simulation time
 
