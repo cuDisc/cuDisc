@@ -9,6 +9,7 @@
 #include "field.h"
 #include "DSHARP_opacs.h"
 #include "bins.h"
+#include "dustdynamics1D.h"
 
 void write_grid(std::string folder, Grid &g) {
 
@@ -118,6 +119,31 @@ void write_prims(std::filesystem::path folder, out_type out, Grid &g, Field3D<Pr
             }
         }
         f.write((char*) &Sig_g, sizeof(double));
+    }  
+    f.close();
+}
+
+template<typename out_type>
+void write_prims1D(std::filesystem::path folder, out_type out, Grid &g, Field3D<Prims1D>& wd, Field<Prims1D>& wg) {
+
+    std::stringstream out_string ;
+    out_string << out ;
+
+    std::ofstream f(folder / ("dens1D_" + out_string.str() + ".dat"), std::ios::binary);
+
+    int NR = g.NR+2*g.Nghost, nspec = wd.Nd;
+
+    f.write((char*) &NR, sizeof(int));
+    f.write((char*) &nspec, sizeof(int));
+    for (int i=0; i<g.NR+2*g.Nghost; i++) {
+        for (int k=0; k<2; k++) {
+            f.write((char*) &wg(i,g.Nghost)[k], sizeof(double));
+        }
+        for (int k=0; k<wd.Nd; k++) {
+            for (int l=0; l<2; l++) {
+                f.write((char*) &wd(i,g.Nghost,k)[l], sizeof(double));
+            }
+        }
     }  
     f.close();
 }

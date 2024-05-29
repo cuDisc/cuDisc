@@ -110,7 +110,7 @@ KernelResult BirnstielKernelVertInt::operator()(int i, int j, int k1, int k2) co
 
     // Step 1: Compute the turbulent velocity:
     //   1a. Get the Stokes number (a*tmp)
-    RealType Sig_g = _wg(i,j).rho, cs = _cs(i,j), R = _g.Rc(i) ;
+    RealType Sig_g = _wg(i,j).Sig, cs = _cs(i,j), R = _g.Rc(i) ;
 
     RealType tmp = M_PI/2 * _rho_grain / Sig_g;
     a1 *= tmp ;
@@ -119,7 +119,7 @@ KernelResult BirnstielKernelVertInt::operator()(int i, int j, int k1, int k2) co
     RealType sqrtRe = sqrt(_alpha_t(i,j) * Sig_g / (2.*_mu * m_p)  * 2.e-15);
 
     //   1b: Compute the turbulent velocity
-    RealType v_turb = 3./2. * _alpha_t(i,j) * cs*cs * Vrel_sqd_OC07(a1, a2, 1/sqrtRe) ;//_vrels(k1,k2)*_vrels(k1,k2); // 
+    RealType v_turb = _alpha_t(i,j) * cs*cs * Vrel_sqd_OC07(a1, a2, 1/sqrtRe) ;//_vrels(k1,k2)*_vrels(k1,k2); // 
 
     // Protect against NaN at low gas density
     if (Sig_g == 0) v_turb = 0 ;
@@ -134,13 +134,6 @@ KernelResult BirnstielKernelVertInt::operator()(int i, int j, int k1, int k2) co
     // Step 2: Add the laminar components in quadrature
     tmp = _wd(i,j,k1).v_R - _wd(i,j,k2).v_R;
     v_turb += tmp*tmp ;
-
-    tmp = _wd(i,j,k1).v_Z - _wd(i,j,k2).v_Z ;
-    v_turb += tmp*tmp ;
-
-    tmp = _wd(i,j,k1).v_phi - _wd(i,j,k2).v_phi;
-    v_turb += tmp*tmp ;
-
 
     // Step 3: Compute the kernel
     KernelResult result ;

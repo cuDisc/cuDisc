@@ -4,6 +4,7 @@
 #include "grid.h"
 #include "field.h"
 #include "dustdynamics.h"
+#include "dustdynamics1D.h"
 #include "cuda_array.h"
 #include "reductions.h"
 #include "constants.h"
@@ -1230,4 +1231,54 @@ void calc_wind_surface(Grid& g, const Field<Prims>& wg, CudaArray<double>& h_w, 
         }
     }
 
+}
+
+// Gas updates for Prims1D object
+
+void update_gas_sigma(Grid& g, Field<Prims1D>& W_g, double dt, const CudaArray<double>& nu, int bound, double floor) {
+
+    CudaArray<double> RF = make_CudaArray<double>(g.NR+2*g.Nghost);
+    CudaArray<double> Sig_g = make_CudaArray<double>(g.NR+2*g.Nghost);
+
+    size_t threads = 256 ;
+    size_t blocks = (g.NR + 2*g.Nghost+255)/256 ;
+
+    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
+        Sig_g[i] = W_g(i,g.Nghost).Sig;
+    }
+
+    _set_bounds(g, Sig_g.get(), bound, floor);
+    _calc_Rflux<<<blocks, threads>>>(g, Sig_g.get(), RF.get(), nu.get());
+    _update_Sig<<<blocks, threads>>>(g, Sig_g.get(), RF.get(), dt, floor);
+    cudaDeviceSynchronize();
+
+    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
+        W_g(i,g.Nghost).Sig = Sig_g[i];
+    }
+}
+
+void calc_v_gas(Grid& g, Field<Prims1D>& W_g, CudaArray<double>& nu, double GMstar, double gasfloor) {
+
+    for (int i=g.Nghost; i<g.NR+g.Nghost; i++) {
+        if (W_g(i,g.Nghost).Sig < 10.*gasfloor) { 
+            W_g(i,g.Nghost).v_R  = -100; 
+            continue;
+        }
+
+        double f1 = sqrt(g.Rc(i+1)) * W_g(i+1,g.Nghost).Sig * nu[i+1];
+        double f0 = sqrt(g.Rc(i-1)) * W_g(i-1,g.Nghost).Sig * nu[i-1];
+
+        W_g(i,g.Nghost).v_R = -3./(W_g(i,g.Nghost).Sig * sqrt(g.Rc(i))) * (f1-f0)/(g.Rc(i+1)-g.Rc(i-1));
+
+        if (W_g(i,g.Nghost).v_R  < -100) {
+            W_g(i,g.Nghost).v_R  = -100;
+        }
+    }
+
+    for (int i=0; i<g.Nghost; i++) {
+        W_g(i,g.Nghost).v_R = W_g(g.Nghost,g.Nghost).v_R;
+    }
+    for (int i=g.NR+g.Nghost; i<g.NR+2*g.Nghost; i++) {
+        W_g(i,g.Nghost).v_R = W_g(g.NR+g.Nghost-1,g.Nghost).v_R;
+    }
 }

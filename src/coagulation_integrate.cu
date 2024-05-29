@@ -9,8 +9,9 @@
 
 #include <iostream>
 
+template<typename T>
 __global__ void _compute_ytot(GridRef g, Field3DConstRef<double> y, 
-                              FieldRef<double> yscale, double scale, FieldRef<Prims> wg) {
+                              FieldRef<double> yscale, double scale, FieldRef<T> wg) {
 
     int j = threadIdx.x + blockIdx.x * blockDim.x ;
     int i = threadIdx.y + blockIdx.y * blockDim.y ;
@@ -19,7 +20,27 @@ __global__ void _compute_ytot(GridRef g, Field3DConstRef<double> y,
         double res = 0 ;
         for (int k=0; k<y.Nd; k++)
             res += y(i,j,k) ;
-        if (res > y.Nd*10*1e-40*wg(i,j).rho) {
+        if (res > y.Nd*10*1e-40*wg(i,j)[0]) {
+            yscale(i,j) = (res+1e-100)*scale ;
+        }
+        else {
+            yscale(i,j) = 1.;
+        }
+    }
+}
+
+/* specialization for double */
+__global__ void _compute_ytot(GridRef g, Field3DConstRef<double> y, 
+                              FieldRef<double> yscale, double scale, FieldRef<double> wg) {
+
+    int j = threadIdx.x + blockIdx.x * blockDim.x ;
+    int i = threadIdx.y + blockIdx.y * blockDim.y ;
+
+    if (i < g.NR + 2*g.Nghost && j < g.Nphi + 2*g.Nghost) {
+        double res = 0 ;
+        for (int k=0; k<y.Nd; k++)
+            res += y(i,j,k) ;
+        if (res > y.Nd*10*1e-40*wg(i,j)) {
             yscale(i,j) = (res+1e-100)*scale ;
         }
         else {
@@ -131,8 +152,8 @@ __global__ void _compute_error_norm_debug(GridRef g,
     }
 } 
 
-
-double TimeIntegration::take_step(Grid& g, Field3D<double>& y, Field<Prims>& wg, double& dtguess) const {
+template<typename T>
+double TimeIntegration::take_step(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess) const {
 
     CodeTiming::BlockTimer block =
         timer->StartNewTimer("TimeIntegation::take_step");
@@ -157,7 +178,7 @@ double TimeIntegration::take_step(Grid& g, Field3D<double>& y, Field<Prims>& wg,
     dim3 blocks((g.Nphi+2*g.Nghost+31)/32,(g.NR+2*g.Nghost+31)/32,1) ;
 
     // Compute the total density for the error estimation
-    _compute_ytot<<<blocks,threads>>>(g, y, yabs, _abs_tol, wg) ; 
+    _compute_ytot<<<blocks,threads>>>(g, y, yabs, _abs_tol, FieldRef<T>(wg)) ; 
     check_CUDA_errors("_compute_ytot") ;
       
     bool success = false ;
@@ -192,7 +213,8 @@ double TimeIntegration::take_step(Grid& g, Field3D<double>& y, Field<Prims>& wg,
 
     return dt ;
 }
-double TimeIntegration::take_step_debug(Grid& g, Field3D<double>& y, Field<Prims>& wg, double& dtguess, int* idxs) const {
+template<typename T>
+double TimeIntegration::take_step_debug(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess, int* idxs) const {
 
     CodeTiming::BlockTimer block =
         timer->StartNewTimer("TimeIntegation::take_step");
@@ -219,7 +241,7 @@ double TimeIntegration::take_step_debug(Grid& g, Field3D<double>& y, Field<Prims
     dim3 blocks((g.Nphi+2*g.Nghost+31)/32,(g.NR+2*g.Nghost+31)/32,1) ;
 
     // Compute the total density for the error estimation
-    _compute_ytot<<<blocks,threads>>>(g, y, yabs, _abs_tol, wg) ; 
+    _compute_ytot<<<blocks,threads>>>(g, y, yabs, _abs_tol, FieldRef<T>(wg)) ; 
     check_CUDA_errors("_compute_ytot") ;
       
     bool success = false ;
@@ -269,7 +291,8 @@ void TimeIntegration::integrate(Grid& g, Field3D<double>& y, double tmax) const 
     }
 }
 
-__global__ void _copy_rho_forwards(GridRef g, Field3DRef<Prims> ws, FieldRef<Prims> wg, Field3DRef<double> rhos, double floor) {
+template<typename T>
+__global__ void _copy_rho_forwards(GridRef g, Field3DRef<T> ws, FieldRef<T> wg, Field3DRef<double> rhos, double floor) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -281,13 +304,33 @@ __global__ void _copy_rho_forwards(GridRef g, Field3DRef<Prims> ws, FieldRef<Pri
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
             for (int k=kidx; k<ws.Nd; k+=kstride) { 
-                rhos(i,j,k) = max(ws(i,j,k).rho-floor*wg(i,j).rho, 0.);
+                rhos(i,j,k) = max(ws(i,j,k)[0]-floor*wg(i,j)[0], 0.);
             }
         }
     }
 }
 
-__global__ void _copy_rho_backwards(GridRef g, Field3DRef<Prims> ws, FieldRef<Prims> wg, Field3DRef<double> rhos, double floor) {
+/* Specialization for type double */
+__global__ void _copy_rho_forwards(GridRef g, Field3DRef<double> ws, FieldRef<double> wg, Field3DRef<double> rhos, double floor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
+            for (int k=kidx; k<ws.Nd; k+=kstride) { 
+                rhos(i,j,k) = max(ws(i,j,k)-floor*wg(i,j), 0.);
+            }
+        }
+    }
+}
+
+template<typename T>
+__global__ void _copy_rho_backwards(GridRef g, Field3DRef<T> ws, FieldRef<T> wg, Field3DRef<double> rhos, double floor) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -299,7 +342,26 @@ __global__ void _copy_rho_backwards(GridRef g, Field3DRef<Prims> ws, FieldRef<Pr
     for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) { 
             for (int k=kidx; k<ws.Nd; k+=kstride) { 
-                ws(i,j,k).rho = rhos(i,j,k) + floor*wg(i,j).rho; 
+                ws(i,j,k)[0] = rhos(i,j,k) + floor*wg(i,j)[0]; 
+            }
+        }
+    }
+}
+
+/* Specialization for type double */
+__global__ void _copy_rho_backwards(GridRef g, Field3DRef<double> ws, FieldRef<double> wg, Field3DRef<double> rhos, double floor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) { 
+            for (int k=kidx; k<ws.Nd; k+=kstride) { 
+                ws(i,j,k) = rhos(i,j,k) + floor*wg(i,j); 
             }
         }
     }
@@ -331,9 +393,8 @@ double calc_mass_cell(Grid& g, Field3D<double>& q) {
     return mass;
 }
 
-
-
-void TimeIntegration::integrate(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, double tmax, double& dt_coag, double floor) const {
+template<typename T>
+void TimeIntegration::integrate(Grid& g, Field3D<T>& ws, Field<T>& wg, double tmax, double& dt_coag, double floor) const {
     double dt = dt_coag ;
     if (dt_coag < tmax && dt_coag > _SAFETY*tmax)
         dt /= 2 ;
@@ -346,7 +407,7 @@ void TimeIntegration::integrate(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, d
     dim3 threads(16,8,8);
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (ws.Nd+7)/8) ;
 
-    _copy_rho_forwards<<<blocks,threads>>>(g, ws, wg, rhos, floor);
+    _copy_rho_forwards<<<blocks,threads>>>(g, Field3DRef<T>(ws), FieldRef<T>(wg), rhos, floor);
     cudaDeviceSynchronize();
     int count = 0;
 
@@ -362,10 +423,11 @@ void TimeIntegration::integrate(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, d
     
     dt_coag = dt;
 
-    _copy_rho_backwards<<<blocks,threads>>>(g, ws, wg, rhos, floor);
+    _copy_rho_backwards<<<blocks,threads>>>(g, Field3DRef<T>(ws), FieldRef<T>(wg), rhos, floor);
 }
 
-void TimeIntegration::integrate_debug(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, double tmax, double& dt_coag, double floor) const {
+template<typename T>
+void TimeIntegration::integrate_debug(Grid& g, Field3D<T>& ws, Field<T>& wg, double tmax, double& dt_coag, double floor) const {
     double dt = dt_coag ; 
     if (dt_coag < tmax && dt_coag > _SAFETY*tmax)
         dt /= 2 ;
@@ -377,7 +439,7 @@ void TimeIntegration::integrate_debug(Grid& g, Field3D<Prims>& ws, Field<Prims>&
     dim3 threads(16,8,8);
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (ws.Nd+7)/8) ;
 
-    _copy_rho_forwards<<<blocks,threads>>>(g, ws, wg, rhos, floor);
+    _copy_rho_forwards<<<blocks,threads>>>(g, Field3DRef<T>(ws), FieldRef<T>(wg), rhos, floor);
     cudaDeviceSynchronize();
     int count = 0;
     int idxs[2] = {0,0};
@@ -400,7 +462,7 @@ void TimeIntegration::integrate_debug(Grid& g, Field3D<Prims>& ws, Field<Prims>&
 
     dt_coag = dt;
 
-    _copy_rho_backwards<<<blocks,threads>>>(g, ws, wg, rhos, floor);
+    _copy_rho_backwards<<<blocks,threads>>>(g, Field3DRef<T>(ws), FieldRef<T>(wg), rhos, floor);
 }
 
 __global__ void _Rk2_update1(GridRef g, Field3DConstRef<double> y, 
@@ -570,3 +632,11 @@ template class Rk2Integration<CoagulationRate<BirnstielKernelVertInt,SimpleErosi
 template class BS32Integration<CoagulationRate<BirnstielKernel,SimpleErosion>> ;
 template class BS32Integration<CoagulationRate<ConstantKernel,SimpleErosion>> ;
 template class BS32Integration<CoagulationRate<BirnstielKernelVertInt,SimpleErosion>> ;
+
+template void TimeIntegration::integrate_debug<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, double tmax, double& dt_coag, double floor) const;
+template void TimeIntegration::integrate_debug<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, double tmax, double& dt_coag, double floor) const;
+template void TimeIntegration::integrate_debug<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, double tmax, double& dt_coag, double floor) const;
+
+template void TimeIntegration::integrate<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, double tmax, double& dt_coag, double floor) const;
+template void TimeIntegration::integrate<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, double tmax, double& dt_coag, double floor) const;
+template void TimeIntegration::integrate<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, double tmax, double& dt_coag, double floor) const;

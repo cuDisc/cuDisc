@@ -8,6 +8,7 @@
 #include "grid.h"
 #include "field.h"
 #include "dustdynamics.h"
+#include "dustdynamics1D.h"
 
 #include "coagulation/size_grid.h"
 
@@ -63,8 +64,8 @@ class BirnstielKernel {
 
 class BirnstielKernelVertInt {
   public:
-    BirnstielKernelVertInt(Grid&g, SizeGrid& sizes, const Field3D<Prims>& wd,
-                    const Field<Prims>& wg, const Field<double>& sound_speed, 
+    BirnstielKernelVertInt(Grid&g, SizeGrid& sizes, const Field3D<Prims1D>& wd,
+                    const Field<Prims1D>& wg, const Field<double>& sound_speed, 
                     const Field<double>& alpha, double mu, double Mstar=1)
       : _g(g), _cs(sound_speed), _grain_sizes(sizes.grain_sizes()), _grain_masses(sizes.grain_masses()),
         _wd(wd), _wg(wg),
@@ -94,8 +95,8 @@ class BirnstielKernelVertInt {
     FieldConstRef<double> _cs ;
     const RealType* _grain_sizes ;
     const RealType* _grain_masses ;
-    Field3DConstRef<Prims> _wd ;
-    FieldConstRef<Prims> _wg ;
+    Field3DConstRef<Prims1D> _wd ;
+    FieldConstRef<Prims1D> _wg ;
     FieldConstRef<double> _alpha_t ;
 
     RealType  _GMstar, _mu;

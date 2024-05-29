@@ -31,7 +31,7 @@ HEADERS := grid.h field.h cuda_array.h reductions.h utils.h matrix_types.h scan.
 	stellar_irradiation.h planck.h opacity.h constants.h FLD.h  FLD_device.h \
 	pcg_solver.h radmc3d_utils.h star.h timing.h bins.h advection.h \
 	diffusion_device.h sources.h gas1d.h DSHARP_opacs.h file_io.h errorfuncs.h \
-	dustdynamics.h $(COAG_HEADERS)
+	dustdynamics.h dustdynamics1D.h van_leer.h $(COAG_HEADERS)
 
 
 OBJ := grid.o integrate_z.o scan.o scan3d.o zero_bounds.o copy.o \
@@ -39,7 +39,7 @@ OBJ := grid.o integrate_z.o scan.o scan3d.o zero_bounds.o copy.o \
 	FLD_sts.o jacobi.o ILU_precond.o gmres.o block_jacobi.o sparse_utils.o \
 	radmc3d_utils.o timing.o star.o bins.o check_tol.o advection.o diffusion.o \
 	coagulation.o coagulation_init.o coagulation_integrate.o  super_stepping.o \
-	sources.o gas1d.o DSHARP_opacs.o dustdynamics.o
+	sources.o gas1d.o DSHARP_opacs.o dustdynamics.o dustdynamics1D.o
 
 OBJ := $(addprefix $(BUILD_DIR)/, $(OBJ))
 HEADERS := $(addprefix $(HEADER_DIR)/, $(HEADERS))
