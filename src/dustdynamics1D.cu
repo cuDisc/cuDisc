@@ -4,19 +4,7 @@
 #include "grid.h"
 #include "dustdynamics1D.h"
 #include "constants.h"
-
-__device__
-double _vl_slope1(double dQF, double dQB, double cF, double cB) {
-
-    if (dQF*dQB > 0.) {
-        double v = dQB/dQF ;
-        return dQB * (cF*v + cB) / (v*v + (cF + cB - 2)*v + 1.) ;
-    } 
-    else {
-        return 0. ;
-    }
-    
-}
+#include "van_leer.h"
 
 __global__ 
 void _calc_eta(GridRef g, FieldConstRef<Prims1D> W_g, double GMstar, FieldConstRef<double> cs, double* eta) {
@@ -80,33 +68,24 @@ void calculate_dust_vel(Grid& g, Field3D<Prims1D>& W_d, const Field<Prims1D>& W_
     CudaArray<double> v_gas = make_CudaArray<double>(g.NR+2*g.Nghost);
     
     _calc_eta<<<blocks,threads>>>(g, W_g, star.GM, cs, eta.get());
+    check_CUDA_errors("_calc_eta");
     cudaDeviceSynchronize();
     // for (int i=0; i<g.NR+2*g.Nghost; i++) {
     //     std::cout << eta[i] << "\n";
     // }
     // _calc_v_gas<<<blocks,threads>>>(g, W_g, nu.get(), v_gas.get(), star.GM, gasfloor);
     _calc_dust_vel<<<blocks2D, threads2D>>>(g, W_d, W_g, eta.get(), cs, star.GM, sizes.solid_density(), sizes.grain_sizes(), floor);
+    check_CUDA_errors("_calc_dust_vel");
 
 }
 
 __device__
-double vl(GridRef& g, Field3DRef<Prims1D>& Qty, int i, int k, int qidx) {
-
-    int j = g.Nghost;
-
-    double Rc = g.Rc(i);
-
-    double cF = (g.Rc(i+1) - Rc) / (g.Re(i+1)-Rc) ;
-    double cB = (g.Rc(i-1) - Rc) / (g.Re(i)-Rc) ;
-
-    double dQF = (Qty(i+1,j,k)[qidx] - Qty(i,j,k)[qidx]) / (g.Rc(i+1) - Rc) ;
-    double dQB = (Qty(i-1,j,k)[qidx] - Qty(i,j,k)[qidx]) / (g.Rc(i-1) - Rc) ;
-
-    return _vl_slope1(dQF, dQB, cF, cB) ;
+double vl(GridRef& g, Field3DConstRef<Prims1D>& Qty, int i, int k, int qidx) {
+    return vl_R(g, Qty, i, k, g.Nghost, qidx) ;
 }
 
 __device__
-double compute_diff_flux(GridRef& g, Field3DRef<Prims1D>& W_d, FieldConstRef<Prims1D> W_g, Field3DRef<double>& D, int i, int k, double gas_floor) {
+double compute_diff_flux(GridRef& g, Field3DConstRef<Prims1D>& W_d, FieldConstRef<Prims1D> W_g, Field3DRef<double>& D, int i, int k, double gas_floor) {
 
     if (i < g.Nghost+1 || i > g.NR+g.Nghost-1) { return 0.; }
     if (W_g(i,g.Nghost).Sig < 1.1*gas_floor) {
@@ -119,9 +98,7 @@ double compute_diff_flux(GridRef& g, Field3DRef<Prims1D>& W_d, FieldConstRef<Pri
     double D_e = D(i-1,g.Nghost,k) + dRe*(D(i,g.Nghost,k)-D(i-1,g.Nghost,k)) / dRc;
     double ddtg = (W_d(i,g.Nghost,k).Sig/W_g(i,g.Nghost).Sig - W_d(i-1,g.Nghost,k).Sig/W_g(i-1,g.Nghost).Sig) / dRc;
 
-    // double Flim = 0.5*(W_d(i,g.Nghost,k).Sig+W_d(i-1,g.Nghost,k).Sig) * 1e4;
     double flux = - D_e * ddtg;
-    // flux = flux * pow(1+pow(flux/Flim,10.),-1./10.);
 
     return flux;
 }
@@ -148,7 +125,7 @@ void construct_diff_fluxes(GridRef& g, double v_l, double v_r, double v_av,
 }
 
 __device__
-void dust_diff_flux(GridRef& g, Field3DRef<Prims1D>& W_d, int i, int k, Field3DRef<double>& flux, double diff_flux) {
+void dust_diff_flux(GridRef& g, Field3DConstRef<Prims1D>& W_d, int i, int k, Field3DRef<double>& flux, double diff_flux) {
 
     int j = g.Nghost;
 
@@ -168,7 +145,7 @@ void dust_diff_flux(GridRef& g, Field3DRef<Prims1D>& W_d, int i, int k, Field3DR
 }
 
 __device__
-void dust_diff_flux_vl(GridRef& g, Field3DRef<Prims1D> W_d, int i, int k, Field3DRef<double> flux, double diff_flux) {
+void dust_diff_flux_vl(GridRef& g, Field3DConstRef<Prims1D>& W_d, int i, int k, Field3DRef<double> flux, double diff_flux) {
 
     int j = g.Nghost;
 
@@ -191,7 +168,7 @@ void dust_diff_flux_vl(GridRef& g, Field3DRef<Prims1D> W_d, int i, int k, Field3
     construct_diff_fluxes(g, v_l, v_r, v_av, sig_l, sig_r, flux, diff_flux, i, k);
 }
 
-__global__ void _calc_diff_flux(GridRef g, Field3DRef<Prims1D> W_d, FieldConstRef<Prims1D> W_g, Field3DRef<double> flux, Field3DRef<double> D, double gas_floor) {
+__global__ void _calc_diff_flux(GridRef g, Field3DConstRef<Prims1D> W_d, FieldConstRef<Prims1D> W_g, Field3DRef<double> flux, Field3DRef<double> D, double gas_floor) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
@@ -209,7 +186,7 @@ __global__ void _calc_diff_flux(GridRef g, Field3DRef<Prims1D> W_d, FieldConstRe
     }
 }
 
-__global__ void _calc_diff_flux_vl(GridRef g, Field3DRef<Prims1D> W_d, FieldConstRef<Prims1D> W_g, Field3DRef<double> flux, Field3DRef<double> D, double gas_floor) {
+__global__ void _calc_diff_flux_vl(GridRef g, Field3DConstRef<Prims1D> W_d, FieldConstRef<Prims1D> W_g, Field3DRef<double> flux, Field3DRef<double> D, double gas_floor) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
@@ -335,24 +312,30 @@ void DustDyn1D::operator() (Grid& g, Field3D<Prims1D>& W_d, const Field<Prims1D>
     Field3D<double> flux = Field3D<double>(g.NR+2*g.Nghost,1+2*g.Nghost,W_d.Nd);
 
     _set_bounds_d<<<blocks,threads>>>(g, W_d, _boundary, _floor);
+    check_CUDA_errors("_set_bounds_d");
 
     // Calc donor cell flux
 
     _calc_diff_flux<<<blocks,threads>>>(g, W_d, W_g, flux, _D, _gas_floor);
+    check_CUDA_errors("_set_bounds_d");
 
     // Update quantities a half time step
 
     _update_mid_Sig<<<blocks,threads>>>(g, W_d_mid, W_d, W_g, dt, flux, _floor);
+    check_CUDA_errors("_update_mid_Sig");
     cudaDeviceSynchronize();
     calculate_dust_vel(g, W_d_mid, W_g, _nu, _cs, _star, _sizes, _floor);
 
     _set_bounds_d<<<blocks,threads>>>(g, W_d, _boundary, _floor);
+    check_CUDA_errors("_set_bounds_d");
 
     // Compute fluxes with Van Leer
 
     _calc_diff_flux_vl<<<blocks,threads>>>(g, W_d_mid, W_g, flux, _D, _gas_floor);
+    check_CUDA_errors("_calc_diff_flux_vl");
 
     _update_Sig<<<blocks,threads>>>(g, W_d, W_g, dt, flux, _floor);
+    check_CUDA_errors("_update_Sig");
     cudaDeviceSynchronize();
     calculate_dust_vel(g, W_d, W_g, _nu, _cs, _star, _sizes, _floor);
 }
@@ -366,23 +349,11 @@ double DustDyn1D::get_CFL_limit(const Grid& g, const Field3D<Prims1D>& W_dust, c
             if (W_dust(i,g.Nghost,k).Sig < 10.*W_gas(i,g.Nghost).Sig*_floor) { continue; }
 
             double dtR = abs(g.dRe(i)/W_dust(i,g.Nghost,k).v_R);
-
-            if (_D(i,g.Nghost,k) == 0) {
-                CFL_k = min(CFL_k, _CFL_adv*dtR);
-            }
-            else {
-                double dtR_diff = abs(g.dRe(i)*g.dRe(i) * W_gas(i,g.Nghost).Sig / _D(i,g.Nghost,k));
-
-                double CFL_advdiffmin; 
-                
-                if (dtR < dtR_diff) {
-                    CFL_advdiffmin = _CFL_adv * dtR;
-                }
-                else {
-                    CFL_advdiffmin = _CFL_diff * dtR_diff;
-                }
-
-                CFL_k = min(CFL_k, CFL_advdiffmin);
+            CFL_k = min(CFL_k, _CFL_adv*dtR);
+            
+            if (_D(i,g.Nghost,k) != 0) {
+                dtR = abs(g.dRe(i)*g.dRe(i) * W_gas(i,g.Nghost).Sig / _D(i,g.Nghost,k));
+                CFL_k = min(CFL_k, _CFL_diff*dtR);
             }
         }
         CFL_min = min(CFL_min, CFL_k);

@@ -4,6 +4,7 @@
 #include "grid.h"
 #include "star.h"
 #include "cuda_array.h"
+#include "dustdynamics1D.h"
 
 void update_gas_sigma(Grid& g, CudaArray<double>& Sig_g, double dt, const CudaArray<double>& nu, int bound, double floor);
 

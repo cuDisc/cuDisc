@@ -29,6 +29,26 @@ __global__ void _compute_ytot(GridRef g, Field3DConstRef<double> y,
     }
 }
 
+/* specialization for double */
+__global__ void _compute_ytot(GridRef g, Field3DConstRef<double> y, 
+                              FieldRef<double> yscale, double scale, FieldRef<double> wg) {
+
+    int j = threadIdx.x + blockIdx.x * blockDim.x ;
+    int i = threadIdx.y + blockIdx.y * blockDim.y ;
+
+    if (i < g.NR + 2*g.Nghost && j < g.Nphi + 2*g.Nghost) {
+        double res = 0 ;
+        for (int k=0; k<y.Nd; k++)
+            res += y(i,j,k) ;
+        if (res > y.Nd*10*1e-40*wg(i,j)) {
+            yscale(i,j) = (res+1e-100)*scale ;
+        }
+        else {
+            yscale(i,j) = 1.;
+        }
+    }
+}
+
 // Compute the maximum error scaled in each block. 
 // The result is stored in the errtot(i,j) corresponding to threadIdx.{x,y} = 0.
 __global__ void _compute_error_norm(GridRef g, 
@@ -290,6 +310,25 @@ __global__ void _copy_rho_forwards(GridRef g, Field3DRef<T> ws, FieldRef<T> wg, 
     }
 }
 
+/* Specialization for type double */
+__global__ void _copy_rho_forwards(GridRef g, Field3DRef<double> ws, FieldRef<double> wg, Field3DRef<double> rhos, double floor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
+            for (int k=kidx; k<ws.Nd; k+=kstride) { 
+                rhos(i,j,k) = max(ws(i,j,k)-floor*wg(i,j), 0.);
+            }
+        }
+    }
+}
+
 template<typename T>
 __global__ void _copy_rho_backwards(GridRef g, Field3DRef<T> ws, FieldRef<T> wg, Field3DRef<double> rhos, double floor) {
 
@@ -304,6 +343,25 @@ __global__ void _copy_rho_backwards(GridRef g, Field3DRef<T> ws, FieldRef<T> wg,
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) { 
             for (int k=kidx; k<ws.Nd; k+=kstride) { 
                 ws(i,j,k)[0] = rhos(i,j,k) + floor*wg(i,j)[0]; 
+            }
+        }
+    }
+}
+
+/* Specialization for type double */
+__global__ void _copy_rho_backwards(GridRef g, Field3DRef<double> ws, FieldRef<double> wg, Field3DRef<double> rhos, double floor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) { 
+            for (int k=kidx; k<ws.Nd; k+=kstride) { 
+                ws(i,j,k) = rhos(i,j,k) + floor*wg(i,j); 
             }
         }
     }
@@ -577,5 +635,8 @@ template class BS32Integration<CoagulationRate<BirnstielKernelVertInt,SimpleEros
 
 template void TimeIntegration::integrate_debug<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, double tmax, double& dt_coag, double floor) const;
 template void TimeIntegration::integrate_debug<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, double tmax, double& dt_coag, double floor) const;
+template void TimeIntegration::integrate_debug<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, double tmax, double& dt_coag, double floor) const;
+
 template void TimeIntegration::integrate<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, double tmax, double& dt_coag, double floor) const;
 template void TimeIntegration::integrate<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, double tmax, double& dt_coag, double floor) const;
+template void TimeIntegration::integrate<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, double tmax, double& dt_coag, double floor) const;
