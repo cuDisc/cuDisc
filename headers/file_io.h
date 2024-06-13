@@ -199,6 +199,32 @@ void read_prims(std::filesystem::path folder, snap_type snap, Field3D<Prims>& wd
     f.close();
 }
 
+template<typename out_type>
+void read_prims1D(std::filesystem::path folder, out_type out, Field3D<Prims1D>& wd, Field<Prims1D>& wg) {
+
+    std::stringstream out_string ;
+    out_string << out ;
+
+    std::ifstream f(folder / ("dens1D_" + out_string.str() + ".dat"), std::ios::binary);
+
+    int NR, nspec;
+
+    f.read((char*) &NR, sizeof(int));
+    f.read((char*) &nspec, sizeof(int));
+    for (int i=0; i<NR; i++) {
+        for (int k=0; k<2; k++) {
+            f.read((char*) &wg(i,2)[k], sizeof(double));
+        }
+        for (int k=0; k<nspec; k++) {
+            for (int l=0; l<2; l++) {
+                f.read((char*) &wd(i,2,k)[l], sizeof(double));
+            }
+        }
+    }  
+    f.close();
+}
+
+
 /* write_temp
  * 
  * Store the temperature and radiation field information.
