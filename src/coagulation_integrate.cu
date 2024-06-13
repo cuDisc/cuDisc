@@ -339,8 +339,8 @@ __global__ void _copy_rho_backwards(GridRef g, Field3DRef<T> ws, FieldRef<T> wg,
     int jstride = gridDim.y * blockDim.y ;
     int kstride = gridDim.z * blockDim.z ;
 
-    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
-        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) { 
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
             for (int k=kidx; k<ws.Nd; k+=kstride) { 
                 ws(i,j,k)[0] = rhos(i,j,k) + floor*wg(i,j)[0]; 
             }
@@ -358,8 +358,8 @@ __global__ void _copy_rho_backwards(GridRef g, Field3DRef<double> ws, FieldRef<d
     int jstride = gridDim.y * blockDim.y ;
     int kstride = gridDim.z * blockDim.z ;
 
-    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
-        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) { 
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
             for (int k=kidx; k<ws.Nd; k+=kstride) { 
                 ws(i,j,k) = rhos(i,j,k) + floor*wg(i,j); 
             }
