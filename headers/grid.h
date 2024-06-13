@@ -455,6 +455,7 @@ class GridManager {
         GridManager(Grid& g_main) : g(g_main) {}
 
         Grid add_subgrid(double R_in, double R_out);
+        Grid add_1Dsubgrid(double R_in, double R_out);
 
         template<typename T>
         void copy_to_subgrid(Grid& g_sub, const Field<T>& F_main, Field<T>& F_sub) ;
@@ -467,6 +468,12 @@ class GridManager {
 
         template<typename T>
         void copy_from_subgrid(Grid& g_sub, Field3D<T>& F_main, const Field3D<T>& F_sub) ;
+
+        template<typename T>
+        void copy_to_subgrid(Grid& g_sub, const CudaArray<T>& F_main, CudaArray<T>& F_sub) ;
+
+        template<typename T>
+        void copy_from_subgrid(Grid& g_sub, CudaArray<T>& F_main, const CudaArray<T>& F_sub) ;
 
     private:
         GridRef g;
