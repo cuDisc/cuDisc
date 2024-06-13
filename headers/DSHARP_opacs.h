@@ -336,6 +336,9 @@ void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, DSH
 void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, DSHARP_opacs& opacs,
                                     Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca);
 
+void calculate_total_rhokappa(Grid& g, Field3D<double>& rho_d, Field<Prims>& wg, DSHARP_opacs& opacs,
+                                    Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca);
+
 void calculate_grain_rhokappa(Grid& g, Field3D<Prims>& qd, DSHARP_opacs& opacs,
                                     Field3D<double>& rhokappa_abs_grain, Field3D<double>& rhokappa_sca_grain);
 
