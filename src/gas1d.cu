@@ -129,6 +129,7 @@ void _set_bounds(Grid& g, double* Sig_g, int bound, double floor) {
         // Sig_g[g.Nghost-1] = Sig_g[g.Nghost];
         Sig_g[g.Nghost-2] = Sig_g[g.Nghost-1];
     }
+    else if (bound & BoundaryFlags::set_ext_R_inner) {} //set externally (e.g. inflow)
     else {
         Sig_g[g.Nghost-2] = floor;
     }
@@ -138,6 +139,7 @@ void _set_bounds(Grid& g, double* Sig_g, int bound, double floor) {
         // Sig_g[g.NR+g.Nghost] = Sig_g[g.NR+g.Nghost-1];
         Sig_g[g.NR+g.Nghost+1] = Sig_g[g.NR+g.Nghost];
     }
+    else if (bound & BoundaryFlags::set_ext_R_inner) {} //set externally (e.g. inflow)
     else {
         Sig_g[g.NR+g.Nghost+1] = floor;
     }
@@ -158,6 +160,7 @@ void _set_v_bounds(GridRef g, FieldRef<Prims> wg, int bound, int coord, int buff
                 if (bound & BoundaryFlags::open_R_inner) {  //outflow
                     wg(i,j)[coord] = wg(g.Nghost+buff,j)[coord];
                 }
+                else if (bound & BoundaryFlags::set_ext_R_inner) {} //set externally (e.g. inflow)
                 else {  // zero
                     wg(i,j)[coord] = 0.;
                 }
@@ -167,6 +170,7 @@ void _set_v_bounds(GridRef g, FieldRef<Prims> wg, int bound, int coord, int buff
                 if (bound & BoundaryFlags::open_Z_outer) {
                     wg(i,j)[coord] = wg(i,g.Nphi+g.Nghost-buff-1)[coord];
                 }
+                else if (bound & BoundaryFlags::set_ext_Z_outer) {} //set externally (e.g. inflow)
                 else { // Zero
                     wg(i,j)[coord] = 0.;
                 }
@@ -176,6 +180,7 @@ void _set_v_bounds(GridRef g, FieldRef<Prims> wg, int bound, int coord, int buff
                 if (bound & BoundaryFlags::open_R_outer) {
                     wg(i,j)[coord] = wg(g.NR+g.Nghost-buff-1,j)[coord];
                 }
+                else if (bound & BoundaryFlags::set_ext_R_outer) {} //set externally (e.g. inflow)
                 else { // zero
                     wg(i,j)[coord] = 0.;
                 }
@@ -185,6 +190,7 @@ void _set_v_bounds(GridRef g, FieldRef<Prims> wg, int bound, int coord, int buff
                 if (bound & BoundaryFlags::open_Z_inner) {  
                     wg(i,j)[coord] = wg(i,g.Nghost)[coord];
                 }
+                else if (bound & BoundaryFlags::set_ext_Z_inner) {} //set externally (e.g. inflow)
                 else {  // reflecting
                     if (coord == 1) {
                         wg(i,j)[1] = wg(i,2*g.Nghost-1-j)[1] * (g.cos_th(j+1)*g.cos_th(j+1) - g.sin_th(j+1)*g.sin_th(j+1)) 
@@ -216,6 +222,7 @@ void _set_vphi_bounds(GridRef g, FieldRef<double> v_phi, int bound) {
                 if (bound & BoundaryFlags::open_R_inner) {  //outflow
                     v_phi(i,j) = v_phi(g.Nghost,j);
                 }
+                else if (bound & BoundaryFlags::set_ext_R_inner) {} //set externally (e.g. inflow)
                 else {  // zero
                     v_phi(i,j) = 0.;
                 }
@@ -225,6 +232,7 @@ void _set_vphi_bounds(GridRef g, FieldRef<double> v_phi, int bound) {
                 if (bound & BoundaryFlags::open_Z_outer) {
                     v_phi(i,j) = v_phi(i,g.Nphi+g.Nghost-1);
                 }
+                else if (bound & BoundaryFlags::set_ext_Z_outer) {} //set externally (e.g. inflow)
                 else { // Zero
                     v_phi(i,j) = 0.;
                 }
@@ -234,6 +242,7 @@ void _set_vphi_bounds(GridRef g, FieldRef<double> v_phi, int bound) {
                 if (bound & BoundaryFlags::open_R_outer) {
                     v_phi(i,j) = v_phi(g.NR+g.Nghost-1,j);
                 }
+                else if (bound & BoundaryFlags::set_ext_R_outer) {} //set externally (e.g. inflow)
                 else { // zero
                     v_phi(i,j) = 0.;
                 }
@@ -243,6 +252,7 @@ void _set_vphi_bounds(GridRef g, FieldRef<double> v_phi, int bound) {
                 if (bound & BoundaryFlags::open_Z_inner) {  
                     v_phi(i,j) = v_phi(i,g.Nghost);
                 }
+                else if (bound & BoundaryFlags::set_ext_Z_inner) {} //set externally (e.g. inflow)
                 else {  // reflecting
                     v_phi(i,j) = v_phi(i,2*g.Nghost-1-j);
                 }
@@ -1045,6 +1055,7 @@ void _set_bounds_d(Grid& g, double* Sig_d, int bound, double floor) {
         Sig_d[g.Nghost-1] = Sig_d[g.Nghost];
         Sig_d[g.Nghost-2] = Sig_d[g.Nghost];
     }
+    else if (bound & BoundaryFlags::set_ext_R_inner) {} //set externally (e.g. inflow)
     else {
         Sig_d[g.Nghost-1] = floor;
         Sig_d[g.Nghost-2] = floor;
@@ -1055,6 +1066,7 @@ void _set_bounds_d(Grid& g, double* Sig_d, int bound, double floor) {
         Sig_d[g.NR+g.Nghost] = Sig_d[g.NR+g.Nghost-1];
         Sig_d[g.NR+g.Nghost+1] = Sig_d[g.NR+g.Nghost-1];
     }
+    else if (bound & BoundaryFlags::set_ext_R_inner) {} //set externally (e.g. inflow)
     else {
         Sig_d[g.NR+g.Nghost] = floor;
         Sig_d[g.NR+g.Nghost+1] = floor;

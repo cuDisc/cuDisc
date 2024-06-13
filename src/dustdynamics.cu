@@ -42,6 +42,7 @@ void _set_boundaries(GridRef g, Field3DRef<Prims> w, int bound, double floor) {
                             w(i,j,k).v_R *= -1 ;
                         }
                     }
+                    else if (bound & BoundaryFlags::set_ext_R_inner) {} //set externally (e.g. inflow)
                     else {  //reflecting
                         w(i,j,k) = w(2*g.Nghost-1-i,j,k) ;
                         w(i,j,k).v_R *= -1 ;
@@ -64,6 +65,7 @@ void _set_boundaries(GridRef g, Field3DRef<Prims> w, int bound, double floor) {
                                         + 2.*w(i,2*(g.Nphi+g.Nghost)-1-j,k)[1]*g.sin_th(g.Nphi+g.Nghost)*g.cos_th(g.Nphi+g.Nghost);                           
                         }
                     }
+                    else if (bound & BoundaryFlags::set_ext_Z_outer) {} //set externally (e.g. inflow)
                     else {
                         w(i,j,k)[0] = w(i,2*(g.Nphi+g.Nghost)-1-j,k)[0];
                         w(i,j,k)[1] = w(i,2*(g.Nphi+g.Nghost)-1-j,k)[1] * (g.cos_th(g.Nphi+g.Nghost)*g.cos_th(g.Nphi+g.Nghost) - g.sin_th(g.Nphi+g.Nghost)*g.sin_th(g.Nphi+g.Nghost)) 
@@ -84,6 +86,7 @@ void _set_boundaries(GridRef g, Field3DRef<Prims> w, int bound, double floor) {
                             w(i,j,k).v_R *= -1 ;
                         }
                     }
+                    else if (bound & BoundaryFlags::set_ext_R_outer) {} //set externally (e.g. inflow)
                     else {
                         w(i,j,k) = w(g.NR+g.Nghost-1,j,k);
                         w(i,j,k).v_R *= -1 ;
@@ -107,6 +110,7 @@ void _set_boundaries(GridRef g, Field3DRef<Prims> w, int bound, double floor) {
                         }
                         
                     }
+                    else if (bound & BoundaryFlags::set_ext_Z_inner) {} //set externally (e.g. inflow)
                     else {  
                         w(i,j,k)[0] = w(i,2*g.Nghost-1-j,k)[0];
                         w(i,j,k)[1] = w(i,2*g.Nghost-1-j,k)[1] * (g.cos_th(g.Nghost)*g.cos_th(g.Nghost) - g.sin_th(g.Nghost)*g.sin_th(g.Nghost)) 
@@ -157,8 +161,8 @@ void _calc_prim(GridRef g, Field3DRef<Quants> q, Field3DRef<Prims> w) {
     int jstride = gridDim.y * blockDim.y ;
     int kstride = gridDim.z * blockDim.z ;
 
-    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
-        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {   
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {   
             for (int k=kidx; k<q.Nd; k+=kstride) {
                 w(i,j,k).rho = q(i,j,k).rho;
                 w(i,j,k).v_R = q(i,j,k).mom_R/q(i,j,k).rho;
@@ -196,9 +200,9 @@ void _floor_prim(GridRef g, Field3DRef<Prims> w, FieldConstRef<Prims> w_gas, dou
 
 __device__
 double compute_diff_fluxR(GridRef& g, Field3DConstRef<double>& D, Field3DConstRef<Prims>& w, FieldConstRef<Prims>& w_gas, 
-                            FieldConstRef<double>& cs, int i, int j, int k, double gas_floor) {
+                            FieldConstRef<double>& cs, int i, int j, int k, double gas_floor, int bound) {
 
-    if (i < g.Nghost+1 || i > g.NR+g.Nghost-1) { return 0.; }
+    if ((i < g.Nghost+1 && !(bound & BoundaryFlags::set_ext_R_inner)) || (i > g.NR+g.Nghost-1 && !(bound & BoundaryFlags::set_ext_R_outer))) {return 0.;}
     else if ((w_gas(i-1,j).rho <= 1.1*gas_floor || w_gas(i,j).rho <= 1.1*gas_floor)) {return 0.;}
 
 
@@ -231,9 +235,9 @@ double compute_diff_fluxR(GridRef& g, Field3DConstRef<double>& D, Field3DConstRe
 
 __device__
 double compute_diff_fluxZ(GridRef& g, Field3DConstRef<double>& D, Field3DConstRef<Prims>& w, FieldConstRef<Prims>& w_gas, 
-                            FieldConstRef<double>& cs, int i, int j, int k, double gas_floor) {
+                            FieldConstRef<double>& cs, int i, int j, int k, double gas_floor, int bound) {
 
-    if (j < g.Nghost+1 || j > g.Nphi+g.Nghost-1) { return 0.; }
+    if ((j < g.Nghost+1 && !(bound & BoundaryFlags::set_ext_Z_inner)) || (j > g.Nphi+g.Nghost-1 && !(bound & BoundaryFlags::set_ext_Z_outer))) { return 0.; }
     else if ((w_gas(i,j-1).rho <= 1.1*gas_floor || w_gas(i,j).rho <= 1.1*gas_floor)) {return 0.;}
 
 
@@ -430,7 +434,7 @@ void dust_flux_vlZ(GridRef& g, Field3DConstRef<Prims>& w, int i, int j, int k, F
 
 template<bool do_diffusion>
 __global__ void _calc_donor_flux(GridRef g, Field3DConstRef<Prims> w, FieldConstRef<Prims> w_gas, FieldConstRef<double> cs,
-                                Field3DRef<Quants> fluxR, Field3DRef<Quants> fluxZ, Field3DConstRef<double> D, double gas_floor) {
+                                Field3DRef<Quants> fluxR, Field3DRef<Quants> fluxZ, Field3DConstRef<double> D, double gas_floor, int bound) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -445,11 +449,11 @@ __global__ void _calc_donor_flux(GridRef g, Field3DConstRef<Prims> w, FieldConst
                             
                 double diff_flux = 0;
                 if (do_diffusion) 
-                    diff_flux = compute_diff_fluxR(g, D, w, w_gas, cs, i, j, k, gas_floor);
+                    diff_flux = compute_diff_fluxR(g, D, w, w_gas, cs, i, j, k, gas_floor, bound);
                 dust_fluxR<do_diffusion>(g, w, i, j, k, fluxR, diff_flux);
 
                 if (do_diffusion) 
-                    diff_flux = compute_diff_fluxZ(g, D, w, w_gas, cs, i, j, k, gas_floor);
+                    diff_flux = compute_diff_fluxZ(g, D, w, w_gas, cs, i, j, k, gas_floor, bound);
                 dust_fluxZ<do_diffusion>(g, w, i, j, k, fluxZ, diff_flux); 
             } 
         }
@@ -459,7 +463,7 @@ __global__ void _calc_donor_flux(GridRef g, Field3DConstRef<Prims> w, FieldConst
 
 template<bool do_diffusion>
 __global__ void _calc_diff_flux_vl(GridRef g, Field3DConstRef<Prims> w, FieldConstRef<Prims> w_gas, FieldConstRef<double> cs,
-                                    Field3DRef<Quants> fluxR, Field3DRef<Quants> fluxZ, Field3DConstRef<double> D, double gas_floor) {
+                                    Field3DRef<Quants> fluxR, Field3DRef<Quants> fluxZ, Field3DConstRef<double> D, double gas_floor, int bound) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -474,11 +478,11 @@ __global__ void _calc_diff_flux_vl(GridRef g, Field3DConstRef<Prims> w, FieldCon
 
                 double diff_flux = 0;
                 if (do_diffusion) 
-                    diff_flux = compute_diff_fluxR(g, D, w, w_gas, cs, i, j, k, gas_floor);
+                    diff_flux = compute_diff_fluxR(g, D, w, w_gas, cs, i, j, k, gas_floor, bound);
                 dust_flux_vlR<do_diffusion>(g, w, i, j, k, fluxR, diff_flux);
 
                 if (do_diffusion) 
-                    diff_flux = compute_diff_fluxZ(g, D, w, w_gas, cs, i, j, k, gas_floor);
+                    diff_flux = compute_diff_fluxZ(g, D, w, w_gas, cs, i, j, k, gas_floor, bound);
                 dust_flux_vlZ<do_diffusion>(g, w, i, j, k, fluxZ, diff_flux); 
             }
         }
@@ -556,6 +560,7 @@ __global__ void _set_boundary_flux(GridRef g, int bound, Field3DRef<Quants> flux
                         if (fluxR(i,j,k).rho > 0) // prevent inflow
                             fluxR(i,j,k) = {0.,0.,0.,0.};
                     }
+                    else if (bound & BoundaryFlags::set_ext_R_inner) {} //set externally (e.g. inflow)
                     else {  //reflecting
                         fluxR(i,j,k) = {0.,0.,0.,0.};
                     }
@@ -566,6 +571,7 @@ __global__ void _set_boundary_flux(GridRef g, int bound, Field3DRef<Quants> flux
                         if (fluxZ(i,j,k).rho < 0) // prevent inflow
                             fluxZ(i,j,k) = {0.,0.,0.,0.};
                     }
+                    else if (bound & BoundaryFlags::set_ext_Z_outer) {} //set externally (e.g. inflow)
                     else {
                         fluxZ(i,j,k) = {0.,0.,0.,0.};
                     }
@@ -576,6 +582,7 @@ __global__ void _set_boundary_flux(GridRef g, int bound, Field3DRef<Quants> flux
                         if (fluxR(i,j,k).rho < 0) // prevent inflow
                             fluxR(i,j,k) = {0.,0.,0.,0.};
                     }
+                    else if (bound & BoundaryFlags::set_ext_R_outer) {} //set externally (e.g. inflow)
                     else {
                         fluxR(i,j,k) = {0.,0.,0.,0.};
                     }
@@ -586,6 +593,7 @@ __global__ void _set_boundary_flux(GridRef g, int bound, Field3DRef<Quants> flux
                         if (fluxZ(i,j,k).rho > 0) // prevent inflow
                             fluxZ(i,j,k) = {0.,0.,0.,0.};
                     }
+                    else if (bound & BoundaryFlags::set_ext_Z_inner) {} //set externally (e.g. inflow)
                     else {  
                         fluxZ(i,j,k) = {0.,0.,0.,0.};
                     }
@@ -638,11 +646,11 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
 
     // Calc donor cell flux
     if (_DoDiffusion) {
-        _calc_donor_flux<true><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+        _calc_donor_flux<true><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor, _boundary);
         check_CUDA_errors("_calc_donor_flux") ;
     }
     else {
-        _calc_donor_flux<false><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+        _calc_donor_flux<false><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor, _boundary);
         check_CUDA_errors("_calc_donor_flux") ;
     }
 
@@ -663,11 +671,11 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
 
     // Compute fluxes with Van Leer
     if (_DoDiffusion) {
-        _calc_diff_flux_vl<true><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+        _calc_diff_flux_vl<true><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor, _boundary);
         check_CUDA_errors("_calc_diff_flux_vl") ;
     }
     else {
-        _calc_diff_flux_vl<false><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+        _calc_diff_flux_vl<false><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor, _boundary);
         check_CUDA_errors("_calc_diff_flux_vl") ;
     }
 

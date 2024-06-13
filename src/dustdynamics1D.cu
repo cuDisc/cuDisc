@@ -81,14 +81,14 @@ void calculate_dust_vel(Grid& g, Field3D<Prims1D>& W_d, const Field<Prims1D>& W_
 
 __device__
 double vl(GridRef& g, Field3DConstRef<Prims1D>& Qty, int i, int k, int qidx) {
-    return vl_R(g, Qty, i, k, g.Nghost, qidx) ;
+    return vl_R(g, Qty, i, g.Nghost, k, qidx) ;
 }
 
 __device__
-double compute_diff_flux(GridRef& g, Field3DConstRef<Prims1D>& W_d, FieldConstRef<Prims1D> W_g, Field3DRef<double>& D, int i, int k, double gas_floor) {
+double compute_diff_flux(GridRef& g, Field3DConstRef<Prims1D>& W_d, FieldConstRef<Prims1D> W_g, Field3DRef<double>& D, int i, int k, double gas_floor, int bound) {
 
-    if (i < g.Nghost+1 || i > g.NR+g.Nghost-1) { return 0.; }
-    if (W_g(i,g.Nghost).Sig < 1.1*gas_floor) {
+    if ((i < g.Nghost+1 && !(bound & BoundaryFlags::set_ext_R_inner)) || (i > g.NR+g.Nghost-1 && !(bound & BoundaryFlags::set_ext_R_outer))) { return 0.; }
+    else if (W_g(i,g.Nghost).Sig < 1.1*gas_floor) {
         return 0 ;
     }
 
@@ -168,7 +168,8 @@ void dust_diff_flux_vl(GridRef& g, Field3DConstRef<Prims1D>& W_d, int i, int k, 
     construct_diff_fluxes(g, v_l, v_r, v_av, sig_l, sig_r, flux, diff_flux, i, k);
 }
 
-__global__ void _calc_diff_flux(GridRef g, Field3DConstRef<Prims1D> W_d, FieldConstRef<Prims1D> W_g, Field3DRef<double> flux, Field3DRef<double> D, double gas_floor) {
+__global__ void _calc_diff_flux(GridRef g, Field3DConstRef<Prims1D> W_d, FieldConstRef<Prims1D> W_g,
+                         Field3DRef<double> flux, Field3DRef<double> D, double gas_floor, int bound) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
@@ -178,7 +179,7 @@ __global__ void _calc_diff_flux(GridRef g, Field3DConstRef<Prims1D> W_d, FieldCo
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost+1; i+=istride) {
         for (int k=kidx; k<W_d.Nd; k+=kstride) {
 
-            double diff_flux = compute_diff_flux(g, W_d, W_g, D, i, k, gas_floor);
+            double diff_flux = compute_diff_flux(g, W_d, W_g, D, i, k, gas_floor, bound);
 
             dust_diff_flux(g, W_d, i, k, flux, diff_flux);
 
@@ -186,7 +187,8 @@ __global__ void _calc_diff_flux(GridRef g, Field3DConstRef<Prims1D> W_d, FieldCo
     }
 }
 
-__global__ void _calc_diff_flux_vl(GridRef g, Field3DConstRef<Prims1D> W_d, FieldConstRef<Prims1D> W_g, Field3DRef<double> flux, Field3DRef<double> D, double gas_floor) {
+__global__ void _calc_diff_flux_vl(GridRef g, Field3DConstRef<Prims1D> W_d, FieldConstRef<Prims1D> W_g, 
+                                    Field3DRef<double> flux, Field3DRef<double> D, double gas_floor, int bound) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
@@ -196,7 +198,7 @@ __global__ void _calc_diff_flux_vl(GridRef g, Field3DConstRef<Prims1D> W_d, Fiel
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost+1; i+=istride) {
         for (int k=kidx; k<W_d.Nd; k+=kstride) {
 
-            double diff_flux = compute_diff_flux(g, W_d, W_g, D, i, k, gas_floor);
+            double diff_flux = compute_diff_flux(g, W_d, W_g, D, i, k, gas_floor, bound);
 
             dust_diff_flux_vl(g, W_d, i, k, flux, diff_flux);
 
@@ -227,6 +229,7 @@ void _set_bounds_d(GridRef g, Field3DRef<Prims1D> W_d, int bound, double floor) 
                         W_d(i,j,k).v_R *= -1 ;
                     }
                 }
+                else if (bound & BoundaryFlags::set_ext_R_inner) {} //set externally (e.g. inflow)
                 else {  //reflecting
                     W_d(i,j,k) = W_d(2*g.Nghost-1-i,j,k) ;
                     W_d(i,j,k).v_R *= -1 ;
@@ -243,12 +246,51 @@ void _set_bounds_d(GridRef g, Field3DRef<Prims1D> W_d, int bound, double floor) 
                         W_d(i,j,k).v_R *= -1 ;
                     }
                 }
+                else if (bound & BoundaryFlags::set_ext_R_outer) {} //set externally (e.g. inflow)
                 else {
                     W_d(i,j,k) = W_d(g.NR+g.Nghost-1,j,k);
                     W_d(i,j,k).v_R *= -1 ;
                 }
             }    
         
+        }
+    }
+}
+
+
+__global__ void _set_boundary_flux(GridRef g, int bound, Field3DRef<double> flux) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    int j = g.Nghost;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int k=kidx; k<flux.Nd; k+=kstride) {
+
+            if (i <= g.Nghost) {
+                if (bound & BoundaryFlags::open_R_inner) {  //outflow
+                    if (flux(i,j,k) > 0) // prevent inflow
+                        flux(i,j,k) = 0.;
+                }
+                else if (bound & BoundaryFlags::set_ext_R_inner) {} //set externally (e.g. inflow)
+                else {  //reflecting
+                    flux(i,j,k) = 0.;
+                }
+            }     
+
+            if (i>=g.NR+g.Nghost) {
+                if (bound & BoundaryFlags::open_R_outer) {
+                    if (flux(i,j,k) < 0) // prevent inflow
+                        flux(i,j,k) = 0.;
+                }
+                else if (bound & BoundaryFlags::set_ext_R_outer) {} //set externally (e.g. inflow)
+                else {
+                    flux(i,j,k) = 0.;
+                }
+            }    
         }
     }
 }
@@ -300,6 +342,32 @@ __global__ void _update_Sig(GridRef g, Field3DRef<Prims1D> W_d, FieldConstRef<Pr
     }
 }
 
+__global__ void copy_boundaries(GridRef g, Field3DRef<Prims1D> W_d, Field3DRef<Prims1D> W_d_mid, int bound) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    int j = g.Nghost;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int k=kidx; k<W_d.Nd; k+=kstride) {
+            if (i < g.Nghost) {
+                if (bound & BoundaryFlags::set_ext_R_inner) {
+                    W_d_mid(i,j,k) = W_d(i,j,k);
+                }
+            }     
+
+            if (i >= g.NR+g.Nghost) {
+                if (bound & BoundaryFlags::set_ext_R_outer) {
+                    W_d_mid(i,j,k) = W_d(i,j,k);
+                }
+            }    
+        }
+    }
+}
+
 
 void DustDyn1D::operator() (Grid& g, Field3D<Prims1D>& W_d, const Field<Prims1D>& W_g, double dt) {
 
@@ -309,6 +377,11 @@ void DustDyn1D::operator() (Grid& g, Field3D<Prims1D>& W_d, const Field<Prims1D>
     // calculate advection-diffusion
 
     Field3D<Prims1D> W_d_mid = Field3D<Prims1D>(g.NR+2*g.Nghost,1+2*g.Nghost,W_d.Nd);
+
+    if (_boundary & BoundaryFlags::set_ext_R_inner || _boundary & BoundaryFlags::set_ext_R_outer) {
+        copy_boundaries<<<blocks,threads>>>(g, W_d, W_d_mid, _boundary);
+    }
+
     Field3D<double> flux = Field3D<double>(g.NR+2*g.Nghost,1+2*g.Nghost,W_d.Nd);
 
     _set_bounds_d<<<blocks,threads>>>(g, W_d, _boundary, _floor);
@@ -316,24 +389,27 @@ void DustDyn1D::operator() (Grid& g, Field3D<Prims1D>& W_d, const Field<Prims1D>
 
     // Calc donor cell flux
 
-    _calc_diff_flux<<<blocks,threads>>>(g, W_d, W_g, flux, _D, _gas_floor);
+    _calc_diff_flux<<<blocks,threads>>>(g, W_d, W_g, flux, _D, _gas_floor, _boundary);
     check_CUDA_errors("_set_bounds_d");
 
     // Update quantities a half time step
-
+    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, flux);
+    check_CUDA_errors("_set_boundary_flux");
     _update_mid_Sig<<<blocks,threads>>>(g, W_d_mid, W_d, W_g, dt, flux, _floor);
     check_CUDA_errors("_update_mid_Sig");
     cudaDeviceSynchronize();
     calculate_dust_vel(g, W_d_mid, W_g, _nu, _cs, _star, _sizes, _floor);
 
-    _set_bounds_d<<<blocks,threads>>>(g, W_d, _boundary, _floor);
+    _set_bounds_d<<<blocks,threads>>>(g, W_d_mid, _boundary, _floor);
     check_CUDA_errors("_set_bounds_d");
 
     // Compute fluxes with Van Leer
 
-    _calc_diff_flux_vl<<<blocks,threads>>>(g, W_d_mid, W_g, flux, _D, _gas_floor);
+    _calc_diff_flux_vl<<<blocks,threads>>>(g, W_d_mid, W_g, flux, _D, _gas_floor, _boundary);
     check_CUDA_errors("_calc_diff_flux_vl");
 
+    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, flux);
+    check_CUDA_errors("_set_boundary_flux");
     _update_Sig<<<blocks,threads>>>(g, W_d, W_g, dt, flux, _floor);
     check_CUDA_errors("_update_Sig");
     cudaDeviceSynchronize();
@@ -342,7 +418,7 @@ void DustDyn1D::operator() (Grid& g, Field3D<Prims1D>& W_d, const Field<Prims1D>
 
 double DustDyn1D::get_CFL_limit(const Grid& g, const Field3D<Prims1D>& W_dust, const Field<Prims1D>& W_gas) {
     double CFL_min = 1e308;
-    for (int i=0; i<g.NR+2*g.Nghost; i++) {
+    for (int i=g.Nghost; i<g.NR+g.Nghost; i++) {
         double CFL_k = 1e308;
         for (int k=0; k<W_dust.Nd; k++) {
 
