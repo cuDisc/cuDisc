@@ -492,6 +492,25 @@ void write_restart_file(std::string filename, int count, double t, double dt, do
     f.close();
 }
 
+void write_restart_file(std::string filename, int count, double t, double dt, double t_i, double dt_i, double t_coag_i, double dt_coag_i, double t_coag_o, double dt_coag_o, double t_temp, double dt_1perc) {
+
+    std::ofstream f(filename, std::ios::binary);
+
+    f.write((char*) &count, sizeof(int));
+    f.write((char*) &t, sizeof(double));
+    f.write((char*) &dt, sizeof(double));
+    f.write((char*) &t_i, sizeof(double));
+    f.write((char*) &dt_i, sizeof(double));
+    f.write((char*) &t_coag_i, sizeof(double));
+    f.write((char*) &dt_coag_i, sizeof(double));
+    f.write((char*) &t_coag_o, sizeof(double));
+    f.write((char*) &dt_coag_o, sizeof(double));
+    f.write((char*) &t_temp, sizeof(double));
+    f.write((char*) &dt_1perc, sizeof(double));
+
+    f.close();
+}
+
 void read_restart_file(std::string filename, int& count, double& t, double& dt, double& t_coag, double& t_temp, double& dt_coag, double& dt_1perc, double& t_interp) {
 
     std::ifstream f(filename, std::ios::binary);
@@ -504,6 +523,25 @@ void read_restart_file(std::string filename, int& count, double& t, double& dt, 
     f.read((char*) &dt_coag, sizeof(double));
     f.read((char*) &dt_1perc, sizeof(double));
     f.read((char*) &t_interp, sizeof(double));
+
+    f.close();
+}
+
+void read_restart_file(std::string filename, int& count, double& t, double& dt, double& t_i, double& dt_i, double& t_coag_i, double& dt_coag_i, double& t_coag_o, double& dt_coag_o, double& t_temp, double& dt_1perc) {
+
+    std::ifstream f(filename, std::ios::binary);
+
+    f.read((char*) &count, sizeof(int));
+    f.read((char*) &t, sizeof(double));
+    f.read((char*) &dt, sizeof(double));
+    f.read((char*) &t_i, sizeof(double));
+    f.read((char*) &dt_i, sizeof(double));
+    f.read((char*) &t_coag_i, sizeof(double));
+    f.read((char*) &dt_coag_i, sizeof(double));
+    f.read((char*) &t_coag_o, sizeof(double));
+    f.read((char*) &dt_coag_o, sizeof(double));
+    f.read((char*) &t_temp, sizeof(double));
+    f.read((char*) &dt_1perc, sizeof(double));
 
     f.close();
 }
