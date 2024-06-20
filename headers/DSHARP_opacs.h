@@ -179,6 +179,7 @@ class DSHARP_opacs {
                 for (int i=0; i<n_a; i++) {
                     for (int j=0; j<n_lam; j++) {
                         k_sca_ptr[i*n_lam+j] *= (1.-g[i*n_lam+j]);
+                        k_sca_ptr[i*n_lam+j] = std::max(k_sca_ptr[i*n_lam+j],1.e-100);
                     }
                 }
             }
