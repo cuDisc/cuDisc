@@ -7,6 +7,7 @@
 #include "dustdynamics.h"
 #include "constants.h"
 #include "sources.h"
+#include "drag_const.h"
 
 #include "coagulation/size_grid.h"
 
@@ -18,12 +19,28 @@ double OmK2(GridRef& g, double Mstar, int i, int j) {
     return GMsun * Mstar / std::pow(g.Rc(i)*g.Rc(i)+g.Zc(i,j)*g.Zc(i,j), 1.5);
 
 }
+
+template<bool full_stokes>
 __device__
-double t_s(double rho_g, double rho_m, double s, double T, double mu) {
+double t_s(Prims wd, Prims wg, double rho_m, double s, double T, double mu) {
 
-    double v_th = sqrt(8*k_B*T / (mu*m_H*M_PI));
+    double mfp = mu * m_H / (wg.rho * 2.e-15);
+    double cs = sqrt(k_B*T / (mu*m_H));
 
-    return rho_m * s / (rho_g * v_th);
+    if (full_stokes) {
+        double u_rel = sqrt((wd.v_phi-wg.v_phi)*(wd.v_phi-wg.v_phi) 
+                                + (wd.v_R-wg.v_R)*(wd.v_R-wg.v_R) + (wd.v_Z-wg.v_Z)*(wd.v_Z-wg.v_Z));
+        return 2.66666666667 * rho_m * s / (wg.rho * calc_C_D(s,wg.rho,cs,u_rel,mu) * u_rel);
+    }
+    else {
+        if (s<2.25*mfp) 
+            return 0.6266570686577501 * rho_m * s / (wg.rho*cs) ;
+        else {
+            double u_rel = sqrt((wd.v_phi-wg.v_phi)*(wd.v_phi-wg.v_phi) 
+                                + (wd.v_R-wg.v_R)*(wd.v_R-wg.v_R) + (wd.v_Z-wg.v_Z)*(wd.v_Z-wg.v_Z));
+            return 2.66666666667 * rho_m * s / (wg.rho * calc_C_D_step(s,wg.rho,cs,u_rel,mu) * u_rel);
+        }
+    }
 }
 
 __global__
@@ -120,7 +137,7 @@ void _source_drag(GridRef g, Field3DRef<Prims> w, FieldConstRef<Prims> w_gas, Fi
 
 }
 
-
+template<bool full_stokes>
 __global__
 void _calc_t_s(GridRef g, Field3DConstRef<Prims> q, FieldConstRef<Prims> w_gas, FieldConstRef<double> T, 
                     Field3DRef<double> t_stop, const RealType* s, double rho_m, double mu) {
@@ -136,7 +153,7 @@ void _calc_t_s(GridRef g, Field3DConstRef<Prims> q, FieldConstRef<Prims> w_gas, 
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
             for (int k=kidx; k<q.Nd; k+=kstride) {
 
-                t_stop(i,j,k) = t_s(w_gas(i,j).rho, rho_m, s[k], T(i,j), mu);
+                t_stop(i,j,k) = t_s<full_stokes>(q(i,j,k), w_gas(i,j), rho_m, s[k], T(i,j), mu);
             }
         }
     }
@@ -158,7 +175,10 @@ void Sources::source_imp(Grid& g, Field3D<Prims>& w, double dt) {
     dim3 threads(16,8,8);
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (w.Nd+7)/8) ;
 
-    _calc_t_s<<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_sizes(), _sizes.solid_density(), _mu);
+    if (_full_stokes) 
+        _calc_t_s<true><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_sizes(), _sizes.solid_density(), _mu);
+    else
+        _calc_t_s<false><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_sizes(), _sizes.solid_density(), _mu);
     _source_drag<<<blocks,threads>>>(g, w, _w_gas, t_stop, dt, _Mstar);
 }
 
@@ -177,6 +197,9 @@ void SourcesRad::source_imp(Grid& g, Field3D<Prims>& w, double dt) {
     dim3 threads(16,8,8);
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (w.Nd+7)/8) ;
 
-    _calc_t_s<<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_sizes(), _sizes.solid_density(), _mu);
+    if (_full_stokes) 
+        _calc_t_s<true><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_sizes(), _sizes.solid_density(), _mu);
+    else
+        _calc_t_s<false><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_sizes(), _sizes.solid_density(), _mu);
     _source_drag<<<blocks,threads>>>(g, w, _w_gas, t_stop, dt, _Mstar);
 }
