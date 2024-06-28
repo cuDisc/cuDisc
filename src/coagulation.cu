@@ -6,6 +6,7 @@
 #include "coagulation/coagulation.h"
 #include "coagulation/fragments.h"
 #include "dustdynamics.h"
+#include "drag_const.h"
 
 // Ormel & Cuzzi Turbulent squared relative velocity.
 //   Scaled to the R.M.S. turbulent speed (\sqrt{alpha} c_s)
@@ -51,14 +52,60 @@ KernelResult BirnstielKernel::operator()(int i, int j, int k1, int k2) const {
     // Step 1: Compute the turbulent velocity:
     //   1a. Get the Stokes number (a*tmp)
     RealType rho = _wg(i,j).rho, cs = _cs(i,j), R = _g.Rc(i) ;
-    RealType tmp = 0.6266570686577501f * _rho_grain*sqrt(_GMstar/R)/R ; // Ordering needed to prevent over/underflow. 
-    //     (4.51351666838205 = 8/sqrt(pi) -> should be sqrt(pi/8) = 0.627...)
-    tmp /= (rho*cs) ;
 
-    a1 *= tmp ;
-    a2 *= tmp ;
+    RealType Omega = sqrt(_GMstar/R)/R;
+    RealType mfp = _mu * m_p / (rho * 2.e-15);
+    RealType tmp; 
+    
+    if (_full_stokes) {
+        tmp = 2.666666667f * _rho_grain * Omega / rho;
 
-    RealType sqrtRe = sqrt(_alpha_t(i,j) * cs * rho / (sqrt(_GMstar/R)/R * _mu * m_p)  * 2.e-15);
+        RealType u_rel = sqrt((_wd(i,j,k1).v_phi-_wg(i,j).v_phi)*(_wd(i,j,k1).v_phi-_wg(i,j).v_phi) 
+                                + (_wd(i,j,k1).v_R-_wg(i,j).v_R)*(_wd(i,j,k1).v_R-_wg(i,j).v_R) + (_wd(i,j,k1).v_Z-_wg(i,j).v_Z)*(_wd(i,j,k1).v_Z-_wg(i,j).v_Z));
+        a1 *= tmp / (calc_C_D(a1,rho,cs,u_rel,_mu) * u_rel);
+
+        u_rel = sqrt((_wd(i,j,k2).v_phi-_wg(i,j).v_phi)*(_wd(i,j,k2).v_phi-_wg(i,j).v_phi) 
+                                + (_wd(i,j,k2).v_R-_wg(i,j).v_R)*(_wd(i,j,k2).v_R-_wg(i,j).v_R) + (_wd(i,j,k2).v_Z-_wg(i,j).v_Z)*(_wd(i,j,k2).v_Z-_wg(i,j).v_Z));
+        a2 *= tmp / (calc_C_D(a2,rho,cs,u_rel,_mu) * u_rel);
+    }
+    else {
+        tmp = _rho_grain*Omega / (rho*cs) ;
+        if (a1<2.25*mfp && a2<2.25*mfp) {
+            a1 *= 0.6266570686577501f * tmp ;
+            a2 *= 0.6266570686577501f * tmp ;
+        }
+        else if (a1<2.25*mfp) {
+            a1 *= 0.6266570686577501f * tmp ;
+
+            tmp = 2.666666667f * _rho_grain * Omega / rho;
+
+            RealType u_rel = sqrt((_wd(i,j,k2).v_phi-_wg(i,j).v_phi)*(_wd(i,j,k2).v_phi-_wg(i,j).v_phi) 
+                        + (_wd(i,j,k2).v_R-_wg(i,j).v_R)*(_wd(i,j,k2).v_R-_wg(i,j).v_R) + (_wd(i,j,k2).v_Z-_wg(i,j).v_Z)*(_wd(i,j,k2).v_Z-_wg(i,j).v_Z));
+            a2 *= tmp / (calc_C_D_step(a2,rho,cs,u_rel,_mu) * u_rel);
+        }
+        else if (a2<2.25*mfp) {
+            a2 *= 0.6266570686577501f * tmp ;
+
+            tmp = 2.666666667f * _rho_grain * Omega / rho;
+
+            RealType u_rel = sqrt((_wd(i,j,k1).v_phi-_wg(i,j).v_phi)*(_wd(i,j,k1).v_phi-_wg(i,j).v_phi) 
+                        + (_wd(i,j,k1).v_R-_wg(i,j).v_R)*(_wd(i,j,k1).v_R-_wg(i,j).v_R) + (_wd(i,j,k1).v_Z-_wg(i,j).v_Z)*(_wd(i,j,k1).v_Z-_wg(i,j).v_Z));
+            a1 *= tmp / (calc_C_D_step(a1,rho,cs,u_rel,_mu) * u_rel);
+        }
+        else {
+            tmp = 2.666666667f * _rho_grain * Omega / rho;
+
+            RealType u_rel = sqrt((_wd(i,j,k1).v_phi-_wg(i,j).v_phi)*(_wd(i,j,k1).v_phi-_wg(i,j).v_phi) 
+                                + (_wd(i,j,k1).v_R-_wg(i,j).v_R)*(_wd(i,j,k1).v_R-_wg(i,j).v_R) + (_wd(i,j,k1).v_Z-_wg(i,j).v_Z)*(_wd(i,j,k1).v_Z-_wg(i,j).v_Z));
+            a1 *= tmp / (calc_C_D_step(a1,rho,cs,u_rel,_mu) * u_rel);
+
+            u_rel = sqrt((_wd(i,j,k2).v_phi-_wg(i,j).v_phi)*(_wd(i,j,k2).v_phi-_wg(i,j).v_phi) 
+                                + (_wd(i,j,k2).v_R-_wg(i,j).v_R)*(_wd(i,j,k2).v_R-_wg(i,j).v_R) + (_wd(i,j,k2).v_Z-_wg(i,j).v_Z)*(_wd(i,j,k2).v_Z-_wg(i,j).v_Z));
+            a2 *= tmp / (calc_C_D_step(a2,rho,cs,u_rel,_mu) * u_rel);
+        }
+    }
+
+    RealType sqrtRe = sqrt(_alpha_t(i,j) * cs / Omega / mfp);
 
     //   1b: Compute the turbulent velocity
     RealType v_turb = _alpha_t(i,j) * cs*cs * Vrel_sqd_OC07(a1, a2, 1/sqrtRe) ;
@@ -112,11 +159,59 @@ KernelResult BirnstielKernelVertInt::operator()(int i, int j, int k1, int k2) co
     //   1a. Get the Stokes number (a*tmp)
     RealType Sig_g = _wg(i,j).Sig, cs = _cs(i,j), R = _g.Rc(i) ;
 
-    RealType tmp = M_PI/2 * _rho_grain / Sig_g;
-    a1 *= tmp ;
-    a2 *= tmp ;
+    RealType Omega = sqrt(_GMstar/R)/R;
+    RealType mfp = 2.5066f * (cs/Omega) * _mu * m_p / (Sig_g * 2.e-15);
+    RealType tmp;
 
-    RealType sqrtRe = sqrt(_alpha_t(i,j) * Sig_g / (2.*_mu * m_p)  * 2.e-15);
+    if (_full_stokes) {
+        RealType rho_g = Sig_g/(2.506628275f * cs/Omega);
+        tmp = 6.684342f * _rho_grain * cs / Sig_g;
+
+        RealType u_rel = sqrt((_wd(i,j,k1).v_phi-_wg(i,j).v_phi)*(_wd(i,j,k1).v_phi-_wg(i,j).v_phi) + (_wd(i,j,k1).v_R-_wg(i,j).v_R)*(_wd(i,j,k1).v_R-_wg(i,j).v_R));
+        a1 *= tmp / (calc_C_D(a1,rho_g,cs,u_rel,_mu) * u_rel);
+
+        u_rel = sqrt((_wd(i,j,k2).v_phi-_wg(i,j).v_phi)*(_wd(i,j,k2).v_phi-_wg(i,j).v_phi) + (_wd(i,j,k2).v_R-_wg(i,j).v_R)*(_wd(i,j,k2).v_R-_wg(i,j).v_R));
+        a2 *= tmp / (calc_C_D(a2,rho_g,cs,u_rel,_mu) * u_rel);
+    }
+    else {
+        tmp = _rho_grain / Sig_g;
+        if (a1<2.25*mfp && a2<2.25*mfp) {
+            a1 *= 1.5707963f * tmp ;
+            a2 *= 1.5707963f * tmp ;
+        }
+        else if (a1<2.25*mfp) {
+            a1 *= 1.5707963f * tmp ;
+
+            RealType rho_g = Sig_g/(2.506628275f * cs/Omega);
+            tmp = 6.684342f * _rho_grain * cs / Sig_g;
+
+            RealType u_rel = sqrt((_wd(i,j,k2).v_phi-_wg(i,j).v_phi)*(_wd(i,j,k2).v_phi-_wg(i,j).v_phi) + (_wd(i,j,k2).v_R-_wg(i,j).v_R)*(_wd(i,j,k2).v_R-_wg(i,j).v_R));
+            a2 *= tmp / (calc_C_D_step(a2,rho_g,cs,u_rel,_mu) * u_rel);
+        }
+        else if (a2<2.25*mfp) {
+            a2 *= 1.5707963f * tmp ;
+
+            RealType rho_g = Sig_g/(2.506628275f * cs/Omega);
+            tmp = 6.684342f * _rho_grain * cs / Sig_g;
+
+            RealType u_rel = sqrt((_wd(i,j,k1).v_phi-_wg(i,j).v_phi)*(_wd(i,j,k1).v_phi-_wg(i,j).v_phi) + (_wd(i,j,k1).v_R-_wg(i,j).v_R)*(_wd(i,j,k1).v_R-_wg(i,j).v_R));
+            a1 *= tmp / (calc_C_D_step(a1,rho_g,cs,u_rel,_mu) * u_rel);
+        }
+        else {
+            RealType rho_g = Sig_g/(2.506628275f * cs/Omega);
+            tmp = 6.684342f * _rho_grain * cs / Sig_g;
+
+            RealType u_rel = sqrt((_wd(i,j,k1).v_phi-_wg(i,j).v_phi)*(_wd(i,j,k1).v_phi-_wg(i,j).v_phi) + (_wd(i,j,k1).v_R-_wg(i,j).v_R)*(_wd(i,j,k1).v_R-_wg(i,j).v_R));
+            a1 *= tmp / (calc_C_D_step(a1,rho_g,cs,u_rel,_mu) * u_rel);
+
+            u_rel = sqrt((_wd(i,j,k2).v_phi-_wg(i,j).v_phi)*(_wd(i,j,k2).v_phi-_wg(i,j).v_phi) + (_wd(i,j,k2).v_R-_wg(i,j).v_R)*(_wd(i,j,k2).v_R-_wg(i,j).v_R));
+            a2 *= tmp / (calc_C_D_step(a2,rho_g,cs,u_rel,_mu) * u_rel);
+        }
+    }
+
+    RealType sqrtRe = sqrt(_alpha_t(i,j) * cs / Omega / mfp);
+
+    // RealType sqrtRe = sqrt(_alpha_t(i,j) * Sig_g / (2.*_mu * m_p)  * 2.e-15);
 
     //   1b: Compute the turbulent velocity
     RealType v_turb = _alpha_t(i,j) * cs*cs * Vrel_sqd_OC07(a1, a2, 1/sqrtRe) ;//_vrels(k1,k2)*_vrels(k1,k2); // 
@@ -133,6 +228,9 @@ KernelResult BirnstielKernelVertInt::operator()(int i, int j, int k1, int k2) co
     
     // Step 2: Add the laminar components in quadrature
     tmp = _wd(i,j,k1).v_R - _wd(i,j,k2).v_R;
+    v_turb += tmp*tmp ;
+
+    tmp = _wd(i,j,k1).v_phi - _wd(i,j,k2).v_phi ;
     v_turb += tmp*tmp ;
 
     // Step 3: Compute the kernel

@@ -25,7 +25,7 @@ class BirnstielKernel {
     BirnstielKernel(Grid&g, SizeGrid& sizes, const Field3D<Prims>& wd,
                     const Field<Prims>& wg, const Field<double>& sound_speed, 
                     const Field<double>& alpha, double mu, double Mstar=1)
-      : _g(g), _cs(sound_speed), _grain_sizes(sizes.grain_sizes()), _grain_masses(sizes.grain_masses()),
+      : _full_stokes(false), _g(g), _cs(sound_speed), _grain_sizes(sizes.grain_sizes()), _grain_masses(sizes.grain_masses()),
         _wd(wd), _wg(wg),
         _alpha_t(alpha), _GMstar(Mstar*GMsun), _mu(mu),
         _rho_grain(sizes.solid_density())
@@ -48,7 +48,12 @@ class BirnstielKernel {
         _v_frag = v_frag ;
     }
 
+    void use_full_stokes() {
+        _full_stokes = true ;
+    } 
+
   private:
+    bool _full_stokes = false;
     GridRef _g ;
     FieldConstRef<double> _cs ;
     const RealType* _grain_sizes ;
@@ -67,7 +72,7 @@ class BirnstielKernelVertInt {
     BirnstielKernelVertInt(Grid&g, SizeGrid& sizes, const Field3D<Prims1D>& wd,
                     const Field<Prims1D>& wg, const Field<double>& sound_speed, 
                     const Field<double>& alpha, double mu, double Mstar=1)
-      : _g(g), _cs(sound_speed), _grain_sizes(sizes.grain_sizes()), _grain_masses(sizes.grain_masses()),
+      : _full_stokes(false), _g(g), _cs(sound_speed), _grain_sizes(sizes.grain_sizes()), _grain_masses(sizes.grain_masses()),
         _wd(wd), _wg(wg),
         _alpha_t(alpha), _GMstar(Mstar*GMsun), _mu(mu),
         _rho_grain(sizes.solid_density())
@@ -90,7 +95,12 @@ class BirnstielKernelVertInt {
         _v_frag = v_frag ;
     }
 
+    void use_full_stokes() {
+        _full_stokes = true ;
+    } 
+
   private:
+    bool _full_stokes = false;
     GridRef _g ;
     FieldConstRef<double> _cs ;
     const RealType* _grain_sizes ;
