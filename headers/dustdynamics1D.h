@@ -7,11 +7,12 @@
 #include "coagulation/size_grid.h"
 
 struct Prims1D {
-    double Sig, v_R;
+    double Sig, v_R, v_phi;
 
     inline __host__ __device__ double& operator[](int i) {
         if (i==0) { return Sig; } 
-        return v_R; 
+        if (i==1) { return v_R; }
+        return v_phi;
     } ;
 } ;
 
@@ -20,8 +21,8 @@ class DustDyn1D {
 
      public:
 
-        DustDyn1D(Field3D<double>& D, const Field<double>& cs, Star& star, SizeGrid& sizes, CudaArray<double>& nu, double CFL_adv=0.4, double CFL_diff=0.1, double floor=1.e-5, double gas_floor=1.e-10) : 
-              _D(D), _cs(cs), _star(star), _sizes(sizes), _nu(nu), _CFL_adv(CFL_adv), _CFL_diff(CFL_diff), _floor(floor), _gas_floor(gas_floor) {};
+        DustDyn1D(Field3D<double>& D, const Field<double>& cs, Star& star, SizeGrid& sizes, CudaArray<double>& nu, double mu, double CFL_adv=0.4, double CFL_diff=0.1, double floor=1.e-5, double gas_floor=1.e-10) : 
+              _full_stokes(false), _D(D), _cs(cs), _star(star), _sizes(sizes), _nu(nu), _mu(mu), _CFL_adv(CFL_adv), _CFL_diff(CFL_diff), _floor(floor), _gas_floor(gas_floor) {};
 
         void set_CFL_adv(double cfl) {
             _CFL_adv = cfl;
@@ -38,17 +39,23 @@ class DustDyn1D {
         return _boundary ;
         }
 
-        void operator() (Grid& g, Field3D<Prims1D>& W_d, const Field<Prims1D>& W_g, double dt) ;
+        void operator() (Grid& g, Field3D<Prims1D>& W_d, Field<Prims1D>& W_g, double dt) ;
 
         double get_CFL_limit(const Grid& g, const Field3D<Prims1D>& W_d, const Field<Prims1D>& W_g) ;
 
+        void use_full_stokes() {
+            _full_stokes = true ;
+        } 
+
     private:
 
+        bool _full_stokes = false;
         Field3DRef<double> _D;
         FieldConstRef<double> _cs;
         Star& _star;
         SizeGrid& _sizes;
         CudaArray<double>& _nu;
+        double _mu;
         double _CFL_adv;
         double _CFL_diff;
         double _floor;

@@ -5,6 +5,7 @@
 #include "dustdynamics1D.h"
 #include "constants.h"
 #include "van_leer.h"
+#include "drag_const.h"
 
 __global__ 
 void _calc_eta(GridRef g, FieldConstRef<Prims1D> W_g, double GMstar, FieldConstRef<double> cs, double* eta) {
@@ -25,8 +26,9 @@ void _calc_eta(GridRef g, FieldConstRef<Prims1D> W_g, double GMstar, FieldConstR
     }
 }
 
+template<bool full_stokes>
 __global__
-void _calc_dust_vel(GridRef g, Field3DRef<Prims1D> W_d, FieldConstRef<Prims1D> W_g, double* eta, FieldConstRef<double> cs, double GMstar, RealType rho_m, const RealType* a, double floor) {
+void _calc_dust_vel(GridRef g, Field3DRef<Prims1D> W_d, FieldRef<Prims1D> W_g, double* eta, FieldConstRef<double> cs, double GMstar, RealType rho_m, const RealType* a, double mu, double floor) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
@@ -38,30 +40,46 @@ void _calc_dust_vel(GridRef g, Field3DRef<Prims1D> W_d, FieldConstRef<Prims1D> W
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int k=kidx; k<W_d.Nd; k+=kstride) {
 
-            if (W_d(i,j,k).Sig < 1.1*W_g(i,j).Sig*floor) {
-                W_d(i,j,k).v_R = 0.;
+            double vk = sqrt(GMstar/g.Rc(i));
+
+            W_g(i,j).v_phi = vk*pow(1.-eta[i],0.5);
+            double St;
+
+            if (full_stokes) {
+                double rho_g = W_g(i,j).Sig/(2.506628275 * cs(i,j)/(vk/g.Rc(i)));
+                double u_rel = sqrt((W_d(i,j,k).v_phi-W_g(i,j).v_phi)*(W_d(i,j,k).v_phi-W_g(i,j).v_phi) + (W_d(i,j,k).v_R-W_g(i,j).v_R)*(W_d(i,j,k).v_R-W_g(i,j).v_R));
+
+                St = 6.684342 * rho_m*a[k]*cs(i,j)/ (W_g(i,j).Sig * calc_C_D(a[k],rho_g,cs(i,j),u_rel,mu) * u_rel);
             }
             else {
-                double vk = sqrt(GMstar/g.Rc(i));
-
-                double St = M_PI/2. * (rho_m*a[k])/W_g(i,g.Nghost).Sig;
+                double mfp = 2.50663 * mu * m_H * cs(i,j) / (W_g(i,j).Sig * 2.e-15 * vk/g.Rc(i));
+                if (a[k]<2.25*mfp) {
+                    St = 1.5707963f * (rho_m*a[k])/W_g(i,j).Sig;
+                }
+                else {
+                    double rho_g = W_g(i,j).Sig/(2.506628275f * cs(i,j)/(vk/g.Rc(i)));
+                    double u_rel = sqrt((W_d(i,j,k).v_phi-W_g(i,j).v_phi)*(W_d(i,j,k).v_phi-W_g(i,j).v_phi) + (W_d(i,j,k).v_R-W_g(i,j).v_R)*(W_d(i,j,k).v_R-W_g(i,j).v_R));
+                    St = 6.684342 * rho_m*a[k]*cs(i,j)/ (W_g(i,j).Sig * calc_C_D_step(a[k],rho_g,cs(i,j),u_rel,mu) * u_rel);
+                }
                 
-                W_d(i,j,k).v_R = (W_g(i,j).v_R - St*eta[i]*vk)/(St*St+1);
             }
+            
+            W_d(i,j,k).v_R = (W_g(i,j).v_R - St*eta[i]*vk)/(St*St+1);
+            W_d(i,j,k).v_phi = vk - 0.5 * eta[i]*vk/(St*St+1);
         }
     }
 
 }
 
-
-void calculate_dust_vel(Grid& g, Field3D<Prims1D>& W_d, const Field<Prims1D>& W_g,
-                        CudaArray<double>& nu, FieldConstRef<double>& cs, Star& star, SizeGrid& sizes, double floor) {
+template<bool full_stokes>
+void calculate_dust_vel(Grid& g, Field3D<Prims1D>& W_d, Field<Prims1D>& W_g,
+                        CudaArray<double>& nu, FieldConstRef<double>& cs, Star& star, SizeGrid& sizes, double mu, double floor) {
 
     size_t threads = 64 ;
     size_t blocks = (g.NR + 2*g.Nghost+63)/64;
 
-    dim3 threads2D(32,1,32) ;
-    dim3 blocks2D((g.NR + 2*g.Nghost+31)/32,1,(W_d.Nd+31)/32) ;
+    dim3 threads2D(32,1,16) ;
+    dim3 blocks2D((g.NR + 2*g.Nghost+31)/32,1,(W_d.Nd+15)/16) ;
 
 
     CudaArray<double> eta = make_CudaArray<double>(g.NR+2*g.Nghost);
@@ -74,14 +92,14 @@ void calculate_dust_vel(Grid& g, Field3D<Prims1D>& W_d, const Field<Prims1D>& W_
     //     std::cout << eta[i] << "\n";
     // }
     // _calc_v_gas<<<blocks,threads>>>(g, W_g, nu.get(), v_gas.get(), star.GM, gasfloor);
-    _calc_dust_vel<<<blocks2D, threads2D>>>(g, W_d, W_g, eta.get(), cs, star.GM, sizes.solid_density(), sizes.grain_sizes(), floor);
+    _calc_dust_vel<full_stokes><<<blocks2D, threads2D>>>(g, W_d, W_g, eta.get(), cs, star.GM, sizes.solid_density(), sizes.grain_sizes(), mu, floor);
     check_CUDA_errors("_calc_dust_vel");
 
 }
 
 __device__
 double vl(GridRef& g, Field3DConstRef<Prims1D>& Qty, int i, int k, int qidx) {
-    return vl_R(g, Qty, i, k, g.Nghost, qidx) ;
+    return vl_R(g, Qty, i, g.Nghost, k, qidx) ;
 }
 
 __device__
@@ -301,7 +319,7 @@ __global__ void _update_Sig(GridRef g, Field3DRef<Prims1D> W_d, FieldConstRef<Pr
 }
 
 
-void DustDyn1D::operator() (Grid& g, Field3D<Prims1D>& W_d, const Field<Prims1D>& W_g, double dt) {
+void DustDyn1D::operator() (Grid& g, Field3D<Prims1D>& W_d, Field<Prims1D>& W_g, double dt) {
 
     dim3 threads(32,1,16) ;
     dim3 blocks((g.NR + 2*g.Nghost+31)/32,1,(W_d.Nd+31)/32) ;
@@ -324,7 +342,12 @@ void DustDyn1D::operator() (Grid& g, Field3D<Prims1D>& W_d, const Field<Prims1D>
     _update_mid_Sig<<<blocks,threads>>>(g, W_d_mid, W_d, W_g, dt, flux, _floor);
     check_CUDA_errors("_update_mid_Sig");
     cudaDeviceSynchronize();
-    calculate_dust_vel(g, W_d_mid, W_g, _nu, _cs, _star, _sizes, _floor);
+    if (_full_stokes) {
+        calculate_dust_vel<true>(g, W_d_mid, W_g, _nu, _cs, _star, _sizes, _mu, _floor);
+    }
+    else {
+        calculate_dust_vel<false>(g, W_d_mid, W_g, _nu, _cs, _star, _sizes, _mu, _floor);
+    }
 
     _set_bounds_d<<<blocks,threads>>>(g, W_d, _boundary, _floor);
     check_CUDA_errors("_set_bounds_d");
@@ -337,7 +360,12 @@ void DustDyn1D::operator() (Grid& g, Field3D<Prims1D>& W_d, const Field<Prims1D>
     _update_Sig<<<blocks,threads>>>(g, W_d, W_g, dt, flux, _floor);
     check_CUDA_errors("_update_Sig");
     cudaDeviceSynchronize();
-    calculate_dust_vel(g, W_d, W_g, _nu, _cs, _star, _sizes, _floor);
+    if (_full_stokes) {
+        calculate_dust_vel<true>(g, W_d, W_g, _nu, _cs, _star, _sizes, _mu, _floor);
+    }
+    else {
+        calculate_dust_vel<false>(g, W_d, W_g, _nu, _cs, _star, _sizes, _mu, _floor);
+    }
 }
 
 double DustDyn1D::get_CFL_limit(const Grid& g, const Field3D<Prims1D>& W_dust, const Field<Prims1D>& W_gas) {
