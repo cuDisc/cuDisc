@@ -39,8 +39,9 @@ RealType Vrel_sqd_OC07(RealType St1, RealType St2, RealType sqrtRe_1) {
     return max(((St1 - St2) / (St1 + St2)) * (V1(St1) - V1(St2)) + V2(St1) + V2(St2),0.) ;
 }
 
+template<bool use_full_stokes>
 __device__ __host__
-KernelResult BirnstielKernel::operator()(int i, int j, int k1, int k2) const {
+KernelResult BirnstielKernel<use_full_stokes>::operator()(int i, int j, int k1, int k2) const {
 
     // Step 0: Compute the geometric cross-section
 
@@ -57,21 +58,8 @@ KernelResult BirnstielKernel::operator()(int i, int j, int k1, int k2) const {
     RealType mfp = _mu * m_p / (rho * 2.e-15);
     RealType tmp; 
     
-    if (_full_stokes) {
-        tmp = 2.666666667f * _rho_grain * Omega / rho;
-
-        RealType u_rel = sqrt((_wd(i,j,k1).v_phi-_wg(i,j).v_phi)*(_wd(i,j,k1).v_phi-_wg(i,j).v_phi) 
-                                + (_wd(i,j,k1).v_R-_wg(i,j).v_R)*(_wd(i,j,k1).v_R-_wg(i,j).v_R) + (_wd(i,j,k1).v_Z-_wg(i,j).v_Z)*(_wd(i,j,k1).v_Z-_wg(i,j).v_Z));
-        a1 *= tmp / (calc_vC_D(a1,rho,cs,u_rel,_mu));
-
-        u_rel = sqrt((_wd(i,j,k2).v_phi-_wg(i,j).v_phi)*(_wd(i,j,k2).v_phi-_wg(i,j).v_phi) 
-                                + (_wd(i,j,k2).v_R-_wg(i,j).v_R)*(_wd(i,j,k2).v_R-_wg(i,j).v_R) + (_wd(i,j,k2).v_Z-_wg(i,j).v_Z)*(_wd(i,j,k2).v_Z-_wg(i,j).v_Z));
-        a2 *= tmp / (calc_vC_D(a2,rho,cs,u_rel,_mu));
-    }
-    else {
-        a1 = calc_t_s(_wd(i,j,k1), _wg(i,j), a1, _rho_grain, cs, _mu) * Omega;
-        a2 = calc_t_s(_wd(i,j,k2), _wg(i,j), a2, _rho_grain, cs, _mu) * Omega;
-    }
+    a1 = calc_t_s<use_full_stokes>(_wd(i,j,k1), _wg(i,j), a1, _rho_grain, cs, _mu) * Omega;
+    a2 = calc_t_s<use_full_stokes>(_wd(i,j,k2), _wg(i,j), a2, _rho_grain, cs, _mu) * Omega;
 
     RealType sqrtRe = sqrt(_alpha_t(i,j) * cs / Omega / mfp);
 
@@ -113,8 +101,9 @@ KernelResult BirnstielKernel::operator()(int i, int j, int k1, int k2) const {
     return result ;
 }
 
+template<bool use_full_stokes>
 __device__ __host__
-KernelResult BirnstielKernelVertInt::operator()(int i, int j, int k1, int k2) const {
+KernelResult BirnstielKernelVertInt<use_full_stokes>::operator()(int i, int j, int k1, int k2) const {
 
     // Step 0: Compute the geometric cross-section
 
@@ -131,20 +120,8 @@ KernelResult BirnstielKernelVertInt::operator()(int i, int j, int k1, int k2) co
     RealType mfp = 2.5066f * (cs/Omega) * _mu * m_p / (Sig_g * 2.e-15);
     RealType tmp;
 
-    if (_full_stokes) {
-        RealType rho_g = Sig_g/(2.506628275f * cs/Omega);
-        tmp = 6.684342f * _rho_grain * cs / Sig_g;
-
-        RealType u_rel = sqrt((_wd(i,j,k1).v_R-_wg(i,j).v_R)*(_wd(i,j,k1).v_R-_wg(i,j).v_R) + _wd(i,j,k1).dv_phi*_wd(i,j,k1).dv_phi + _wd(i,j,k1).dv_Z*_wd(i,j,k1).dv_Z);
-        a1 *= tmp / (calc_vC_D(a1,rho_g,cs,u_rel,_mu));
-
-        u_rel = sqrt((_wd(i,j,k2).v_R-_wg(i,j).v_R)*(_wd(i,j,k2).v_R-_wg(i,j).v_R) + _wd(i,j,k2).dv_phi*_wd(i,j,k2).dv_phi + _wd(i,j,k2).dv_Z*_wd(i,j,k2).dv_Z);
-        a2 *= tmp / (calc_vC_D(a2,rho_g,cs,u_rel,_mu));
-    }
-    else {
-        a1 = calc_t_s(_wd(i,j,k1), _wg(i,j), a1, _rho_grain, cs, _mu, Omega) * Omega;
-        a2 = calc_t_s(_wd(i,j,k2), _wg(i,j), a2, _rho_grain, cs, _mu, Omega) * Omega;
-    }
+    a1 = calc_t_s<use_full_stokes>(_wd(i,j,k1), _wg(i,j), a1, _rho_grain, cs, _mu, Omega) * Omega;
+    a2 = calc_t_s<use_full_stokes>(_wd(i,j,k2), _wg(i,j), a2, _rho_grain, cs, _mu, Omega) * Omega;
 
     RealType sqrtRe = sqrt(_alpha_t(i,j) * cs / Omega / mfp);
 
@@ -421,6 +398,10 @@ void CoagulationRate<Kernel,Fragments>::operator()(const Field3D<double>& dust_d
 
 }
 
-template class CoagulationRate<BirnstielKernel,SimpleErosion> ;
+template class CoagulationRate<BirnstielKernel<false>,SimpleErosion> ;
+template class CoagulationRate<BirnstielKernel<true>,SimpleErosion> ;
+
+template class CoagulationRate<BirnstielKernelVertInt<false>,SimpleErosion> ;
+template class CoagulationRate<BirnstielKernelVertInt<true>,SimpleErosion> ;
+
 template class CoagulationRate<ConstantKernel,SimpleErosion> ;
-template class CoagulationRate<BirnstielKernelVertInt,SimpleErosion> ;

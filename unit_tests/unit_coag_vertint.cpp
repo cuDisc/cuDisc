@@ -123,7 +123,7 @@ int main() {
     // Set up coagulation kernel
     BirnstielKernelVertInt kernel = BirnstielKernelVertInt(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu, 1.);
     kernel.set_fragmentation_threshold(100.);
-    BS32Integration<CoagulationRate<BirnstielKernelVertInt, SimpleErosion>>
+    BS32Integration<CoagulationRate<decltype(kernel), SimpleErosion>>
         coagulation_integrate(
             create_coagulation_rate(
                 sizes, 
