@@ -100,13 +100,13 @@ int main() {
     Field<double> alpha2D = create_field<double>(g);
     CudaArray<double> nu = make_CudaArray<double>(g.NR+2*g.Nghost);
 
-    double floor = 1e-15;
-    double gas_floor = 1e-20;
+    double floor = 1e-10;
+    double gas_floor = 1e-10;
     int gas_boundary = BoundaryFlags::open_R_inner | BoundaryFlags::open_R_outer;
 
     set_up(g, W_d, W_g, sizes, T, cs, nu, alpha2D, D, alpha, star);
 
-    DustDyn1D dyn(D, cs, star, sizes, nu, 0.4, 0.1, floor, gas_floor);
+    DustDyn1D dyn(D, cs, star, sizes, nu, 2.4, alpha, 0.4, 0.1, floor, gas_floor);
     int boundary = BoundaryFlags::open_R_inner | BoundaryFlags::open_R_outer;
     dyn.set_boundaries(boundary);
 
@@ -164,10 +164,6 @@ int main() {
 
             if ((t+dt >= t_coag+dt_coag)|| (t+2*dt >= t_coag+dt_coag && dt < dt_coag) || dt == ti-t) {
                 std::cout << "Coag step at count = " << count << "\n";
-                // Reset coagulation kernel with updated quantities
-                kernel = BirnstielKernelVertInt(g, sizes, W_d, W_g, cs, alpha2D, 2.4);
-                kernel.set_fragmentation_threshold(v_frag);
-                coagulation_integrate.set_kernel(kernel);
                 // Run coagulation internal integration (routine calculates its own sub-steps to integrate over the timestep passed into it)
                 coagulation_integrate.integrate(g, W_d, W_g, (t+dt)-t_coag, dt_coag, floor) ;
                 t_coag = t+dt;
@@ -175,7 +171,7 @@ int main() {
 
             count += 1;
             t += dt;
-            dt_CFL = std::min(dyn.get_CFL_limit(g, W_d, W_g),1.2*dt);
+            dt_CFL = std::min(dyn.get_CFL_limit(g, W_d, W_g),1.5*dt);
 
         }
         std::cout << "\nSnapshot " << Nout << " completed: t = " << ti/year << " years\n";
