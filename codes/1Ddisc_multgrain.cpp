@@ -31,7 +31,6 @@ void set_up(Grid& g, Field3D<Prims1D>& W_d, Field<Prims1D>& W_g, SizeGrid& sizes
         cs(i,g.Nghost) = std::sqrt(k_B*T(i,g.Nghost)/(2.4*m_H));
 
         W_g(i,g.Nghost).v_R = 0;
-        W_g(i,g.Nghost).v_phi = v_k;
         
         nu[i] = alpha * cs(i,g.Nghost)*cs(i,g.Nghost) * (g.Rc(i)/v_k);
         alpha2D(i,g.Nghost) = alpha;
@@ -50,7 +49,6 @@ void set_up(Grid& g, Field3D<Prims1D>& W_d, Field<Prims1D>& W_g, SizeGrid& sizes
             Sig_tot += W_d(i,g.Nghost,k).Sig;
             Mdtot += 2.*M_PI*g.Rc(i)*W_d(i,g.Nghost,k).Sig*g.dRe(i);
             W_d(i,g.Nghost,k).v_R = W_g(i,g.Nghost).v_R;
-            W_d(i,g.Nghost,k).v_phi = W_g(i,g.Nghost).v_phi;
             D(i,g.Nghost,k) =  W_g(i,g.Nghost).Sig * nu[i]/Sc;
         }
         for (int k=0; k<W_d.Nd; k++) {
@@ -108,7 +106,7 @@ int main() {
 
     set_up(g, W_d, W_g, sizes, T, cs, nu, alpha2D, D, alpha, star);
 
-    DustDyn1D dyn(D, cs, star, sizes, nu, 2.4, 0.4, 0.1, floor, gas_floor);
+    DustDyn1D dyn(D, cs, star, sizes, nu, 2.4, alpha, 0.4, 0.1, floor, gas_floor);
     int boundary = BoundaryFlags::open_R_inner | BoundaryFlags::open_R_outer;
     dyn.set_boundaries(boundary);
 

@@ -69,40 +69,8 @@ KernelResult BirnstielKernel::operator()(int i, int j, int k1, int k2) const {
         a2 *= tmp / (calc_C_D(a2,rho,cs,u_rel,_mu) * u_rel);
     }
     else {
-        tmp = _rho_grain*Omega / (rho*cs) ;
-        if (a1<2.25*mfp && a2<2.25*mfp) {
-            a1 *= 0.6266570686577501f * tmp ;
-            a2 *= 0.6266570686577501f * tmp ;
-        }
-        else if (a1<2.25*mfp) {
-            a1 *= 0.6266570686577501f * tmp ;
-
-            tmp = 2.666666667f * _rho_grain * Omega / rho;
-
-            RealType u_rel = sqrt((_wd(i,j,k2).v_phi-_wg(i,j).v_phi)*(_wd(i,j,k2).v_phi-_wg(i,j).v_phi) 
-                        + (_wd(i,j,k2).v_R-_wg(i,j).v_R)*(_wd(i,j,k2).v_R-_wg(i,j).v_R) + (_wd(i,j,k2).v_Z-_wg(i,j).v_Z)*(_wd(i,j,k2).v_Z-_wg(i,j).v_Z));
-            a2 *= tmp / (calc_C_D_step(a2,rho,cs,u_rel,_mu) * u_rel);
-        }
-        else if (a2<2.25*mfp) {
-            a2 *= 0.6266570686577501f * tmp ;
-
-            tmp = 2.666666667f * _rho_grain * Omega / rho;
-
-            RealType u_rel = sqrt((_wd(i,j,k1).v_phi-_wg(i,j).v_phi)*(_wd(i,j,k1).v_phi-_wg(i,j).v_phi) 
-                        + (_wd(i,j,k1).v_R-_wg(i,j).v_R)*(_wd(i,j,k1).v_R-_wg(i,j).v_R) + (_wd(i,j,k1).v_Z-_wg(i,j).v_Z)*(_wd(i,j,k1).v_Z-_wg(i,j).v_Z));
-            a1 *= tmp / (calc_C_D_step(a1,rho,cs,u_rel,_mu) * u_rel);
-        }
-        else {
-            tmp = 2.666666667f * _rho_grain * Omega / rho;
-
-            RealType u_rel = sqrt((_wd(i,j,k1).v_phi-_wg(i,j).v_phi)*(_wd(i,j,k1).v_phi-_wg(i,j).v_phi) 
-                                + (_wd(i,j,k1).v_R-_wg(i,j).v_R)*(_wd(i,j,k1).v_R-_wg(i,j).v_R) + (_wd(i,j,k1).v_Z-_wg(i,j).v_Z)*(_wd(i,j,k1).v_Z-_wg(i,j).v_Z));
-            a1 *= tmp / (calc_C_D_step(a1,rho,cs,u_rel,_mu) * u_rel);
-
-            u_rel = sqrt((_wd(i,j,k2).v_phi-_wg(i,j).v_phi)*(_wd(i,j,k2).v_phi-_wg(i,j).v_phi) 
-                                + (_wd(i,j,k2).v_R-_wg(i,j).v_R)*(_wd(i,j,k2).v_R-_wg(i,j).v_R) + (_wd(i,j,k2).v_Z-_wg(i,j).v_Z)*(_wd(i,j,k2).v_Z-_wg(i,j).v_Z));
-            a2 *= tmp / (calc_C_D_step(a2,rho,cs,u_rel,_mu) * u_rel);
-        }
+        a1 = calc_t_s(_wd(i,j,k1), _wg(i,j), a1, _rho_grain, cs, _mu) * Omega;
+        a2 = calc_t_s(_wd(i,j,k2), _wg(i,j), a2, _rho_grain, cs, _mu) * Omega;
     }
 
     RealType sqrtRe = sqrt(_alpha_t(i,j) * cs / Omega / mfp);
@@ -167,46 +135,15 @@ KernelResult BirnstielKernelVertInt::operator()(int i, int j, int k1, int k2) co
         RealType rho_g = Sig_g/(2.506628275f * cs/Omega);
         tmp = 6.684342f * _rho_grain * cs / Sig_g;
 
-        RealType u_rel = sqrt((_wd(i,j,k1).v_phi-_wg(i,j).v_phi)*(_wd(i,j,k1).v_phi-_wg(i,j).v_phi) + (_wd(i,j,k1).v_R-_wg(i,j).v_R)*(_wd(i,j,k1).v_R-_wg(i,j).v_R));
+        RealType u_rel = sqrt((_wd(i,j,k1).v_R-_wg(i,j).v_R)*(_wd(i,j,k1).v_R-_wg(i,j).v_R) + _wd(i,j,k1).dv_phi*_wd(i,j,k1).dv_phi + _wd(i,j,k1).dv_Z*_wd(i,j,k1).dv_Z);
         a1 *= tmp / (calc_C_D(a1,rho_g,cs,u_rel,_mu) * u_rel);
 
-        u_rel = sqrt((_wd(i,j,k2).v_phi-_wg(i,j).v_phi)*(_wd(i,j,k2).v_phi-_wg(i,j).v_phi) + (_wd(i,j,k2).v_R-_wg(i,j).v_R)*(_wd(i,j,k2).v_R-_wg(i,j).v_R));
+        u_rel = sqrt((_wd(i,j,k2).v_R-_wg(i,j).v_R)*(_wd(i,j,k2).v_R-_wg(i,j).v_R) + _wd(i,j,k2).dv_phi*_wd(i,j,k2).dv_phi + _wd(i,j,k2).dv_Z*_wd(i,j,k2).dv_Z);
         a2 *= tmp / (calc_C_D(a2,rho_g,cs,u_rel,_mu) * u_rel);
     }
     else {
-        tmp = _rho_grain / Sig_g;
-        if (a1<2.25*mfp && a2<2.25*mfp) {
-            a1 *= 1.5707963f * tmp ;
-            a2 *= 1.5707963f * tmp ;
-        }
-        else if (a1<2.25*mfp) {
-            a1 *= 1.5707963f * tmp ;
-
-            RealType rho_g = Sig_g/(2.506628275f * cs/Omega);
-            tmp = 6.684342f * _rho_grain * cs / Sig_g;
-
-            RealType u_rel = sqrt((_wd(i,j,k2).v_phi-_wg(i,j).v_phi)*(_wd(i,j,k2).v_phi-_wg(i,j).v_phi) + (_wd(i,j,k2).v_R-_wg(i,j).v_R)*(_wd(i,j,k2).v_R-_wg(i,j).v_R));
-            a2 *= tmp / (calc_C_D_step(a2,rho_g,cs,u_rel,_mu) * u_rel);
-        }
-        else if (a2<2.25*mfp) {
-            a2 *= 1.5707963f * tmp ;
-
-            RealType rho_g = Sig_g/(2.506628275f * cs/Omega);
-            tmp = 6.684342f * _rho_grain * cs / Sig_g;
-
-            RealType u_rel = sqrt((_wd(i,j,k1).v_phi-_wg(i,j).v_phi)*(_wd(i,j,k1).v_phi-_wg(i,j).v_phi) + (_wd(i,j,k1).v_R-_wg(i,j).v_R)*(_wd(i,j,k1).v_R-_wg(i,j).v_R));
-            a1 *= tmp / (calc_C_D_step(a1,rho_g,cs,u_rel,_mu) * u_rel);
-        }
-        else {
-            RealType rho_g = Sig_g/(2.506628275f * cs/Omega);
-            tmp = 6.684342f * _rho_grain * cs / Sig_g;
-
-            RealType u_rel = sqrt((_wd(i,j,k1).v_phi-_wg(i,j).v_phi)*(_wd(i,j,k1).v_phi-_wg(i,j).v_phi) + (_wd(i,j,k1).v_R-_wg(i,j).v_R)*(_wd(i,j,k1).v_R-_wg(i,j).v_R));
-            a1 *= tmp / (calc_C_D_step(a1,rho_g,cs,u_rel,_mu) * u_rel);
-
-            u_rel = sqrt((_wd(i,j,k2).v_phi-_wg(i,j).v_phi)*(_wd(i,j,k2).v_phi-_wg(i,j).v_phi) + (_wd(i,j,k2).v_R-_wg(i,j).v_R)*(_wd(i,j,k2).v_R-_wg(i,j).v_R));
-            a2 *= tmp / (calc_C_D_step(a2,rho_g,cs,u_rel,_mu) * u_rel);
-        }
+        a1 = calc_t_s(_wd(i,j,k1), _wg(i,j), a1, _rho_grain, cs, _mu, Omega) * Omega;
+        a2 = calc_t_s(_wd(i,j,k2), _wg(i,j), a2, _rho_grain, cs, _mu, Omega) * Omega;
     }
 
     RealType sqrtRe = sqrt(_alpha_t(i,j) * cs / Omega / mfp);
@@ -223,14 +160,13 @@ KernelResult BirnstielKernelVertInt::operator()(int i, int j, int k1, int k2) co
 
     tmp = 4.2592967532662155e-24 * (_mu * (_grain_masses[k1] + _grain_masses[k2]) / (_grain_masses[k1]*_grain_masses[k2])) * cs*cs; //4.261679179e-24f
 
-
     v_turb += tmp;
     
     // Step 2: Add the laminar components in quadrature
     tmp = _wd(i,j,k1).v_R - _wd(i,j,k2).v_R;
     v_turb += tmp*tmp ;
 
-    tmp = _wd(i,j,k1).v_phi - _wd(i,j,k2).v_phi ;
+    tmp = _wd(i,j,k1).dv_phi - _wd(i,j,k2).dv_phi ;
     v_turb += tmp*tmp ;
 
     // Step 3: Compute the kernel

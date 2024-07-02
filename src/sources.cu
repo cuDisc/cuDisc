@@ -24,7 +24,6 @@ template<bool full_stokes>
 __device__
 double t_s(Prims wd, Prims wg, double rho_m, double s, double T, double mu) {
 
-    double mfp = mu * m_H / (wg.rho * 2.e-15);
     double cs = sqrt(k_B*T / (mu*m_H));
 
     if (full_stokes) {
@@ -33,13 +32,7 @@ double t_s(Prims wd, Prims wg, double rho_m, double s, double T, double mu) {
         return 2.66666666667 * rho_m * s / (wg.rho * calc_C_D(s,wg.rho,cs,u_rel,mu) * u_rel);
     }
     else {
-        if (s<2.25*mfp) 
-            return 0.6266570686577501 * rho_m * s / (wg.rho*cs) ;
-        else {
-            double u_rel = sqrt((wd.v_phi-wg.v_phi)*(wd.v_phi-wg.v_phi) 
-                                + (wd.v_R-wg.v_R)*(wd.v_R-wg.v_R) + (wd.v_Z-wg.v_Z)*(wd.v_Z-wg.v_Z));
-            return 2.66666666667 * rho_m * s / (wg.rho * calc_C_D_step(s,wg.rho,cs,u_rel,mu) * u_rel);
-        }
+        return calc_t_s(wd,wg,s,rho_m,cs,mu);
     }
 }
 
