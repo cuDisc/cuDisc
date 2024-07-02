@@ -41,17 +41,7 @@ void _calc_dust_vel(GridRef g, Field3DRef<Prims1D> W_d, FieldRef<Prims1D> W_g, d
         for (int k=kidx; k<W_d.Nd; k+=kstride) {
 
             double Om = sqrt(GMstar/g.Rc(i))/g.Rc(i);
-            double St;
-
-            if (full_stokes) {
-                double rho_g = W_g(i,j).Sig/(2.506628275 * cs(i,j)/Om);
-                double u_rel = sqrt((W_d(i,j,k).v_R-W_g(i,j).v_R)*(W_d(i,j,k).v_R-W_g(i,j).v_R) + W_d(i,j,k).dv_phi*W_d(i,j,k).dv_phi + W_d(i,j,k).dv_Z*W_d(i,j,k).dv_Z);
-
-                St = 6.684342 * rho_m*a[k]*cs(i,j)/ (W_g(i,j).Sig * calc_C_D(a[k],rho_g,cs(i,j),u_rel,mu) * u_rel);
-            }
-            else {
-                St = calc_t_s(W_d(i,j,k), W_g(i,j), a[k], rho_m, cs(i,j), mu, Om) * Om;
-            }
+            double St = calc_t_s<full_stokes>(W_d(i,j,k), W_g(i,j), a[k], rho_m, cs(i,j), mu, Om) * Om;
             
             W_d(i,j,k).v_R = (W_g(i,j).v_R - St*eta[i]*Om*g.Rc(i))/(St*St+1);
             W_d(i,j,k).dv_phi = 0.5 * eta[i]*Om*g.Rc(i)*St*St/(St*St+1);

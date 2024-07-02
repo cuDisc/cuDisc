@@ -20,22 +20,6 @@ double OmK2(GridRef& g, double Mstar, int i, int j) {
 
 }
 
-template<bool full_stokes>
-__device__
-double t_s(Prims wd, Prims wg, double rho_m, double s, double T, double mu) {
-
-    double cs = sqrt(k_B*T / (mu*m_H));
-
-    if (full_stokes) {
-        double u_rel = sqrt((wd.v_phi-wg.v_phi)*(wd.v_phi-wg.v_phi) 
-                                + (wd.v_R-wg.v_R)*(wd.v_R-wg.v_R) + (wd.v_Z-wg.v_Z)*(wd.v_Z-wg.v_Z));
-        return 2.66666666667 * rho_m * s / (wg.rho * calc_C_D(s,wg.rho,cs,u_rel,mu) * u_rel);
-    }
-    else {
-        return calc_t_s(wd,wg,s,rho_m,cs,mu);
-    }
-}
-
 __global__
 void _source_curv_grav(GridRef g, Field3DRef<Prims> w, Field3DRef<Quants> u, FieldConstRef<Prims> wg, double dt, double Mstar, double floor) {
 
@@ -146,7 +130,7 @@ void _calc_t_s(GridRef g, Field3DConstRef<Prims> q, FieldConstRef<Prims> w_gas, 
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
             for (int k=kidx; k<q.Nd; k+=kstride) {
 
-                t_stop(i,j,k) = t_s<full_stokes>(q(i,j,k), w_gas(i,j), rho_m, s[k], T(i,j), mu);
+                t_stop(i,j,k) = calc_t_s<full_stokes>(q(i,j,k), w_gas(i,j), rho_m, s[k], T(i,j), mu);
             }
         }
     }
