@@ -6,6 +6,8 @@
 #include <cmath>
 #include <fstream>
 
+#include "field.h"
+#include "grid.h"
 #include "cuda_array.h"
 
 #ifdef REAL_TYPE
@@ -128,6 +130,142 @@ public:
 
     RealType rho_d=1;
     int num_bins;
+    friend class SizeGridIce;
+    friend class SizeGridIceRef;
 };
+
+struct Ice {
+    double a, rho;
+};
+
+class SizeGridIce : public SizeGrid {
+
+    private:
+
+        Grid& _g;
+        int stride;
+        RealType _rho_daux, _rho_m_ice;
+
+        RealType _a_min, _a_max;
+
+        friend class SizeGridIceRef;
+
+    public:
+
+        SizeGridIce(Grid& g, RealType a_min, RealType a_max, int Nbins, RealType rho_daux, RealType rho_m_ice) : 
+            SizeGrid(a_min, a_max, Nbins, rho_daux),
+            _g(g),
+            stride(Nbins), _rho_daux(rho_daux),
+            _rho_m_ice(rho_m_ice), _a_min(a_min), _a_max(a_max)
+        {
+            for (int i=0; i<_g.NR+2*_g.Nghost; i++) {
+                for (int j=0; j<_g.Nphi+2*_g.Nghost; j++) {
+                    for (int k=0; k<Nbins; k++) {
+                        ice(i,j,k).a = centre_size(k);
+                        ice(i,j,k).rho = rho_daux;
+                    }
+                }
+            }
+        }
+
+        Field3D<Ice> ice = create_field3D<Ice>(_g, stride);
+
+        int size() const {
+            return num_bins ;
+        }
+
+        RealType min_mass() const { 
+            return _mass_e[0] ;
+        }
+
+        RealType max_mass() const { 
+            return _mass_e[num_bins] ;
+        }
+
+        RealType centre_mass(int idx) const {
+            return _mass_c[idx] ;
+        }
+    
+        RealType edge_mass(int idx) const {
+            return _mass_e[idx] ;
+        }
+
+        RealType centre_size(int idx) const {
+            return _a_c[idx];
+        }
+
+        // Provide access to arrays for convenience
+        const RealType* grain_sizes() const {
+            return _a_c.get() ;
+        }
+        const RealType* grain_masses() const {
+            return _mass_c.get() ;
+        }
+
+        RealType solid_density() const {
+            return rho_d ;
+        }
+
+        RealType ice_density() const {
+            return _rho_m_ice;
+        }
+
+        /* grid_index
+        *
+        * Find i, such that m_{i-1} < mass < mass_i
+        */
+        int grid_index(RealType mass) const {
+            return std::distance(_mass_e.get(),
+                                std::lower_bound(_mass_e.get(), 
+                                                _mass_e.get()+num_bins+1,
+                                                mass)
+                                ) ;
+        }
+
+        void write_ASCII(std::string filename) {
+            std::ofstream f(filename) ;
+            f << "# Cells=" << size() << "\n" ;
+            f << "# mass size\n" ;
+            for (int i=0; i < size()+1; i++) 
+                f << edge_mass(i) << " " 
+                << std::pow(3*edge_mass(i)/(4*M_PI*rho_d), 1/3.) << "\n" ;
+        }
+
+        void write_grid(std::string folder) {
+            std::ofstream f(folder+"/grains.sizes") ;
+            f << "# Cells=" << size() << "\n" ;
+            f << "# mass size\n" ;
+            for (int i=0; i < size()+1; i++) 
+                f << edge_mass(i) << " " 
+                << std::pow(3*edge_mass(i)/(4*M_PI*rho_d), 1/3.) << "\n" ;
+        }
+
+} ;
+
+class SizeGridIceRef {
+
+    private:
+
+        GridRef _g;
+        int stride;
+        RealType _rho_m_ice;
+
+    public:
+
+        SizeGridIceRef(SizeGridIce& size) :
+            _g(size._g),
+            stride(size.stride),
+            _rho_m_ice(size._rho_m_ice),
+            ice(size.ice)
+        {}
+
+        Field3DRef<Ice> ice;
+
+        __host__ __device__
+        RealType ice_density() const {
+            return _rho_m_ice;
+        }
+   
+} ;
 
 #endif//_CUDISC_HEADERS_COAGULATION_SIZE_GRID_H_
