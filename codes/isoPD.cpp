@@ -234,11 +234,11 @@ int main() {
 
     // Set up coagulation kernel, storing the fragmentation velocity
 
-    BirnstielKernel kernel = BirnstielKernel(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu);
+    BirnstielKernel kernel = BirnstielKernel(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu, M_star);
     kernel.set_fragmentation_threshold(v_frag);
 
     // Setup the integrator
-    BS32Integration<CoagulationRate<BirnstielKernel, SimpleErosion>>
+    BS32Integration<CoagulationRate<decltype(kernel), SimpleErosion>>
         coagulation_integrate(
             create_coagulation_rate(
                 sizes, 
@@ -351,10 +351,6 @@ int main() {
 
             if ((t+dt >= t_coag+dt_coag)|| (t+2*dt >= t_coag+dt_coag && dt < dt_coag) || dt == ti-t) {
                 std::cout << "Coag step at count = " << count << "\n";
-                // Reset coagulation kernel with updated quantities
-                kernel = BirnstielKernel(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu);
-                kernel.set_fragmentation_threshold(v_frag);
-                coagulation_integrate.set_kernel(kernel);
                 // Run coagulation internal integration (routine calculates its own sub-steps to integrate over the timestep passed into it)
                 coagulation_integrate.integrate(g, Ws_d, Ws_g, (t+dt)-t_coag, dt_coag, floor) ;
                 t_coag = t+dt;
