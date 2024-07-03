@@ -143,7 +143,7 @@ KernelResult BirnstielKernelVertInt<use_full_stokes>::operator()(int i, int j, i
     tmp = _wd(i,j,k1).v_R - _wd(i,j,k2).v_R;
     v_turb += tmp*tmp ;
 
-    tmp = _wd(i,j,k1).dv_phi - _wd(i,j,k2).dv_phi ;
+    tmp = _wd(i,j,k1).v_phi - _wd(i,j,k2).v_phi ;
     v_turb += tmp*tmp ;
 
     // Step 3: Compute the kernel

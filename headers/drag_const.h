@@ -78,7 +78,8 @@ inline double calc_t_s(Prims1D wd, Prims1D wg, double a, double rho_m, double cs
 
     double vC_D ;
     if (use_full_stokes) {
-        double u_rel = sqrt((wd.v_R-wg.v_R)*(wd.v_R-wg.v_R) + wd.dv_phi*wd.dv_phi + wd.dv_Z*wd.dv_Z);
+        double u_rel = sqrt((wd.v_R-wg.v_R)*(wd.v_R-wg.v_R) + (wd.v_phi-wg.v_phi)*(wd.v_phi-wg.v_phi) 
+                                + (wd.v_Z-wg.v_Z)*(wd.v_Z-wg.v_Z));
         vC_D = calc_vC_D(a,rho_g,cs,u_rel,mu) ;
     } 
     else {    
@@ -87,7 +88,8 @@ inline double calc_t_s(Prims1D wd, Prims1D wg, double a, double rho_m, double cs
             vC_D = 4.255384324 * cs ;
         }
         else {
-            double u_rel = sqrt((wd.v_R-wg.v_R)*(wd.v_R-wg.v_R) + wd.dv_phi*wd.dv_phi + wd.dv_Z*wd.dv_Z);
+            double u_rel = sqrt((wd.v_R-wg.v_R)*(wd.v_R-wg.v_R) + (wd.v_phi-wg.v_phi)*(wd.v_phi-wg.v_phi) 
+                                + (wd.v_Z-wg.v_Z)*(wd.v_Z-wg.v_Z));
             vC_D = calc_vC_D_step(a,rho_g,cs,u_rel,mu,mfp) ;
         }
     }

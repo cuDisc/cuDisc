@@ -36,6 +36,6 @@ double compute_CFL(Grid& g, CudaArray<double>& ubar, CudaArray<double>& D,
 // Prims1D functions
 
 void update_gas_sigma(Grid& g, Field<Prims1D>& W_g, double dt, const CudaArray<double>& nu, int bound, double floor);
-void calc_v_gas(Grid& g, Field<Prims1D>& W_g, CudaArray<double>& nu, double GMstar, double gasfloor);
+void calc_v_gas(Grid& g, Field<Prims1D>& W_g, const Field<double>& cs, CudaArray<double>& nu, double GMstar, double gasfloor);
 
 #endif//_CUDISC_HEADERS_GAS1D_H_

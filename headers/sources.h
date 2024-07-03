@@ -27,23 +27,19 @@ class NoSources : public SourcesBase {
 
 } ;
 
+template<bool use_full_stokes=false>
 class Sources : public SourcesBase {
 
     public:
 
         Sources(const Field<double>& T, const Field<Prims>& w_gas, const SizeGrid& s, double floor, double Mstar=1., double mu=2.4) :
-            _full_stokes(false), _Mstar(Mstar), _mu(mu), _sizes(s), _T(T), _w_gas(w_gas), _floor(floor) {};
+            _Mstar(Mstar), _mu(mu), _sizes(s), _T(T), _w_gas(w_gas), _floor(floor) {};
 
         void source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u, double dt);
         void source_imp(Grid& g, Field3D<Prims>& w, double dt);
 
-        void use_full_stokes() {
-            _full_stokes = true ;
-        } 
-
     private:
 
-        bool _full_stokes = false;
         double _Mstar;
         double _mu; 
         const SizeGrid& _sizes;
@@ -51,23 +47,20 @@ class Sources : public SourcesBase {
         FieldConstRef<Prims> _w_gas;
         double _floor;
 } ;
+
+template<bool use_full_stokes=false>
 class SourcesRad : public SourcesBase {
 
     public:
 
         SourcesRad(const Field<double>& T, const Field<Prims>& w_gas, const Field3D<double>& f_rad, const SizeGrid& s, double floor, double Mstar=1., double mu=2.4) :
-            _full_stokes(false), _Mstar(Mstar), _mu(mu), _sizes(s), _T(T), _w_gas(w_gas), _f_rad(f_rad), _floor(floor){};
+            _Mstar(Mstar), _mu(mu), _sizes(s), _T(T), _w_gas(w_gas), _f_rad(f_rad), _floor(floor){};
 
         void source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u, double dt);
         void source_imp(Grid& g, Field3D<Prims>& w, double dt);
 
-        void use_full_stokes() {
-            _full_stokes = true ;
-        } 
-
     private:
 
-        bool _full_stokes = false;
         double _Mstar;
         double _mu; 
         const SizeGrid& _sizes;
