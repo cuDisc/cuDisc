@@ -141,6 +141,11 @@ class OpacData:
         self.kappa_abs = kappa_abs
         self.kappa_sca = kappa_sca
 
+class Molecule:
+    def __init__(self, vap, ice):
+        self.vap = vap
+        self.ice = ice
+
 class CuDiscModel:
     """Read the outputs from a cuDisc simulation
     
@@ -378,7 +383,28 @@ class CuDiscModel:
         Sig_g, Sig_d, v_d, v_g = data1D[:,:,1],data1D[:,:,2],data1D[:,:,3],data1D[:,:,4]
 
         return Sig_g, Sig_d, v_d, v_g
-    
+
+    def load_mol(self):
+        
+        num_snaps = self._get_num_snaps()
+
+        file = os.path.join(self.sim_dir, f'mol_0.dat')
+
+        NR, NZ, Ndust = np.fromfile(file, dtype=np.intc, count=3)
+
+        vap = np.zeros((num_snaps, NR, NZ))
+        ice = np.zeros((num_snaps, NR, NZ, Ndust,3))
+        
+        for snap in range(num_snaps):
+            file = os.path.join(self.sim_dir, f'mol_{snap}.dat')
+
+            NR, NZ, Ndust = np.fromfile(file, dtype=np.intc, count=3)
+            data = np.fromfile(file, dtype=np.double, offset=3*np.dtype(np.intc).itemsize)
+            data = data.reshape(NR, NZ, 3*Ndust+1)
+            vap[snap] = data[:,:,0]
+            ice[snap] = data[:,:,1:].reshape(NR,NZ,Ndust,3)
+        
+        return Molecule(vap, ice)
 
     def _get_prim_file_base(self):
         """Work out the file name used for the primitive quants"""
