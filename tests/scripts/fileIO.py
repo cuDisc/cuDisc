@@ -83,6 +83,27 @@ class FieldData:
         self.vphi[item] = field.vphi
         self.vZ[item] = field.vZ
 
+class FieldData1D:
+    def __init__(self, Sigma, vR):
+        self.Sigma = Sigma
+        self.vR = vR
+
+    @classmethod
+    def create_empty(cls, shape):
+        return FieldData1D(
+            np.full(shape, np.nan),
+            np.full(shape, np.nan)
+        )
+    
+    def __getitem__(self, item):
+        return FieldData1D(
+            self.Sigma[item], self.vR[item]
+        )
+    
+    def __setitem__(self, item, field):
+        self.Sigma[item] = field.Sigma
+        self.vR[item] = field.vR
+
 class TempData:
     def __init__(self, T, J):
         self.T = T
@@ -150,6 +171,19 @@ class CuDiscModel:
                                offset=2*np.dtype(np.intc).itemsize)
         except IOError:
             raise AttributeError("Could not find the grid file (2Dgrid.dat) "
+                                 "in the simulation directory")
+
+        return Grid(NR, NZ,data)
+
+    def load_subgrid(self, index):
+        grid_file = os.path.join(self.sim_dir, '2Dgrid_sub'+str(index)+'.dat')
+
+        try:
+            NR, NZ = np.fromfile(grid_file, dtype=np.intc, count=2)
+            data = np.fromfile(grid_file, dtype=np.double, 
+                               offset=2*np.dtype(np.intc).itemsize)
+        except IOError:
+            raise AttributeError("Could not find the grid file (2Dgrid_sub"+str(index)+".dat) "
                                  "in the simulation directory")
 
         return Grid(NR, NZ,data)
@@ -226,6 +260,24 @@ class CuDiscModel:
 
         return g, d 
 
+    def load_dens1D(self, snap_num):
+
+        snap_file = os.path.join(self.sim_dir, f'dens1D_{snap_num}.dat')
+
+        NR, Ndust = np.fromfile(snap_file, dtype=np.intc, count=2)
+        data = np.fromfile(snap_file, dtype=np.double, offset=2*np.dtype(np.intc).itemsize)
+
+        data = data.reshape(NR, 2*(Ndust+1))
+
+        gas = FieldData1D(data[:,0], data[:,1])
+
+        data = data[:,2:]
+        data = data.reshape(NR, Ndust, 2)
+
+        dust = FieldData1D(data[:,:,0],data[:,:,1])
+
+        return gas, dust 
+
     def load_temp(self, snap_num):
         """Get the temperature and radiation field"""
         temp_file = os.path.join(self.sim_dir, f'{self._temp_base}_{snap_num}.dat')
@@ -263,6 +315,31 @@ class CuDiscModel:
 
             except IOError:
                 pass
+
+        return gas, dust
+
+    def load_all_dens1D_data(self):
+        NR = self.grid.NR
+        self._prim_base = 'dens1D'
+        
+        Ndust = self._get_num_dust_species()
+        print(Ndust)
+        num_snaps = self._get_num_snaps()
+
+        shape = num_snaps, NR
+        gas  = FieldData1D.create_empty((num_snaps, NR))
+        dust = FieldData1D.create_empty((num_snaps, NR, Ndust))
+
+        for n in range(num_snaps):
+            try:
+                gn, dn = self.load_dens1D(n)
+                gas[n] = gn
+                dust[n] = dn
+
+            except IOError:
+                pass
+
+        self._prim_base = 'dens'
 
         return gas, dust
     
@@ -305,7 +382,7 @@ class CuDiscModel:
 
     def _get_prim_file_base(self):
         """Work out the file name used for the primitive quants"""
-        valid_names = { 'dens', 'prims'}
+        valid_names = { 'dens', 'prims', 'dens1D'}
         
         files = os.listdir(self.sim_dir)
         for name in valid_names:
@@ -343,7 +420,12 @@ class CuDiscModel:
             return 0        
 
         snap_file = os.path.join(self.sim_dir, snaps[0])
-        return np.fromfile(snap_file, dtype=np.intc, count=3)[2]
+
+        if self._prim_base != 'dens1D':
+            return np.fromfile(snap_file, dtype=np.intc, count=3)[2]
+        else:
+            return np.fromfile(snap_file, dtype=np.intc, count=2)[1]
+        
     
     def _get_num_radiation_bands(self):
         snaps = [ f for f in os.listdir(self.sim_dir) if f.startswith(self._temp_base+'_') ]
