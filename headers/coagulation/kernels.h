@@ -20,6 +20,7 @@ struct vec3 {
     RealType R, Z, phi ;
 } ;
 
+template<bool use_full_stokes=false>
 class BirnstielKernel {
   public:
     BirnstielKernel(Grid&g, SizeGrid& sizes, const Field3D<Prims>& wd,
@@ -62,6 +63,7 @@ class BirnstielKernel {
 
 } ;
 
+template<bool use_full_stokes=false>
 class BirnstielKernelVertInt {
   public:
     BirnstielKernelVertInt(Grid&g, SizeGrid& sizes, const Field3D<Prims1D>& wd,

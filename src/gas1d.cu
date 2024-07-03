@@ -1257,28 +1257,56 @@ void update_gas_sigma(Grid& g, Field<Prims1D>& W_g, double dt, const CudaArray<d
     }
 }
 
-void calc_v_gas(Grid& g, Field<Prims1D>& W_g, CudaArray<double>& nu, double GMstar, double gasfloor) {
+__global__ 
+void _calc_v_gas(GridRef g, FieldRef<Prims1D> W_g, double GMstar, FieldConstRef<double> cs, double gas_floor, double* nu) {
+    
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.x * blockDim.x ;
 
-    for (int i=g.Nghost; i<g.NR+g.Nghost; i++) {
-        if (W_g(i,g.Nghost).Sig < 10.*gasfloor) { 
-            W_g(i,g.Nghost).v_R  = -100; 
+    int j = g.Nghost;
+
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+
+        double P1 = W_g(i+1,j).Sig / sqrt(2.*M_PI) * cs(i+1,j) * sqrt(GMstar/(g.Rc(i+1)*g.Rc(i+1)*g.Rc(i+1)));
+        double P0 = W_g(i-1,j).Sig / sqrt(2.*M_PI) * cs(i-1,j) * sqrt(GMstar/(g.Rc(i-1)*g.Rc(i-1)*g.Rc(i-1)));
+
+        double vk = sqrt(GMstar/g.Rc(i));
+        double eta = - cs(i,j)*cs(i,j) / (vk*vk) * log(P1/P0) / log(g.Rc(i+1)/g.Rc(i-1));
+
+        W_g(i,j).v_phi = vk*sqrt(1.-eta);
+
+        if (W_g(i,j).Sig < 10.*gas_floor) { 
+            W_g(i,j).v_R  = -100; 
             continue;
         }
 
-        double f1 = sqrt(g.Rc(i+1)) * W_g(i+1,g.Nghost).Sig * nu[i+1];
-        double f0 = sqrt(g.Rc(i-1)) * W_g(i-1,g.Nghost).Sig * nu[i-1];
+        double f1 = sqrt(g.Rc(i+1)) * W_g(i+1,j).Sig * nu[i+1];
+        double f0 = sqrt(g.Rc(i-1)) * W_g(i-1,j).Sig * nu[i-1];
 
-        W_g(i,g.Nghost).v_R = -3./(W_g(i,g.Nghost).Sig * sqrt(g.Rc(i))) * (f1-f0)/(g.Rc(i+1)-g.Rc(i-1));
+        W_g(i,j).v_R = -3./(W_g(i,j).Sig * sqrt(g.Rc(i))) * (f1-f0)/(g.Rc(i+1)-g.Rc(i-1));
 
-        if (W_g(i,g.Nghost).v_R  < -100) {
-            W_g(i,g.Nghost).v_R  = -100;
+        if (W_g(i,j).v_R  < -100) {
+            W_g(i,j).v_R  = -100;
         }
+
     }
+}
+
+void calc_v_gas(Grid& g, Field<Prims1D>& W_g, const Field<double>& cs, CudaArray<double>& nu, double GMstar, double gasfloor) {
+
+    size_t threads = 256 ;
+    size_t blocks = (g.NR + 2*g.Nghost+255)/256 ;
+
+    _calc_v_gas<<<blocks,threads>>>(g, W_g, GMstar, cs, gasfloor, nu.get());
+    check_CUDA_errors("_calc_v_gas");
+    cudaDeviceSynchronize();
 
     for (int i=0; i<g.Nghost; i++) {
         W_g(i,g.Nghost).v_R = W_g(g.Nghost,g.Nghost).v_R;
+        W_g(i,g.Nghost).v_phi = W_g(g.Nghost,g.Nghost).v_phi;
     }
     for (int i=g.NR+g.Nghost; i<g.NR+2*g.Nghost; i++) {
         W_g(i,g.Nghost).v_R = W_g(g.NR+g.Nghost-1,g.Nghost).v_R;
+        W_g(i,g.Nghost).v_phi = W_g(g.NR+g.Nghost-1,g.Nghost).v_phi;
     }
 }
