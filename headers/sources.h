@@ -27,6 +27,7 @@ class NoSources : public SourcesBase {
 
 } ;
 
+template<bool use_full_stokes=false>
 class Sources : public SourcesBase {
 
     public:
@@ -46,6 +47,8 @@ class Sources : public SourcesBase {
         FieldConstRef<Prims> _w_gas;
         double _floor;
 } ;
+
+template<bool use_full_stokes=false>
 class SourcesRad : public SourcesBase {
 
     public:

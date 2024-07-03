@@ -7,6 +7,7 @@
 #include "dustdynamics.h"
 #include "constants.h"
 #include "sources.h"
+#include "drag_const.h"
 
 #include "coagulation/size_grid.h"
 
@@ -17,13 +18,6 @@ double OmK2(GridRef& g, double Mstar, int i, int j) {
 
     return GMsun * Mstar / std::pow(g.Rc(i)*g.Rc(i)+g.Zc(i,j)*g.Zc(i,j), 1.5);
 
-}
-__device__
-double t_s(double rho_g, double rho_m, double s, double T, double mu) {
-
-    double v_th = sqrt(8*k_B*T / (mu*m_H*M_PI));
-
-    return rho_m * s / (rho_g * v_th);
 }
 
 __global__
@@ -120,7 +114,7 @@ void _source_drag(GridRef g, Field3DRef<Prims> w, FieldConstRef<Prims> w_gas, Fi
 
 }
 
-
+template<bool full_stokes>
 __global__
 void _calc_t_s(GridRef g, Field3DConstRef<Prims> q, FieldConstRef<Prims> w_gas, FieldConstRef<double> T, 
                     Field3DRef<double> t_stop, const RealType* s, double rho_m, double mu) {
@@ -136,14 +130,14 @@ void _calc_t_s(GridRef g, Field3DConstRef<Prims> q, FieldConstRef<Prims> w_gas, 
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
             for (int k=kidx; k<q.Nd; k+=kstride) {
 
-                t_stop(i,j,k) = t_s(w_gas(i,j).rho, rho_m, s[k], T(i,j), mu);
+                t_stop(i,j,k) = calc_t_s<full_stokes>(q(i,j,k), w_gas(i,j), rho_m, s[k], T(i,j), mu);
             }
         }
     }
 }
 
-
-void Sources::source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u, double dt) {
+template<bool use_full_stokes>
+void Sources<use_full_stokes>::source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u, double dt) {
 
     dim3 threads(16,8,8);
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (u.Nd+7)/8) ;
@@ -151,18 +145,23 @@ void Sources::source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u, double 
     _source_curv_grav<<<blocks,threads>>>(g, w, u, _w_gas, dt, _Mstar, _floor);
 }
 
-void Sources::source_imp(Grid& g, Field3D<Prims>& w, double dt) {
+template<bool use_full_stokes>
+void Sources<use_full_stokes>::source_imp(Grid& g, Field3D<Prims>& w, double dt) {
 
     Field3D<double> t_stop = Field3D<double>(g.NR+2*g.Nghost,g.Nphi+2*g.Nghost,w.Nd);
 
     dim3 threads(16,8,8);
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (w.Nd+7)/8) ;
 
-    _calc_t_s<<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_sizes(), _sizes.solid_density(), _mu);
+    if (use_full_stokes) 
+        _calc_t_s<true><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_sizes(), _sizes.solid_density(), _mu);
+    else
+        _calc_t_s<false><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_sizes(), _sizes.solid_density(), _mu);
     _source_drag<<<blocks,threads>>>(g, w, _w_gas, t_stop, dt, _Mstar);
 }
 
-void SourcesRad::source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u, double dt) {
+template<bool use_full_stokes>
+void SourcesRad<use_full_stokes>::source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u, double dt) {
 
     dim3 threads(16,8,8);
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (u.Nd+7)/8) ;
@@ -170,13 +169,22 @@ void SourcesRad::source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u, doub
     _source_curv_grav_pressure<<<blocks,threads>>>(g, w, u, _w_gas, _f_rad, dt, _Mstar, _floor);
 }
 
-void SourcesRad::source_imp(Grid& g, Field3D<Prims>& w, double dt) {
+template<bool use_full_stokes>
+void SourcesRad<use_full_stokes>::source_imp(Grid& g, Field3D<Prims>& w, double dt) {
 
     Field3D<double> t_stop = Field3D<double>(g.NR+2*g.Nghost,g.Nphi+2*g.Nghost,w.Nd);
 
     dim3 threads(16,8,8);
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (w.Nd+7)/8) ;
 
-    _calc_t_s<<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_sizes(), _sizes.solid_density(), _mu);
+    if (use_full_stokes) 
+        _calc_t_s<true><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_sizes(), _sizes.solid_density(), _mu);
+    else
+        _calc_t_s<false><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_sizes(), _sizes.solid_density(), _mu);
     _source_drag<<<blocks,threads>>>(g, w, _w_gas, t_stop, dt, _Mstar);
 }
+
+template class Sources<true>;
+template class Sources<false>;
+template class SourcesRad<true>;
+template class SourcesRad<false>;

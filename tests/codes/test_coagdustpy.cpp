@@ -21,7 +21,7 @@ Dynamics + Coag + FLD for a dustpy comparison
 */
 
 
-void set_up_gas(Grid& g, Field<Prims>& wg, CudaArray<double>& Sig_g, Field<double>& T, Field<double>& cs) {
+void set_up_gas(Grid& g, Field<Prims1D>& wg, CudaArray<double>& Sig_g, Field<double>& T, Field<double>& cs) {
 
     double M_star = 1.;
     double p = -2.25;
@@ -35,7 +35,7 @@ void set_up_gas(Grid& g, Field<Prims>& wg, CudaArray<double>& Sig_g, Field<doubl
             Sig_g[i] = 1.69779673e+001;
             double eta = - std::pow(h_g/g.Rc(i), 2) * std::exp(-std::pow(0.2/(g.Rc(i)/au),10)) * (p + q + ((q+3)/2)*std::pow(g.Zc(i,j)/h_g, 2) + 10*std::pow(0.2/(g.Rc(i)/au),10));
 
-            wg(i,j).rho = Sig_g[i];
+            wg(i,j).Sig = Sig_g[i];
             wg(i,j).v_R = 0.;
             wg(i,j).v_phi = g.Rc(i) * std::pow(GMsun*M_star/std::pow(g.Rc(i)*g.Rc(i)+g.Zc(i,j)*g.Zc(i,j),1.5), 0.5) * std::pow(1 - eta, 0.5);
             wg(i,j).v_Z = 0.;
@@ -46,7 +46,7 @@ void set_up_gas(Grid& g, Field<Prims>& wg, CudaArray<double>& Sig_g, Field<doubl
     }
 
 }
-void set_up_dust(Grid& g, Field3D<Prims>& qd, SizeGrid& sizes, double M_gas) {
+void set_up_dust(Grid& g, Field3D<Prims1D>& qd, SizeGrid& sizes, double M_gas) {
 
     double d_to_g = 0.01;
     double M_star = 1.;
@@ -55,13 +55,13 @@ void set_up_dust(Grid& g, Field3D<Prims>& qd, SizeGrid& sizes, double M_gas) {
     for (int i=0; i<g.NR+2*g.Nghost; i++) {
         for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
             for (int k=0; k<qd.Nd; k++) {    
-                qd(i,j,k).rho = std::pow(sizes.centre_size(k)/sizes.centre_size(0), 0.5) * std::exp(-std::pow(sizes.centre_size(k)/0.02, 10.));
+                qd(i,j,k).Sig = std::pow(sizes.centre_size(k)/sizes.centre_size(0), 0.5) * std::exp(-std::pow(sizes.centre_size(k)/0.02, 10.));
             }
         }
     }
     for (int i=0; i<g.NR+2*g.Nghost; i++) {
         for (int k=0; k<qd.Nd; k++) {
-            M_dust += 2.*M_PI * qd(i,2,k).rho * g.Rc(i) * g.dRe(i);
+            M_dust += 2.*M_PI * qd(i,2,k).Sig * g.Rc(i) * g.dRe(i);
         }
     }
     
@@ -71,7 +71,7 @@ void set_up_dust(Grid& g, Field3D<Prims>& qd, SizeGrid& sizes, double M_gas) {
             double vk = std::sqrt(GMsun*M_star/g.Rc(i));
 
             for (int k=0; k < sizes.size(); k++) {
-                qd(i,j,k).rho = qd(i,j,k).rho * d_to_g*M_gas/M_dust + 1.e-40;
+                qd(i,j,k).Sig = qd(i,j,k).Sig * d_to_g*M_gas/M_dust + 1.e-40;
                 qd(i,j,k).v_R  =  0.;
                 qd(i,j,k).v_phi = vk;
                 qd(i,j,k).v_Z   = 0;
@@ -125,8 +125,8 @@ int main() {
 
     // Create gas and dust fields (Qs = Quantities; object holds density and three-momenta, Ws = Primitives; object holds density and three-velocity)
 
-    Field3D<Prims> Ws_d = create_field3D<Prims>(g, n_spec); // Dust quantities 
-    Field<Prims> Ws_g = create_field<Prims>(g); // Gas primitives
+    Field3D<Prims1D> Ws_d = create_field3D<Prims1D>(g, n_spec); // Dust quantities 
+    Field<Prims1D> Ws_g = create_field<Prims1D>(g); // Gas primitives
     CudaArray<double> Sig_g = make_CudaArray<double>(g.NR+2*g.Nghost); // Gas surface density
     Field<double> T = create_field<double>(g); // Temperature
     Field<double> cs = create_field<double>(g); // Sound speed
@@ -153,9 +153,7 @@ int main() {
     // Set up coagulation kernel
     BirnstielKernelVertInt kernel = BirnstielKernelVertInt(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu, 1.);
     kernel.set_fragmentation_threshold(100.);
-    double Re = 0.5 * alpha * Sig_g[2] * 2.e-15 / (2.4 * m_p);
-    kernel.set_turbulence_Reynolds_Number(Re);
-    BS32Integration<CoagulationRate<BirnstielKernelVertInt, SimpleErosion>>
+    BS32Integration<CoagulationRate<decltype(kernel), SimpleErosion>>
         coagulation_integrate(
             create_coagulation_rate(
                 sizes, 
@@ -170,7 +168,7 @@ int main() {
     double dt_coag = 0;
 
     coagulation_integrate.integrate(g, Ws_d, Ws_g, 1e5*year, dt_coag, 1e-40) ;
-    write_prims(dir, 0, g, Ws_d, Ws_g);
+    write_prims1D(dir, 0, g, Ws_d, Ws_g);
 
     stop = std::chrono::high_resolution_clock::now();
     
