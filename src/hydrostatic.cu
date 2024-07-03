@@ -10,6 +10,7 @@
 #include "utils.h"
 #include "timing.h"
 #include "dustdynamics.h"
+#include "icevapour.h"
 
 __global__ void setup_hydrostatic_maxtrix_device(double GM, GridRef g, 
                                                  FieldConstRef<double> cs2, FieldRef<double> out) {
@@ -163,6 +164,22 @@ __global__ void _wg_from_rho(GridRef g, FieldRef<double> rho, FieldRef<Prims> w_
 
 }
 
+__global__ void _wg_from_rho(GridRef g, FieldRef<double> rho, FieldRef<Prims> w_g, double gasfloor, MoleculeRef mol) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) { 
+            mol.rho(i,j).vap *= (rho(i,j) + gasfloor) / w_g(i,j).rho;
+            w_g(i,j).rho = rho(i,j) + gasfloor;
+        }
+    }
+
+}
+
 // __global__ void _check_dust(GridRef g, FieldRef<double> rho, FieldRef<Quants> w_g, Field3DRef<Quants> q_d) {
 
 //     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
@@ -261,4 +278,44 @@ void compute_hydrostatic_equilibrium(const Star& star, const Grid& g, Field<Prim
     // _check_dust<<<blocks,threads>>>(g, rho, w_g, q_d);
 
     _wg_from_rho<<<blocks,threads>>>(g, rho, w_g, gasfloor);  
+}
+
+void compute_hydrostatic_equilibrium(const Star& star, const Grid& g, Field<Prims>& w_g, 
+                                     const Field<double>& cs2, const CudaArray<double>& Sigma, Molecule& mol, double gasfloor) {
+    
+    Field<double> rho = create_field<double>(g);
+    
+    dim3 threads(32,32,1);
+    dim3 blocks((g.NR+2*g.Nghost+31)/32, (g.Nphi+2*g.Nghost+31)/32 );
+
+    _rho_from_wg<<<blocks,threads>>>(g, rho, w_g);
+
+    if (g.Nghost > 64) {
+        std::string msg = 
+            "compute_hydrostatic_equilibrium only works for Nghost <= 16" ;
+        throw std::invalid_argument(msg);
+    }
+
+    CodeTiming::BlockTimer timing_block = 
+        timer->StartNewTimer("compute_hydrostatic_equilibrium") ;
+
+    // Step 1: Setup the finite difference factors for hydrostatic equilibrium
+    setup_hydrostatic_matrix(star, g, cs2, rho) ;
+    
+    // Step 2: Solve the relation using parallel scan
+    Reduction::scan_Z_mul(g, rho) ;
+    convert_pressure_to_density(g, cs2, rho) ;
+
+    // Step 3 compute the normalizations:
+    zero_midplane_boundary(g, rho) ;
+
+    CudaArray<double> norm = make_CudaArray<double>(g.NR + 2*g.Nghost) ;
+    Reduction::volume_integrate_Z(g, rho, norm) ;
+
+    // Step 4: Multiply rho by normalization 
+    normalize_density(g, rho, Sigma, norm) ;
+
+    // _check_dust<<<blocks,threads>>>(g, rho, w_g, q_d);
+
+    _wg_from_rho<<<blocks,threads>>>(g, rho, w_g, gasfloor, mol);  
 }
