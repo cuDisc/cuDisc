@@ -17,15 +17,13 @@
 #include "file_io.h"
 #include "errorfuncs.h"
 
-void setup_init_JT(const Grid &g, Field<double> &heat, Field3D<double> &J, Field<double> &T) {
+void setup_init_JT(const Grid &g, Field<double> &heat, Field<double> &J, Field<double> &T) {
 
     // Sets initial radiative flux (J=cE_R where E_R is the radiative energy) for temperature calculations
 
     for (int i=0; i<g.NR + 2*g.Nghost; i++) {
         for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
-            for (int k=0; k<J.Nd; k++) {
-                J(i,j,k) = heat(i,j)/J.Nd ; 
-            }    
+            J(i,j) = heat(i,j) ;
             T(i,j) = 150. / std::sqrt(g.Rc(i)/au);
         }
     }
@@ -102,7 +100,7 @@ void init_dust(Grid& g, Field3D<double>& rho, double Mtot, SizeGrid& sizes) {
 }
 
 
-void calculate_total_rhokappa(const Grid& g, Field3D<double>& rho, Field3D<double>& rhokabs, Field3D<double>& rhoksca, DSHARP_opacs& opacs) {
+void calculate_total_rhokappa(const Grid& g, Field3D<double>& rho, Field3D<double>& kabs, Field3D<double>& ksca, Field<double>& rhotot, DSHARP_opacs& opacs) {
 
 
     for (int i = 0; i < g.NR + 2*g.Nghost; i++) {
@@ -111,28 +109,18 @@ void calculate_total_rhokappa(const Grid& g, Field3D<double>& rho, Field3D<doubl
 
                 double rhok_dust_abs = 0;
                 double rhok_dust_sca = 0;
+                double rho_ij = 0 ;
 
                 for (int l=0; l<opacs.n_a; l++) { 
                     rhok_dust_abs += rho(i,j,l)*opacs.k_abs(l,k);
                     rhok_dust_sca += rho(i,j,l)*opacs.k_sca(l,k);
+                    rho_ij += rho(i,j,l) ; 
                 }
 
-                rhokabs(i,j,k) = rhok_dust_abs;
-                rhoksca(i,j,k) = rhok_dust_sca;
+                kabs(i,j,k) = rhok_dust_abs;
+                ksca(i,j,k) = rhok_dust_sca; 
+                rhotot(i,j) = rho_ij;
             }
-        }
-    }
-}
-
-void compute_total_density(Grid& g, Field3D<double>& rho, Field<double>& rhotot) {
-
-    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-        for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {   
-            double rho_tot_temp = 0.;
-            for (int k=0; k<rho.Nd; k++) {
-                rho_tot_temp += rho(i,j,k);
-            }    
-            rhotot(i,j) = rho_tot_temp;
         }
     }
 }
@@ -199,7 +187,7 @@ int main() {
         
         std::filesystem::path path = __FILE__;
         path = (path.parent_path()).parent_path();
-        std::filesystem::path dir = path / (std::string("outputs/pinte/run_")+ run[i]);
+        std::filesystem::path dir = path / (std::string("outputs/pinte_mono/run_")+ run[i]);
         std::filesystem::create_directories(dir);
 
         std::cout << "Output directory: " << dir  << "\n";
@@ -230,16 +218,14 @@ int main() {
         star.set_blackbody_fluxes() ;
 
         Field3D<double> rho = create_field3D<double>(g, sizes.size());
-        Field<double> rhotot = create_field<double>(g);
         Field<double> T = create_field<double>(g);
-        Field3D<double> J = create_field3D<double>(g, n_bands);
+        Field<double> J = create_field<double>(g);
         Field<double> heating = create_field<double>(g) ; 
         Field3D<double> scattering = create_field3D<double>(g, opacs.n_lam) ; 
         Field3D<double> binned_scattering = create_field3D<double>(g, n_bands) ; 
-        Field3D<double> rho_kappa_abs = create_field3D<double>(g, opacs.n_lam);  
-        Field3D<double> rho_kappa_sca = create_field3D<double>(g, opacs.n_lam);  
-        Field3D<double> rho_kappa_abs_binned =  create_field3D<double>(g, n_bands);
-        Field3D<double> rho_kappa_sca_binned =  create_field3D<double>(g, n_bands);
+        Field3D<double> kappa_abs = create_field3D<double>(g, opacs.n_lam);  
+        Field3D<double> kappa_sca = create_field3D<double>(g, opacs.n_lam);  
+        Field<double> rhotot = create_field<double>(g);
 
         WavelengthBinner bins(opacs.n_lam, opacs.lam(), n_bands);
 
@@ -247,11 +233,9 @@ int main() {
 
         init_dust(g, rho, masses[i]*Msun, sizes);
 
-        calculate_total_rhokappa(g, rho, rho_kappa_abs, rho_kappa_sca, opacs);
+        calculate_total_rhokappa(g, rho, kappa_abs, kappa_sca, rhotot, opacs);
 
-        compute_total_density(g, rho, rhotot);
-
-        compute_stellar_heating_with_scattering(star, g, rho_kappa_abs, rho_kappa_sca, heating, scattering);
+        compute_stellar_heating(star, g, kappa_abs, heating);
 
         setup_init_JT(g,heating,J,T);
 
@@ -259,30 +243,25 @@ int main() {
         FLD.set_precond_level(1);
 
         FLD.set_boundaries(BoundaryFlags::open_R_inner | 
-                        BoundaryFlags::open_R_outer | 
-                        BoundaryFlags::open_Z_outer) ;
+                          BoundaryFlags::open_R_outer | 
+                          BoundaryFlags::open_Z_outer) ;
 
         double tol=1;
         int n = 0;
-        while (n<10 && tol>0.00001) {
+        while (n<50 && tol>0.00001) {
 
             Field<double> oldT = create_field<double>(g);
-            Field3D<double> oldJ = create_field3D<double>(g,n_bands);
             copy_field(g, T, oldT); 
-            copy_field(g, J, oldJ); 
             
             std::cout << "Iteration: " << n << "\n" ;  
 
-            rho_kappa_abs_binned = bins.bin_planck(g, rho_kappa_abs, T);
-            bin_central(g, rho_kappa_sca, rho_kappa_sca_binned, num_wavelengths, n_bands);
-
-            binned_scattering = bins.bin_field(g, scattering, WavelengthBinner::SUM);
+            Field<double> rho_kappa_P = bins.planck_mean(g, kappa_abs, T);
 
 
             double dt_inittemp = 0;
             if (n==0) { dt_inittemp = 0; }
 
-            FLD.solve_multi_band(g, dt_inittemp, Cv, rho_kappa_abs_binned, rho_kappa_sca_binned, rhotot, heating, binned_scattering, bins.edges, T, J);
+            FLD(g, dt_inittemp, Cv, rho_kappa_P, rho_kappa_P, rhotot, heating, T, J);
 
             std::cout << "T:" << T(1,1) << " " << T(30, 2) 
                       << " "<< T(1, g.Nphi) << " " <<  T(g.NR, g.Nphi)

@@ -237,6 +237,40 @@ void write_temp(std::filesystem::path folder, out_type out, Grid &g, Field<doubl
 
 /* write_temp
  * 
+ * Store the temperature and radiation field information.
+ * 
+ *  Data is written to the file "folder/temp_out.dat" and readable by fileIO.py
+ *  Arguments:
+ *      folder : Folder to store data in
+ *      out : Label string for snapshot (typically a number or restart).
+ *      g : Grid object for simulation
+ *      T : Temperature data
+ *      J : Radiation field information
+*/
+template<typename out_type>
+void write_temp(std::filesystem::path folder, out_type out, Grid &g, Field<double> &T, Field<double> &J) {
+
+    std::stringstream out_string ;
+    out_string << out ;
+
+    int NR = g.NR+2*g.Nghost, NZ = g.Nphi+2*g.Nghost, nbands = 1;
+    
+    std::ofstream f(folder / ("temp_" + out_string.str() + ".dat"), std::ios::binary);
+    
+    f.write((char*) &NR, sizeof(int));
+    f.write((char*) &NZ, sizeof(int));
+    f.write((char*) &nbands, sizeof(int));
+    for (int i=0; i < g.NR + 2*g.Nghost; i++) { 
+        for (int j = 0; j < g.Nphi + 2*g.Nghost; j++) {
+            f.write((char*) &T(i,j), sizeof(double));
+            f.write((char*) &J(i,j), sizeof(double));
+        }
+    }
+    f.close();
+}
+
+/* write_temp
+ * 
  * Store the temperature information without the radiation field.
  * 
  *  Data is written to the file "folder/temp_out.dat" and readable by fileIO.py
