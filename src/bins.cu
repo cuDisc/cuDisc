@@ -167,6 +167,20 @@ Field3D<double> WavelengthBinner::bin_planck(const Grid& g, const Field3D<double
     return result ;
 }
 
+Field<double> WavelengthBinner::planck_mean(const Grid& g, const Field3D<double>& input,
+                                             const Field<double>& T) const {
+
+    Field<double> result = create_field<double>(g) ;
+
+    dim3 threads(4,16,16) ;
+    dim3 blocks((num_bands+3)/4, (g.Nphi+2*g.Nghost+15)/16, (g.NR+2*g.Nghost+15)/16) ;
+
+    _bin_planck<<<blocks, threads>>>(g, input, Field3DRef<double>(result), _planck, T, _wle_in_e.get()) ;
+    check_CUDA_errors("_bin_planck") ;
+
+    return result ;
+}
+
 void WavelengthBinner::write_wle(std::filesystem::path folder) const {
 
         std::ofstream f(folder / ("wle_grid.dat"), std::ios::binary);
