@@ -36,7 +36,7 @@ HEADERS := grid.h field.h cuda_array.h reductions.h utils.h matrix_types.h scan.
 
 OBJ := grid.o integrate_z.o scan.o scan3d.o zero_bounds.o copy.o \
 	hydrostatic.o pcg_solver.o stellar_irradiation.o FLD_mono.o FLD_multi.o \
-	FLD_sts.o jacobi.o ILU_precond.o gmres.o block_jacobi.o sparse_utils.o \
+	jacobi.o ILU_precond.o gmres.o block_jacobi.o sparse_utils.o \
 	radmc3d_utils.o timing.o star.o bins.o check_tol.o advection.o diffusion.o \
 	coagulation.o coagulation_init.o coagulation_integrate.o  super_stepping.o \
 	sources.o gas1d.o DSHARP_opacs.o dustdynamics.o dustdynamics1D.o

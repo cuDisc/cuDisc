@@ -17,8 +17,7 @@
 
 __global__ void _cell_optical_depth_tab(GridRef g, 
                                     int num_wavelengths, 
-                                    FieldConstRef<double> density, 
-                                    Field3DConstRef<double> kappa,
+                                    Field3DConstRef<double> rhokappa,
                                     Field3DRef<double> tau) {
 
     int k = threadIdx.x + blockIdx.x*blockDim.x ;
@@ -26,25 +25,10 @@ __global__ void _cell_optical_depth_tab(GridRef g,
     int i = threadIdx.z + blockIdx.z*blockDim.z ;
     
     if (k < num_wavelengths && j < g.Nphi + 2*g.Nghost && i < g.NR+2*g.Nghost) {
-        tau(i,j,k) = g.dre(i, j) * density(i,j) * kappa(i,j,k) ;
+        tau(i,j,k) = g.dre(i, j) * rhokappa(i,j,k) ;
     }
 } 
 
-__global__ void _cell_optical_depth_tab_with_scattering(GridRef g, 
-                                                        int num_wavelengths, 
-                                                        FieldConstRef<double> density, 
-                                                        Field3DConstRef<double> kappa_abs,
-                                                        Field3DConstRef<double> kappa_sca,
-                                                        Field3DRef<double> tau) {
-
-    int k = threadIdx.x + blockIdx.x*blockDim.x ;
-    int j = threadIdx.y + blockIdx.y*blockDim.y ;
-    int i = threadIdx.z + blockIdx.z*blockDim.z ;
-
-    if (k < num_wavelengths && j < g.Nphi + 2*g.Nghost && i < g.NR+2*g.Nghost) {
-        tau(i,j,k) = g.dre(i,j) * density(i,j) * (kappa_abs(i,j,k) + kappa_sca(i,j,k)) ;
-    }
-} 
 
 __global__ void _cell_optical_depth_tab_with_scattering(GridRef g, 
                                                         int num_wavelengths, 
@@ -60,39 +44,6 @@ __global__ void _cell_optical_depth_tab_with_scattering(GridRef g,
         tau(i,j,k) = g.dre(i,j) * (rhok_abs(i,j,k) + rhok_sca(i,j,k)) ;
     }
 } 
-
-
-template<class Opacity>
-__global__ void _cell_optical_depth(GridRef g, 
-                                    int num_wavelengths, const double* wle,
-                                    FieldConstRef<double> density, Opacity kappa,
-                                    Field3DRef<double> tau) {
-
-    int k = threadIdx.x + blockIdx.x*blockDim.x ;
-    int j = threadIdx.y + blockIdx.y*blockDim.y ;
-    int i = threadIdx.z + blockIdx.z*blockDim.z ;
-    
-    if (k < num_wavelengths && j < g.Nphi + 2*g.Nghost && i < g.NR+2*g.Nghost) {
-        tau(i,j,k) = g.dre(i,j) * density(i,j) * kappa.kappa_abs(wle[k]) ;
-    }
-} 
-
-template<class Opacity>
-__global__ void _cell_optical_depth_with_scattering(GridRef g, 
-                                                    int num_wavelengths, const double* wle,
-                                                    FieldConstRef<double> density, Opacity kappa,
-                                                    Field3DRef<double> tau) {
-
-    int k = threadIdx.x + blockIdx.x*blockDim.x ;
-    int j = threadIdx.y + blockIdx.y*blockDim.y ;
-    int i = threadIdx.z + blockIdx.z*blockDim.z ;
-    
-    if (k < num_wavelengths && j < g.Nphi + 2*g.Nghost && i < g.NR+2*g.Nghost) {
-        tau(i,j,k) = g.dre(i,j) * density(i,j) * 
-            (kappa.kappa_abs(wle[k]) + kappa.kappa_sca(wle[k])) ;
-    }
-} 
-
 
 __global__ void _volumetric_heating(GridRef g, 
                                     int num_wavelengths, const double* Lband,
@@ -118,39 +69,6 @@ __global__ void _volumetric_heating(GridRef g,
     }
 } 
 
-template<class Opacity>
-__global__ void _volumetric_heating_with_scattering(GridRef g, 
-                                                   int num_wavelengths, 
-                                                   const double* wle,
-                                                   const double* Lband,
-                                                   Field3DConstRef<double> tau,
-                                                   const Opacity& kappa,
-                                                   FieldRef<double> heating,
-                                                   Field3DRef<double> scattering) {
-
-    int j = threadIdx.x + blockIdx.x*blockDim.x ;
-    int i = threadIdx.y + blockIdx.y*blockDim.y ;
-
-    if (i < g.NR + 2*g.Nghost && j < g.Nphi + 2*g.Nghost) {
-
-        double heat = 0 ;
-        double tau0 = 0, dtau, albedo, term ;
-        double inv_area = g.dsin_th(j) / (4 * M_PI * g.volume(i,j)) ;
-        for (int k=0; k < num_wavelengths; k++) {
-            if (i > 0) tau0 = tau(i-1,j,k) ;
-            dtau = tau0 - tau(i,j,k) ;
-
-            albedo = kappa.kappa_sca(wle[k]) + kappa.kappa_abs(wle[k]) ;
-            if (albedo > 0) albedo = kappa.kappa_sca(wle[k]) / albedo ;
-
-            term = - inv_area * Lband[k] * exp(-tau0) * expm1(dtau) ;
-
-            heat += term * (1 - albedo) ;
-            scattering(i,j,k) = term * albedo ;
-        }
-        heating(i,j) = heat ;
-    }
-} 
 
 
 __global__ void _volumetric_heating_with_scattering(GridRef g, 
@@ -281,23 +199,6 @@ void _compute_stellar_heating_from_tau(const Star& star, const Grid& g,
                                     
 }
 
-template<class Opacity>
-void _compute_stellar_heating_with_scattering_from_tau(const Star& star, const Grid& g, 
-                                                      const Field3D<double>& tau, 
-                                                      const Opacity& kappa,
-                                                      Field<double>& heating,
-                                                      Field3D<double>& scattering) {
-
-    // Step 3: Compute volumetric heating rates
-    dim3 threads2(32, 32) ;
-    dim3 blocks2((g.Nphi + 2*g.Nghost + 31)/32, (g.NR + 2*g.Nghost+31)/32) ;
-
-    _volumetric_heating_with_scattering<<<blocks2, threads2>>>
-        (g, star.num_wle, star.wle.get(), star.Lband.get(), tau, kappa, heating, scattering) ;
-    check_CUDA_errors("_volumetric_heating_with_scattering") ;
-}
-
-
 void _compute_stellar_heating_with_scattering_from_tau(const Star& star, const Grid& g, 
                                                        const Field3D<double>& tau, 
                                                        const Field3D<double>& kappa_abs,
@@ -348,40 +249,9 @@ void _compute_stellar_pressure_with_scattering_from_tau(const Star& star, const 
         (g, star.num_wle, star.Lband.get(), tau, tau_inner, f_pressure, qd, opacs) ;
 }
 
-template<class Opacity>
-void compute_stellar_heating(const Star& star, const Grid& g, 
-                             const Opacity& kappa, const Field<double>& density, 
-                             Field<double>& heating) {
-    
-    CodeTiming::BlockTimer timing_block = 
-        timer->StartNewTimer("compute_stellar_heating") ;
-    
-    // Step 0: Decomposition for gpu
-    int nk = 1 ;
-    while (nk < star.num_wle && nk < 32)
-        nk *= 2 ;
-    int nj = 1024 / nk ;
-
-    dim3 threads(nk, nj, 1) ;
-    dim3 blocks((star.num_wle +  nk-1)/nk, 
-                (g.Nphi +  2*g.Nghost + nj-1)/nj, 
-                 g.NR +  2*g.Nghost) ;
-
-                               
-    // Step 1: compute optical depths                                
-    Field3D<double> tau = create_field3D<double>(g, star.num_wle) ;
-    _cell_optical_depth<Opacity><<<blocks,threads>>>(g, star.num_wle, 
-                                                     star.wle.get(),
-                                                     density, kappa, tau) ;
-    check_CUDA_errors("_cell_optical_depth") ;
-    Reduction::scan_R_sum(g, tau) ;
-
-    // Step 2: compute heating using optical depths
-    _compute_stellar_heating_from_tau(star, g, tau, heating) ;
-}
 
 void compute_stellar_heating(const Star& star, const Grid& g, 
-                             const Field3D<double>& kappa, const Field<double>& density, 
+                             const Field3D<double>& rhokappa, 
                              Field<double>& heating) {
 
     CodeTiming::BlockTimer timing_block = 
@@ -402,7 +272,7 @@ void compute_stellar_heating(const Star& star, const Grid& g,
     // Step 1: compute optical depths                                
     Field3D<double> tau = create_field3D<double>(g, star.num_wle) ;
     _cell_optical_depth_tab<<<blocks,threads>>>(g, star.num_wle, 
-                                                density, kappa, tau) ;
+                                                rhokappa, tau) ;
  
     check_CUDA_errors("_cell_optical_depth") ;
     Reduction::scan_R_sum(g, tau) ;
@@ -411,76 +281,6 @@ void compute_stellar_heating(const Star& star, const Grid& g,
     _compute_stellar_heating_from_tau(star, g, tau, heating) ;
 }
 
-
-template<class Opacity>
-void compute_stellar_heating_with_scattering(const Star& star, const Grid& g, 
-                                             const Opacity& kappa,
-                                             const Field<double>& density, 
-                                             Field<double>& heating,
-                                             Field3D<double>& scattering) {
-
-    CodeTiming::BlockTimer timing_block = 
-        timer->StartNewTimer("compute_stellar_heating_with_scattering") ;
-
-    // Step 0: Decomposition for gpu
-    int nk = 1 ;
-    while (nk < star.num_wle && nk < 32)
-    nk *= 2 ;
-    int nj = 1024 / nk ;
-
-    dim3 threads(nk, nj, 1) ;
-    dim3 blocks((star.num_wle +  nk-1)/nk, 
-    (g.Nphi +  2*g.Nghost + nj-1)/nj, 
-    g.NR +  2*g.Nghost) ;
-
-
-    // Step 1: compute optical depths                                
-    Field3D<double> tau = create_field3D<double>(g, star.num_wle) ;
-    _cell_optical_depth_with_scattering<Opacity><<<blocks,threads>>>
-        (g, star.num_wle, star.wle.get(), density,kappa, tau) ;
-
-    check_CUDA_errors("_cell_optical_depth") ;
-    Reduction::scan_R_sum(g, tau) ;
-
-    // Step 2: compute heating using optical depths
-    _compute_stellar_heating_with_scattering_from_tau
-        (star, g, tau, kappa, heating, scattering) ;
-}
-
-void compute_stellar_heating_with_scattering(const Star& star, const Grid& g, 
-                                             const Field3D<double>& kappa_abs,
-                                             const Field3D<double>& kappa_sca, 
-                                             const Field<double>& density, 
-                                             Field<double>& heating,
-                                             Field3D<double>& scattering) {
-
-    CodeTiming::BlockTimer timing_block = 
-        timer->StartNewTimer("compute_stellar_heating_with_scattering") ;
-
-    // Step 0: Decomposition for gpu
-    int nk = 1 ;
-    while (nk < star.num_wle && nk < 32)
-    nk *= 2 ;
-    int nj = 1024 / nk ;
-
-    dim3 threads(nk, nj, 1) ;
-    dim3 blocks((star.num_wle +  nk-1)/nk, 
-    (g.Nphi +  2*g.Nghost + nj-1)/nj, 
-    g.NR +  2*g.Nghost) ;
-
-          
-    // Step 1: compute optical depths                                
-    Field3D<double> tau = create_field3D<double>(g, star.num_wle) ;
-    _cell_optical_depth_tab_with_scattering<<<blocks,threads>>>
-        (g, star.num_wle, density, kappa_abs, kappa_sca, tau) ;
-
-    check_CUDA_errors("_cell_optical_depth") ;
-    Reduction::scan_R_sum(g, tau) ;
-
-    // Step 2: compute heating using optical depths
-    _compute_stellar_heating_with_scattering_from_tau
-        (star, g, tau, kappa_abs, kappa_sca, heating, scattering) ;
-}
 
 void compute_stellar_heating_with_scattering(const Star& star, const Grid& g, 
                                              const Field3D<double>& rhok_abs,
@@ -666,32 +466,6 @@ void compute_radiation_pressure_with_scattering_with_inner_disc(const Star& star
         (star, g, tau, tau_inner, f_pressure, qd, opacs);
     
 }
-
-template void compute_stellar_heating<ConstantOpacity>(
-    const Star&, const Grid&, const ConstantOpacity&, const Field<double>&, 
-    Field<double>&) ;
-
-template void compute_stellar_heating<SingleGrainOpacity>(
-    const Star&, const Grid&, const SingleGrainOpacity&, const Field<double>&, 
-    Field<double>&) ;       
-
-template void compute_stellar_heating<GrainDistributionOpacity>(
-    const Star&, const Grid&, const GrainDistributionOpacity&, const Field<double>&, 
-    Field<double>&) ;
-
-
-template void compute_stellar_heating_with_scattering<ConstantOpacity>(
-    const Star&, const Grid&, const ConstantOpacity&, const Field<double>&, 
-    Field<double>&, Field3D<double>&) ;
-
-template void compute_stellar_heating_with_scattering<SingleGrainOpacity>(
-    const Star&, const Grid&, const SingleGrainOpacity&, const Field<double>&, 
-    Field<double>&, Field3D<double>&) ;       
-
-template void compute_stellar_heating_with_scattering<GrainDistributionOpacity>(
-    const Star&, const Grid&, const GrainDistributionOpacity&, const Field<double>&, 
-    Field<double>&, Field3D<double>&) ;
-
 
 __global__ void add_viscous_heating_device(double GM, GridRef g, double alpha,
                                            FieldConstRef<double> rho, FieldConstRef<double> cs2,

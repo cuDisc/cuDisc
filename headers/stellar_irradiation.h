@@ -7,26 +7,10 @@
 #include "dustdynamics.h"
 #include "DSHARP_opacs.h"
 
-template<class Opacity>
-void compute_stellar_heating(const Star& star, const Grid& g, 
-                             const Opacity& kappa, const Field<double>& density, 
-                             Field<double>& heating) ;
-template<class Opacity>
-void compute_stellar_heating(const Star& star, const Grid& g, 
-                             const Opacity& kappa, const Field<double>& density, 
-                             Field<double>& heating, Field3D<double>& scattering) ;
 
 void compute_stellar_heating(const Star& star, const Grid&, 
-                            const Field3D<double>& kappa, 
-                            const Field<double>& density, 
+                            const Field3D<double>& rhokappa, 
                             Field<double>& heating) ;
-
-void compute_stellar_heating_with_scattering(const Star& star, const Grid&, 
-                                             const Field3D<double>& kappa_abs, 
-                                             const Field3D<double>& kappa_sca,
-                                             const Field<double>& density, 
-                                             Field<double>& heating, 
-                                             Field3D<double>& scattering) ;
 
 void compute_stellar_heating_with_scattering(const Star& star, const Grid& g, 
                                              const Field3D<double>& rhok_abs,
