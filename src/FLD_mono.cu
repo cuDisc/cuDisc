@@ -63,8 +63,7 @@ CSR_SpMatrix _create_FLD_mono_matrix(const Grid& g) {
 
 
 __global__ void compute_diffusion_coeff(GridRef g, FieldConstRef<double> J,
-                                        FieldConstRef<double> rho,  
-                                        FieldConstRef<double> kappa_R,
+                                        FieldConstRef<double> rho_kappa_R,
                                         FieldRef<double> D) {
                                              
     int j = threadIdx.x + blockIdx.x*blockDim.x ;
@@ -72,7 +71,7 @@ __global__ void compute_diffusion_coeff(GridRef g, FieldConstRef<double> J,
 
     if (i < g.NR + 2*g.Nghost && j < g.Nphi + 2*g.Nghost) {
 
-        double krho = rho(i,j)*kappa_R(i,j) ;               
+        double krho = rho_kappa_R(i,j) ;               
         D(i,j) = diffusion_coeff(g, J, krho, i, j) ;
     }
 }
@@ -83,7 +82,7 @@ __global__ void create_FLD_mono_system(GridRef g, double dt, double Cv,
                                        FieldConstRef<double> rho, 
                                        FieldConstRef<double> T, FieldConstRef<double> J,
                                        FieldConstRef<double> D, 
-                                       FieldConstRef<double> kappa_P, 
+                                       FieldConstRef<double> rhokappa_P, 
                                        FieldConstRef<double> heat, double T_ext,
                                        CSR_SpMatrixRef mat, DnVecRef rhs,
                                        int boundary) {
@@ -96,7 +95,7 @@ __global__ void create_FLD_mono_system(GridRef g, double dt, double Cv,
     
     if (i < nx+g.Nghost && j < ny+g.Nghost) {
         
-        double kappa = kappa_P(i,j) ;
+        double rhokappa = rhokappa_P(i,j) ;
         double T0 = T(i,j) ;
         double d = rho(i,j) ;
         double k0 = 16*sigma_SB*T0*T0*T0 ;
@@ -120,12 +119,12 @@ __global__ void create_FLD_mono_system(GridRef g, double dt, double Cv,
         }
 
         // Radiation-matter coupling
-        mat.data[start] += vol*d*kappa ;
+        mat.data[start] += vol*rhokappa ;
         rhs.data[idx]   += vol*heat(i,j) ;
 
         start += 1 ;
         mat.col_index[start] = idx+1 ;
-        mat.data[start] = -vol*d*kappa ;
+        mat.data[start] = -vol*rhokappa ;
 
 
         /////// Radiation density equation
@@ -191,14 +190,14 @@ __global__ void create_FLD_mono_system(GridRef g, double dt, double Cv,
 
         // Add the time-dependent terms
         // Radiation-matter coupling
-        kappa = kappa_P(i,j) ;
+        rhokappa = rhokappa_P(i,j) ;
 
         mat.col_index[start] = idx - 1 ;
-        mat.data[start] = -vol*d*kappa ;
+        mat.data[start] = -vol*rhokappa ;
         start++ ; 
 
         mat.col_index[start] = idx ;
-        mat.data[start] = vol*d*kappa ;
+        mat.data[start] = vol*rhokappa ;
 
         // Time dependent terms
         if (dt > 0) {
@@ -320,9 +319,9 @@ __global__ void copy_final_values(GridRef g, FieldRef<double> T,
 }
 
 void FLD_Solver::operator()(const Grid& g, double dt, double Cv, 
+                            const Field<double>& rhokappa_P, 
+                            const Field<double>& rhokappa_R,
                             const Field<double>& rho, 
-                            const Field<double>& kappa_P, 
-                            const Field<double>& kappa_R,
                             const Field<double>& heat,
                             Field<double>& T, Field<double>& J) {
 
@@ -341,13 +340,13 @@ void FLD_Solver::operator()(const Grid& g, double dt, double Cv,
     copy_initial_values<<<blocks, threads>>>(g, T, J, sol) ; 
 
     Field<double> D = create_field<double>(g) ;
-    compute_diffusion_coeff<<<blocks, threads>>>(g, J, rho, kappa_R, D) ;
+    compute_diffusion_coeff<<<blocks, threads>>>(g, J, rhokappa_R, D) ;
     check_CUDA_errors("compute_diffusion_coeff") ;           
 
     dim3 threads2(16,16,1) ;
     dim3 blocks2((g.Nphi + 2*g.Nghost+15)/16,(g.NR + 2*g.Nghost+15)/16,1) ;
 
-    create_FLD_mono_system<<<blocks2, threads2>>>(g, dt, Cv, rho, T, J, D, kappa_P, 
+    create_FLD_mono_system<<<blocks2, threads2>>>(g, dt, Cv, rho, T, J, D, rhokappa_P, 
                                                   heat, _T_ext, FLD_mat, rhs, _boundary) ;
     check_CUDA_errors("create_FLD_mono_system") ;    
     

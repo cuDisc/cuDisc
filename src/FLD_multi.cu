@@ -64,23 +64,6 @@ CSR_SpMatrix _create_FLD_multi_matrix(const Grid& g, int num_bands) {
 
 
 __global__ void compute_diffusion_coeff(GridRef g, Field3DConstRef<double> J,
-                                        FieldConstRef<double> rho,  
-                                        Field3DConstRef<double> kappa_ext,
-                                        Field3DRef<double> D) {
-                                             
-    int j = threadIdx.x + blockIdx.x*blockDim.x ;
-    int i = threadIdx.y + blockIdx.y*blockDim.y ;
-
-    if (i < g.NR + 2*g.Nghost && j < g.Nphi + 2*g.Nghost) {
-        double rho_ij = rho(i,j) ;
-        for (int k=0; k < J.Nd; k++) {
-            double krho = rho_ij*kappa_ext(i,j,k) ;          
-            D(i,j,k) = diffusion_coeff(g, J, krho, i, j, k) ;
-        }
-    }
-}
-
-__global__ void compute_diffusion_coeff(GridRef g, Field3DConstRef<double> J,
                                         Field3DConstRef<double> rhokabs,  
                                         Field3DConstRef<double> rhoksca,
                                         Field3DRef<double> D) {
@@ -547,109 +530,6 @@ __global__ void copy_final_values(GridRef g, FieldRef<double> T,
 
 
 // Scheme based on: http://dx.doi.org/10.1016/j.jcp.2012.06.042
-void FLD_Solver::solve_multi_band(const Grid& g, double dt, double Cv, 
-                                  const Field<double>& rho, 
-                                  const Field3D<double>& opacity, 
-                                  const Field<double>& heat, 
-                                  const CudaArray<double>& wle,
-                                  Field<double>& T, Field3D<double>& J) {
-
-
-    Field3D<double> scattering = create_field3D<double>(g, J.Nd) ;
-    set_all(g, scattering, 0) ;
-
-    solve_multi_band(
-        g, dt, Cv, rho, opacity, opacity, heat, scattering, wle, T, J) ;
-}
-
-
-
-void FLD_Solver::solve_multi_band(const Grid& g, double dt, double Cv, 
-                                 const Field<double>& rho, 
-                                 const Field3D<double>&kappa_abs,
-                                 const Field3D<double>&kappa_ext,
-                                 const Field<double>& heat, 
-                                 const Field3D<double>& scattering,
-                                 const CudaArray<double>& wle,
-                                 Field<double>& T, Field3D<double>& J) {
-
-    CodeTiming::BlockTimer timing_block = 
-        timer->StartNewTimer("FLD_Solver::solve_multi_band") ;
-    CodeTiming::BlockTimer timing_subblock = 
-        timer->StartNewTimer("FLD_Solver::solve_multi_band::create_system") ;   
-
-    dim3 threads(32,32,1) ;
-    dim3 blocks((g.Nphi + 2*g.Nghost+31)/32,(g.NR + 2*g.Nghost+31)/32,1) ;
-          
-    CSR_SpMatrix FLD_mat = _create_FLD_multi_matrix(g, J.Nd) ;
-
-    DnVec rhs(FLD_mat.rows) ;
-    DnVec sol(FLD_mat.rows) ;
-    copy_initial_values<<<blocks, threads>>>(g, T, J, sol) ; 
-
-    Field3D<double> D = create_field3D<double>(g, J.Nd) ;
-    compute_diffusion_coeff<<<blocks, threads>>>(g, J, rho, kappa_ext, D) ;
-    //compute_diffusion_coeff<<<blocks, threads>>>(g, J, rho, kappa_abs, kappa_ext, D) ;
-    check_CUDA_errors("compute_diffusion_coeff") ;           
-
-    dim3 threads2(16,16,1) ;
-    dim3 blocks2((g.Nphi + 2*g.Nghost+15)/16,(g.NR + 2*g.Nghost+15)/16,1) ;
-
-    PlanckInegral planck ;
-    create_FLD_multi_system<<<blocks2, threads2>>>(g, dt, Cv, rho, T, J, D, 
-                                                   kappa_abs, 
-                                                   heat, scattering,
-                                                   _T_ext, planck, wle.get(),  
-                                                   FLD_mat, rhs, _boundary) ;
-    check_CUDA_errors("create_FLD_multi_system") ;    
-
-    timing_subblock.StartNewBlock("FLD_Solver::solve_multi_band::solve") ;      
-
-    Jacobi_Precond jacobi(FLD_mat) ;
-    jacobi.transform(FLD_mat, sol, rhs) ;
-
-    /*
-    std::ofstream m("FLD_multi_mat.mm") ;
-    write_MM_format(FLD_mat, m) ;
-    std::ofstream v("FLD_multi_rhs.mm") ;
-    write_MM_format(rhs, v) ;
-    */
-
-
-    // Solve the linear system
-    //BlockJacobi_precond pc(FLD_mat, 1+J.Nd) ;
-    PCG_Solver pcg(std::unique_ptr<CheckConvergence>(new CheckTemperatureResidual(_tol, J.Nd, _tol)), _max_iter) ;
-
-    // Solve the linear system
-    if (_ILU_order < 0) {
-        NoPrecond precond ;
-        //BlockJacobi_precond precond(FLD_mat) ;
-        bool success = 
-            pcg.solve_non_symmetric(FLD_mat, rhs, sol, precond) ;
-        
-        if (not success) {
-            std::cout << "Non-preconditioned solve failed, falling back to ILU(0)." << std::endl;
-            
-            copy_initial_values<<<blocks, threads>>>(g, T, J, sol) ; 
-            jacobi.transform_guess(sol) ;
-
-            ILU_precond precond(FLD_mat, 0) ;
-            pcg.solve_non_symmetric(FLD_mat, rhs, sol, precond) ;
-        }
-    }
-    else {
-        ILU_precond precond(FLD_mat, _ILU_order) ;
-        pcg.solve_non_symmetric(FLD_mat, rhs, sol, precond) ;
-    }
-
-    jacobi.invert(sol) ;
-
-    copy_final_values<<<blocks, threads>>>(g, T, J, sol) ; 
-    check_CUDA_errors("copy_final_values") ;     
-
-    timing_subblock.EndTiming() ;
-}
-
 void FLD_Solver::solve_multi_band(const Grid& g, double dt, double Cv, 
                                  const Field3D<double>& rhokappa_abs,
                                  const Field3D<double>& rhokappa_sca,

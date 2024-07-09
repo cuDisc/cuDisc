@@ -69,6 +69,8 @@ class WavelengthBinner {
 
     Field3D<double> bin_planck(const Grid& g, const Field3D<double>& input,
                               const Field<double>& T) const ;
+    Field<double> planck_mean(const Grid& g, const Field3D<double>& input,
+                              const Field<double>& T) const ;
 
     CudaArray<double> bin_planck_data(const CudaArray<double>& input,
                                       const double T) const ;
