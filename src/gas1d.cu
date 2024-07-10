@@ -580,21 +580,21 @@ __global__ void _calc_vphi(GridRef g, FieldConstRef<double> p, FieldRef<double> 
 }
 
 __global__ void _calc_T(GridRef g, FieldRef<double> Trphi, FieldRef<double> TZphi, FieldConstRef<double> vphig,
-                            FieldRef<double> dvphidr, FieldRef<double> dvphidZ, FieldRef<Prims> wg, FieldRef<double> nu, int nbuffer) {
+                            FieldRef<double> dvphidr, FieldRef<double> dvphidZ, FieldRef<Prims> wg, double* nu, int nbuffer) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
     int istride = gridDim.x * blockDim.x ;
     int jstride = gridDim.y * blockDim.y ;
 
-    for (int i=iidx+g.Nghost-1+nbuffer; i<g.NR+g.Nghost+1-nbuffer; i+=istride) {
-        for (int j=jidx+g.Nghost-1; j<g.Nphi+g.Nghost+1-nbuffer; j+=jstride) {
+    for (int i=iidx+g.Nghost+nbuffer; i<g.NR+g.Nghost-nbuffer; i+=istride) {
+        for (int j=jidx+g.Nghost-1; j<g.Nphi+g.Nghost-nbuffer; j+=jstride) {
 
             dvphidZ(i,j) = vl_Z2D(g, vphig, i, j);
 
             dvphidr(i,j) = slope4Or(g, vphig, i, j); 
 
-            double C = wg(i,j).rho*nu(i,j)/(g.cos_th_c(j)*g.cos_th_c(j));
+            double C = wg(i,j).rho*nu[i]/(g.cos_th_c(j)*g.cos_th_c(j));
 
             Trphi(i,j) = C * (dvphidr(i,j) - vphig(i,j)/g.rc(i,j) - g.sin_th_c(j)*dvphidZ(i,j));
             TZphi(i,j) = C * (dvphidZ(i,j) - g.sin_th_c(j)*(dvphidr(i,j) - vphig(i,j)/g.rc(i,j)));
@@ -653,6 +653,47 @@ __global__ void _calc_vr(GridRef g, FieldConstRef<double> Trphi, FieldConstRef<d
 
             if ((g.rc(i,j)*dvphidr(i,j) + vphig(i,j) - g.Zc(i,j)*dvphidZ(i,j)) != 0) {
                 double vr = g.rc(i,j)/(g.rc(i,j)*dvphidr(i,j) + vphig(i,j) - g.Zc(i,j)*dvphidZ(i,j)) * (1./rho(i,j) * divT_phi - wg(i,j).v_Z*dvphidZ(i,j));
+
+                wg(i,j).v_R = vr*g.cos_th_c(j);  
+
+                if (wg(i,j).v_R > 1000.) {wg(i,j).v_R = 1000.;}
+                if (wg(i,j).v_R < -1000.) {wg(i,j).v_R = -1000.;}
+            }
+            else {
+                wg(i,j).v_R = 0.;     
+            }
+        }
+    }
+}
+
+__global__ void _calc_vr(GridRef g, FieldConstRef<double> Trphi, FieldConstRef<double> TZphi, FieldRef<double> vphig,
+                            FieldRef<double> dvphidr, FieldRef<double> dvphidZ, FieldRef<Prims> wg, double floor, int nbuffer, double cav) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+
+    for (int i=iidx+g.Nghost+nbuffer; i<g.NR+g.Nghost-nbuffer; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost-nbuffer; j+=jstride) {
+
+            if (wg(i,j).rho < 50.*floor) {
+                wg(i,j).v_R = 0.;
+                continue;
+            }
+            if (g.Rc(i) < cav) {
+                wg(i,j).v_R = 0.;
+                continue;
+            }
+            
+            double dTZphidZ = vl_Z2D(g, TZphi, i, j);
+
+            double dTrphidr = slope4Or(g, Trphi, i, j);
+
+            double divT_phi = dTrphidr + 3.*Trphi(i,j)/g.rc(i,j) + dTZphidZ;
+
+            if ((g.rc(i,j)*dvphidr(i,j) + vphig(i,j) - g.Zc(i,j)*dvphidZ(i,j)) != 0) {
+                double vr = g.rc(i,j)/(g.rc(i,j)*dvphidr(i,j) + vphig(i,j) - g.Zc(i,j)*dvphidZ(i,j)) * (1./wg(i,j).rho * divT_phi - wg(i,j).v_Z*dvphidZ(i,j));
 
                 wg(i,j).v_R = vr*g.cos_th_c(j);  
 
@@ -774,6 +815,33 @@ void calc_gas_velocities(Grid& g, CudaArray<double>& Sig_g, Field<Prims>& wg, Fi
     _calc_vr<<<blocks,threads>>>(g, Trphi, TZphi, vphig, drvphidr, dvphidZ, wg, rho, floor, vrbuff, cav);
 
     _correct_vr_cav<<<blocks,threads>>>(g, wg, cav);
+    _set_v_bounds<<<blocks,threads>>>(g, wg, bound, 1, vrbuff);
+}
+
+void calc_gas_velocities_full(Grid& g, CudaArray<double>& Sig_g, Field<Prims>& wg, Field<double>& cs2, CudaArray<double>& nu, double alpha, Star& star, int bound, double floor, double cav) {
+
+    Field<double> Trphi = create_field<double>(g);
+    Field<double> TZphi = create_field<double>(g);
+    Field<double> drvphidr = create_field<double>(g);
+    Field<double> dvphidZ = create_field<double>(g);
+    Field<double> p = create_field<double>(g);
+    Field<double> rho = create_field<double>(g);
+    Field<double> vphig = create_field<double>(g);
+
+    dim3 threads(16,16) ;
+    dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+15)/16) ;
+    int buff = 0;
+    int vrbuff = 10;
+
+    // Calc v_phi from true profile
+
+    _calc_p<<<blocks,threads>>>(g, wg, cs2, p);
+    _calc_vphi<<<blocks,threads>>>(g, p, wg, vphig, star.GM, floor, buff, cav);
+    _set_v_bounds<<<blocks,threads>>>(g, wg, bound, 2, buff);    
+
+    _set_vphi_bounds<<<blocks,threads>>>(g, vphig, bound);     
+    _calc_T<<<blocks,threads>>>(g, Trphi, TZphi, vphig, drvphidr, dvphidZ, wg, nu.get(), 0);
+    _calc_vr<<<blocks,threads>>>(g, Trphi, TZphi, vphig, drvphidr, dvphidZ, wg, floor, 2, cav);
     _set_v_bounds<<<blocks,threads>>>(g, wg, bound, 1, vrbuff);
 }
 
