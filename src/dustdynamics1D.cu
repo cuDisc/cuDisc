@@ -2,6 +2,7 @@
 #include "cuda_runtime.h"
 
 #include "grid.h"
+#include "dustdynamics.h"
 #include "dustdynamics1D.h"
 #include "constants.h"
 #include "van_leer.h"
@@ -33,6 +34,39 @@ void _calc_dust_vel(GridRef g, Field3DRef<Prims1D> W_d, FieldRef<Prims1D> W_g, F
 }
 
 template<bool full_stokes>
+__global__
+void _calc_dust_vel(GridRef g, GridRef g2D, Field3DRef<Prims1D> W_d, FieldRef<Prims1D> W_g, FieldRef<Prims> W_g2D, FieldConstRef<double> cs, double GMstar, RealType rho_m, const RealType* a, double mu, double alpha, double floor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    int j = g.Nghost;
+
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int k=kidx; k<W_d.Nd; k+=kstride) {
+
+            double Om = sqrt(GMstar/g.Rc(i))/g.Rc(i);
+            double St = calc_t_s<full_stokes>(W_d(i,j,k), W_g(i,j), a[k], rho_m, cs(i,j), mu, Om) * Om;
+            
+            double A = 2.*(cs(i,j)*cs(i,j)/(Om*Om)) * alpha / St;
+            double I=0;
+            for (int l=g.Nghost; l<g2D.Nphi+g.Nghost; l++) {
+                I += W_g2D(i,l).rho*W_g2D(i,l).v_R*exp(-g2D.Zc(i,l)*g2D.Zc(i,l) / A) * g2D.dZe(i,l);
+            }
+
+            double vdgbar = sqrt(1.+St/alpha)/W_g(i,j).Sig * 2. * I;
+            
+            W_d(i,j,k).v_R = (vdgbar + 2.*(W_g(i,j).v_phi-Om*g.Rc(i))*St)/(1.+St*St);
+            W_d(i,j,k).v_phi = Om*g.Rc(i) + 0.5*(-vdgbar*St + 2.*(W_g(i,j).v_phi-Om*g.Rc(i)))/(1.+St*St);
+            W_d(i,j,k).v_Z = St * cs(i,j) * sqrt(1./(1.+St/alpha));
+        }
+    }
+
+}
+
+template<bool full_stokes>
 void calculate_dust_vel(Grid& g, Field3D<Prims1D>& W_d, Field<Prims1D>& W_g,
                         FieldConstRef<double>& cs, Star& star, SizeGrid& sizes, double mu, double alpha, double floor) {
 
@@ -40,6 +74,18 @@ void calculate_dust_vel(Grid& g, Field3D<Prims1D>& W_d, Field<Prims1D>& W_g,
     dim3 blocks2D((g.NR + 2*g.Nghost+31)/32,1,(W_d.Nd+15)/16) ;
 
     _calc_dust_vel<full_stokes><<<blocks2D, threads2D>>>(g, W_d, W_g, cs, star.GM, sizes.solid_density(), sizes.grain_sizes(), mu, alpha, floor);
+    check_CUDA_errors("_calc_dust_vel");
+
+}
+
+template<bool full_stokes>
+void calculate_dust_vel(Grid& g, Grid& g2D, Field3D<Prims1D>& W_d, Field<Prims1D>& W_g, Field<Prims>& W_g2D,
+                        FieldConstRef<double>& cs, Star& star, SizeGrid& sizes, double mu, double alpha, double floor) {
+
+    dim3 threads2D(32,1,16) ;
+    dim3 blocks2D((g.NR + 2*g.Nghost+31)/32,1,(W_d.Nd+15)/16) ;
+
+    _calc_dust_vel<full_stokes><<<blocks2D, threads2D>>>(g, g2D, W_d, W_g, W_g2D, cs, star.GM, sizes.solid_density(), sizes.grain_sizes(), mu, alpha, floor);
     check_CUDA_errors("_calc_dust_vel");
 
 }
@@ -388,6 +434,64 @@ void DustDyn1D<use_full_stokes>::operator() (Grid& g, Field3D<Prims1D>& W_d, Fie
     }
     else {
         calculate_dust_vel<false>(g, W_d, W_g, _cs, _star, _sizes, _mu, _alpha, _floor);
+    }
+}
+
+template<bool use_full_stokes>
+void DustDyn1D<use_full_stokes>::operator() (Grid& g, Grid& g2D, Field3D<Prims1D>& W_d, Field<Prims1D>& W_g, Field<Prims>& W_g2D, double dt) {
+
+    dim3 threads(32,1,16) ;
+    dim3 blocks((g.NR + 2*g.Nghost+31)/32,1,(W_d.Nd+31)/32) ;
+
+    // calculate advection-diffusion
+
+    Field3D<Prims1D> W_d_mid = Field3D<Prims1D>(g.NR+2*g.Nghost,1+2*g.Nghost,W_d.Nd);
+
+    if (_boundary & BoundaryFlags::set_ext_R_inner || _boundary & BoundaryFlags::set_ext_R_outer) {
+        copy_boundaries<<<blocks,threads>>>(g, W_d, W_d_mid, _boundary);
+    }
+
+    Field3D<double> flux = Field3D<double>(g.NR+2*g.Nghost,1+2*g.Nghost,W_d.Nd);
+
+    _set_bounds_d<<<blocks,threads>>>(g, W_d, _boundary, _floor);
+    check_CUDA_errors("_set_bounds_d");
+
+    // Calc donor cell flux
+
+    _calc_diff_flux<<<blocks,threads>>>(g, W_d, W_g, flux, _D, _gas_floor, _boundary);
+    check_CUDA_errors("_set_bounds_d");
+
+    // Update quantities a half time step
+    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, flux);
+    check_CUDA_errors("_set_boundary_flux");
+    _update_mid_Sig<<<blocks,threads>>>(g, W_d_mid, W_d, W_g, dt, flux, _floor);
+    check_CUDA_errors("_update_mid_Sig");
+    cudaDeviceSynchronize();
+    if (use_full_stokes) {
+        calculate_dust_vel<true>(g, g2D, W_d_mid, W_g, W_g2D, _cs, _star, _sizes, _mu, _alpha, _floor);
+    }
+    else {
+        calculate_dust_vel<false>(g, g2D, W_d_mid, W_g, W_g2D, _cs, _star, _sizes, _mu, _alpha, _floor);
+    }
+
+    _set_bounds_d<<<blocks,threads>>>(g, W_d_mid, _boundary, _floor);
+    check_CUDA_errors("_set_bounds_d");
+
+    // Compute fluxes with Van Leer
+
+    _calc_diff_flux_vl<<<blocks,threads>>>(g, W_d_mid, W_g, flux, _D, _gas_floor, _boundary);
+    check_CUDA_errors("_calc_diff_flux_vl");
+
+    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, flux);
+    check_CUDA_errors("_set_boundary_flux");
+    _update_Sig<<<blocks,threads>>>(g, W_d, W_g, dt, flux, _floor);
+    check_CUDA_errors("_update_Sig");
+    cudaDeviceSynchronize();
+    if (use_full_stokes) {
+        calculate_dust_vel<true>(g, g2D, W_d, W_g, W_g2D, _cs, _star, _sizes, _mu, _alpha, _floor);
+    }
+    else {
+        calculate_dust_vel<false>(g, g2D, W_d, W_g, W_g2D, _cs, _star, _sizes, _mu, _alpha, _floor);
     }
 }
 
