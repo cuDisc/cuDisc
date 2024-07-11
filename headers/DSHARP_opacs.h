@@ -155,6 +155,10 @@ class DSHARP_opacs {
             
             std::ifstream opac_f(filename);
 
+            if (!opac_f) {
+                throw std::runtime_error("Could not find/open opacity file " + std::string(filename)) ;
+            }
+
             opac_f >> n_a;
             opac_f >> n_lam;
 
