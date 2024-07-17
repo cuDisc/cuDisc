@@ -136,6 +136,28 @@ void _calc_t_s(GridRef g, Field3DConstRef<Prims> q, FieldConstRef<Prims> w_gas, 
     }
 }
 
+template<bool full_stokes>
+__global__
+void _calc_t_s(GridRef g, Field3DConstRef<Prims> q, FieldConstRef<Prims> w_gas, FieldConstRef<double> T, 
+                    Field3DRef<double> t_stop, Field3DConstRef<Ice> ice, double mu) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
+            for (int k=kidx; k<q.Nd; k+=kstride) {
+                double cs = sqrt(k_B*T(i,j)/(mu*m_H));
+                t_stop(i,j,k) = calc_t_s<full_stokes>(q(i,j,k), w_gas(i,j), ice(i,j,k).a, ice(i,j,k).rho, cs, mu);
+            }
+        }
+    }
+}
+
 template<bool use_full_stokes>
 void Sources<use_full_stokes>::source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u, double dt) {
 
@@ -184,7 +206,33 @@ void SourcesRad<use_full_stokes>::source_imp(Grid& g, Field3D<Prims>& w, double 
     _source_drag<<<blocks,threads>>>(g, w, _w_gas, t_stop, dt, _Mstar);
 }
 
+template<bool use_full_stokes>
+void SourcesIce<use_full_stokes>::source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u, double dt) {
+
+    dim3 threads(16,8,8);
+    dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (u.Nd+7)/8) ;
+
+    _source_curv_grav<<<blocks,threads>>>(g, w, u, _w_gas, dt, _Mstar, _floor);
+}
+
+template<bool use_full_stokes>
+void SourcesIce<use_full_stokes>::source_imp(Grid& g, Field3D<Prims>& w, double dt) {
+
+    Field3D<double> t_stop = Field3D<double>(g.NR+2*g.Nghost,g.Nphi+2*g.Nghost,w.Nd);
+
+    dim3 threads(16,8,8);
+    dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (w.Nd+7)/8) ;
+
+    if (use_full_stokes) 
+        _calc_t_s<true><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.ice, _mu);
+    else
+        _calc_t_s<false><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.ice, _mu);
+    _source_drag<<<blocks,threads>>>(g, w, _w_gas, t_stop, dt, _Mstar);
+}
+
 template class Sources<true>;
 template class Sources<false>;
 template class SourcesRad<true>;
 template class SourcesRad<false>;
+template class SourcesIce<true>;
+template class SourcesIce<false>;
