@@ -179,6 +179,7 @@ class DSHARP_opacs {
                 for (int i=0; i<n_a; i++) {
                     for (int j=0; j<n_lam; j++) {
                         k_sca_ptr[i*n_lam+j] *= (1.-g[i*n_lam+j]);
+                        k_sca_ptr[i*n_lam+j] = std::max(k_sca_ptr[i*n_lam+j],1.e-100);
                     }
                 }
             }
@@ -329,11 +330,14 @@ class DSHARP_opacsRef {
         double* k_sca_g_ptr;
 } ;
 
-void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, DSHARP_opacs& opacs,
+void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, Field<double>& rho_tot, DSHARP_opacs& opacs,
                                     Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca, 
                                     double kgas_abs, double kgas_sca);
 
-void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, DSHARP_opacs& opacs,
+void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, Field<double>& rho_tot, DSHARP_opacs& opacs,
+                                    Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca);
+
+void calculate_total_rhokappa(Grid& g, Field3D<double>& rho_d, Field<Prims>& wg, DSHARP_opacs& opacs,
                                     Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca);
 
 void calculate_grain_rhokappa(Grid& g, Field3D<Prims>& qd, DSHARP_opacs& opacs,

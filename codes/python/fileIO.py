@@ -289,7 +289,11 @@ class CuDiscModel:
         return TempData(data[:,:,0], data[:,:,1:])
 
 
-    def load_all_prim_data(self):
+    def load_all_prim_data(self, subgrid=None):
+
+        if subgrid != None:
+            self.grid = self.load_subgrid(subgrid)
+
         NR, NZ = self.grid.NR, self.grid.NZ
         
         Ndust = self._get_num_dust_species()
@@ -315,10 +319,17 @@ class CuDiscModel:
 
             except IOError:
                 pass
+        
+        if subgrid != None:
+            self.grid = self.load_grid()
 
         return gas, dust
 
-    def load_all_dens1D_data(self):
+    def load_all_dens1D_data(self, subgrid=None):
+
+        if subgrid != None:
+            self.grid = self.load_subgrid(subgrid)
+
         NR = self.grid.NR
         self._prim_base = 'dens1D'
         
@@ -340,10 +351,17 @@ class CuDiscModel:
                 pass
 
         self._prim_base = 'dens'
+        
+        if subgrid != None:
+            self.grid = self.load_grid()
 
         return gas, dust
     
-    def load_all_temp_data(self):
+    def load_all_temp_data(self, subgrid=None):
+
+        if subgrid != None:
+            self.grid = self.load_subgrid(subgrid)
+
         NR, NZ = self.grid.NR, self.grid.NZ
         
         Nbands = self._get_num_radiation_bands()
@@ -359,6 +377,9 @@ class CuDiscModel:
 
             except IOError:
                 pass
+
+        if subgrid != None:
+            self.grid = self.load_grid()
 
         return temp
                 
@@ -403,6 +424,9 @@ class CuDiscModel:
         
         if 'init' in snap_nums:
             snap_nums.remove('init')
+            
+        if 'restart' in snap_nums:
+            snap_nums.remove('restart')
 
         if len(snap_nums) == 0:
             return 0
