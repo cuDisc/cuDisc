@@ -43,6 +43,9 @@ class TimeIntegration {
   template<typename T>
   double take_step_debug(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess, int* idxs) const ;
 
+  template<typename T>
+  double take_step_tracers(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess, Field3D<double>& tracers, int* idxs) const ;
+
   void integrate(Grid& g, Field3D<double>& y, double tmax) const ;
   
   template<typename T>
@@ -50,6 +53,9 @@ class TimeIntegration {
 
   template<typename T>
   void integrate_debug(Grid& g, Field3D<T>& ws, Field<T>& wg, double tmax, double& dt_coag, double floor) const ;
+
+  template<typename T>
+  void integrate_tracers(Grid& g, Field3D<T>& ws, Field<T>& wg, Field3D<double>& tracers, double tmax, double& dt_coag, double floor) const ;
 
 
 protected:

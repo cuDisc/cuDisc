@@ -165,6 +165,71 @@ KernelResult BirnstielKernelVertInt<use_full_stokes>::operator()(int i, int j, i
     return result ;
 }
 
+template<bool use_full_stokes>
+__device__ __host__
+KernelResult BirnstielKernelIce<use_full_stokes>::operator()(int i, int j, int k1, int k2) const {
+
+    // Step 0: Compute the geometric cross-section
+    Ice ice1 = _sizes.ice(i,j,k1);
+    Ice ice2 = _sizes.ice(i,j,k2);
+
+    RealType a1 = ice1.a ;
+    RealType a2 = ice2.a ;
+
+    RealType xsec = M_PI * (a1 + a2)*(a1 + a2) ;
+
+    // Step 1: Compute the turbulent velocity:
+    //   1a. Get the Stokes number (a*tmp)
+    RealType rho = _wg(i,j).rho, cs = _cs(i,j), R = _g.Rc(i) ;
+
+    RealType Omega = sqrt(_GMstar/R)/R;
+    RealType mfp = _mu * m_p / (rho * 2.e-15);
+    RealType tmp; 
+    
+    a1 = calc_t_s<use_full_stokes>(_wd(i,j,k1), _wg(i,j), a1, ice1.rho, cs, _mu) * Omega;
+    a2 = calc_t_s<use_full_stokes>(_wd(i,j,k2), _wg(i,j), a2, ice2.rho, cs, _mu) * Omega;
+
+    RealType sqrtRe = sqrt(_alpha_t(i,j) * cs / Omega / mfp);
+
+    //   1b: Compute the turbulent velocity
+    RealType v_turb = _alpha_t(i,j) * cs*cs * Vrel_sqd_OC07(a1, a2, 1/sqrtRe) ;
+
+    // Protect against NaN at low gas density
+    if (rho == 0) v_turb = 0 ;
+
+    //   1c: Compute brownian motion
+
+    RealType m1 = 4.188790205f *  pow(ice1.a, 3.) * ice1.rho;
+    RealType m2 = 4.188790205f *  pow(ice2.a, 3.) * ice2.rho;
+
+    tmp = 4.2592967532662155e-24 * (_mu * (m1 + m2) / (m1*m2)) * cs*cs; //4.261679179e-24f
+
+    v_turb += tmp;
+    
+    // Step 2: Add the laminar components in quadrature
+    tmp = _wd(i,j,k1).v_R - _wd(i,j,k2).v_R;
+    v_turb += tmp*tmp ;
+
+    tmp = _wd(i,j,k1).v_Z - _wd(i,j,k2).v_Z ;
+    v_turb += tmp*tmp ;
+
+    tmp = _wd(i,j,k1).v_phi - _wd(i,j,k2).v_phi ;
+    v_turb += tmp*tmp ;
+
+    v_turb = sqrt(v_turb) ;
+
+    // Step 3: Compute the kernel
+    KernelResult result ;
+    
+    result.K = xsec * v_turb ;
+
+    RealType _v_frag = _v_frag_b + (_v_frag_i-_v_frag_b) * min(1., 5.*_ice_grain(i,j,k1)/(_ice_grain(i,j,k1)+_wd(i,j,k1).rho) + 5.*_ice_grain(i,j,k2)/(_ice_grain(i,j,k2)+_wd(i,j,k2).rho));
+
+    result.p_frag = (1.5*(_v_frag/v_turb)*(_v_frag/v_turb) + 1.) * exp(-1.5*(_v_frag/v_turb)*(_v_frag/v_turb)); // From https://iopscience.iop.org/article/10.3847/1538-4357/ac7d58/pdf
+    result.p_coag = 1. - result.p_frag;
+
+    return result ;
+}
 
 class CoagulationCacheRef {
 public:
@@ -258,6 +323,7 @@ __global__ void _compute_coagulation_rate(_CoagulationRateHelper<Kernel,Fragment
                 auto Kij = coag.kernel(iR, iZ, i, j) ;
 
                 // Kij.p_coag = 1.;
+                // Kij.p_frag = 0.;
 
                 double mj = coag.grain_masses[j] ;
                 double nj = dust_density(iR, iZ, j) / mj ;
@@ -314,11 +380,10 @@ __global__ void _compute_coagulation_rate(_CoagulationRateHelper<Kernel,Fragment
                     atomicAdd_block(&rate(iR,iZ,k_rem),   frag_rate * (          m_rem) * eps) ;
                     atomicAdd_block(&rate(iR,iZ,k_rem+1), frag_rate * (          m_rem) * (1-eps)) ;
 
-                    double rho_tot = dust_density(iR, iZ, i) + dust_density(iR, iZ, j) ;
+                    // double rho_tot = dust_density(iR, iZ, i) + dust_density(iR, iZ, j) ;
                     for (int t=1; t < num_tracers+1; t++) {
-                        double tracer_rate = frag_rate * 
-                            (dust_density(iR, iZ, i + t*coag.size) + dust_density(iR, iZ, j + t*coag.size)) ;
-                        tracer_rate /= rho_tot ;
+                        double tracer_rate = frag_rate * dust_density(iR, iZ, i + t*coag.size) ;
+                        tracer_rate /= dust_density(iR, iZ, i) ;
                         
                         atomicAdd_block(&rate(iR,iZ,k_rem + t*coag.size),     tracer_rate * (          m_rem) * eps) ;
                         atomicAdd_block(&rate(iR,iZ,k_rem + 1 + t*coag.size), tracer_rate * (          m_rem) * (1-eps)) ;
@@ -403,5 +468,8 @@ template class CoagulationRate<BirnstielKernel<true>,SimpleErosion> ;
 
 template class CoagulationRate<BirnstielKernelVertInt<false>,SimpleErosion> ;
 template class CoagulationRate<BirnstielKernelVertInt<true>,SimpleErosion> ;
+
+template class CoagulationRate<BirnstielKernelIce<false>,SimpleErosion> ;
+template class CoagulationRate<BirnstielKernelIce<true>,SimpleErosion> ;
 
 template class CoagulationRate<ConstantKernel,SimpleErosion> ;

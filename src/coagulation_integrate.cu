@@ -624,18 +624,256 @@ void BS32Integration<Rate>::do_step(double dt, Grid& g, const Field3D<double>& y
 
 }
 
+// Ice tracer coagulation
+
+
+__global__
+void _combine_rho_tr(GridRef g, Field3DRef<double> rhos, Field3DRef<double> tr, Field3DRef<double> rho_tr) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) { 
+            for (int k=kidx; k<rhos.Nd; k+=kstride) { 
+                rho_tr(i,j,k) = rhos(i,j,k);
+                rho_tr(i,j,k+rhos.Nd) = tr(i,j,k);
+            }
+        }
+    }
+}
+
+__global__
+void _decombine_rho_tr(GridRef g, Field3DRef<double> rhos, Field3DRef<double> tr, Field3DRef<double> rho_tr) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) { 
+            for (int k=kidx; k<rhos.Nd; k+=kstride) { 
+                rhos(i,j,k) = rho_tr(i,j,k);
+                tr(i,j,k) = rho_tr(i,j,k+rhos.Nd);
+            }
+        }
+    }
+}
+
+template<typename T>
+double TimeIntegration::take_step_tracers(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess, Field3D<double>& tracers, int* idxs) const {
+
+    CodeTiming::BlockTimer block =
+        timer->StartNewTimer("TimeIntegation::take_step");
+  
+    Field3D<double> ynew  = create_field3D<double>(g, 2*y.Nd) ;
+    Field3D<double> error = create_field3D<double>(g, 2*y.Nd) ;
+    Field3D<double> ywtr = create_field3D<double>(g, 2*y.Nd) ;
+
+    Field<double> yabs    = create_field<double>(g) ;
+    Field<double> err_tot = create_field<double>(g) ;
+
+    Field3D<int> idxgrid = create_field3D<int>(g, 2);
+
+    double dt ;
+    if (dtguess > 0) {
+        // Use guess provided
+        dt = dtguess ;
+    }
+    else {
+        dt = 1 ;
+    }
+
+    dim3 threads(32,32,1) ;
+    dim3 blocks((g.Nphi+2*g.Nghost+31)/32,(g.NR+2*g.Nghost+31)/32,1) ;
+
+    // Compute the total density for the error estimation
+    _compute_ytot<<<blocks,threads>>>(g, y, yabs, _abs_tol, FieldRef<T>(wg)) ; 
+    check_CUDA_errors("_compute_ytot") ;
+      
+    bool success = false ;
+
+    _combine_rho_tr<<<blocks,threads>>>(g, y, tracers, ywtr);
+
+    while (not success) {
+        if (dt == 0)
+            throw std::runtime_error("Error time-step of zero was assigned");
+          
+        do_step(dt, g, ywtr, ynew, error) ;
+
+        // Compute the normalized error
+        _compute_error_norm_debug<<<blocks,threads>>>(g, y, ynew, yabs, _rel_tol, 
+                                                error, err_tot, idxgrid) ;
+        check_CUDA_errors("_compute_error_norm") ;
+
+        double err_norm = 0 ;
+        for (int i=0; i < g.NR + 2*g.Nghost; i += 32) {
+            for (int j=0; j < g.Nphi + 2*g.Nghost; j += 32) {
+                if (err_tot(i,j) > err_norm) {
+                    err_norm = std::max(err_norm, err_tot(i,j)) ;
+                    idxs[0] = idxgrid(i,j,0);
+                    idxs[1] = idxgrid(i,j,1);
+                }
+            }
+        }
+
+        if (err_norm < 1) {
+            success = true ;
+
+            dtguess = dt * std::min(_MAX_FACTOR,
+                                std::max(1., _SAFETY * std::pow(err_norm, -0.5 / _order)));
+        } else {
+            dt  = dt * std::max(_MIN_FACTOR, _SAFETY * std::pow(err_norm, -0.5 / _order)) ;
+        }
+    }
+
+    copy_field(g, ynew, ywtr) ;
+    _decombine_rho_tr<<<blocks,threads>>>(g, y, tracers, ywtr);
+
+    return dt ;
+}
+
+template<typename T>
+__global__ void _remove_tr_floor(GridRef g, FieldRef<T> wg, Field3DRef<double> tr, double floor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
+            for (int k=kidx; k<tr.Nd; k+=kstride) { 
+                tr(i,j,k) = max(tr(i,j,k)-1.1e-100*floor*wg(i,j)[0], 0.);
+            }
+        }
+    }
+}
+
+template<typename T>
+__global__ void _add_tr_floor(GridRef g, FieldRef<T> wg, Field3DRef<double> tr, double floor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
+            for (int k=kidx; k<tr.Nd; k+=kstride) { 
+                tr(i,j,k) += 1e-100*floor*wg(i,j)[0];
+            }
+        }
+    }
+}
+
+__global__ void _remove_tr_floor(GridRef g, FieldRef<double> wg, Field3DRef<double> tr, double floor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
+            for (int k=kidx; k<tr.Nd; k+=kstride) { 
+                tr(i,j,k) = max(tr(i,j,k)-1.1e-100*floor*wg(i,j), 0.);
+            }
+        }
+    }
+}
+
+__global__ void _add_tr_floor(GridRef g, FieldRef<double> wg, Field3DRef<double> tr, double floor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
+            for (int k=kidx; k<tr.Nd; k+=kstride) { 
+                tr(i,j,k) += 1e-100*floor*wg(i,j);
+            }
+        }
+    }
+}
+
+template<typename T>
+void TimeIntegration::integrate_tracers(Grid& g, Field3D<T>& ws, Field<T>& wg, Field3D<double>& tracers, double tmax, double& dt_coag, double floor) const {
+    double dt = dt_coag ;
+    if (dt_coag < tmax && dt_coag > _SAFETY*tmax)
+        dt /= 2 ;
+
+    double t = 0 ;
+
+    Field3D<double> rhos = create_field3D<double>(g, ws.Nd);
+    set_all(g, rhos, 0.);
+
+    dim3 threads(16,8,8);
+    dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (ws.Nd+7)/8) ;
+
+    _copy_rho_forwards<<<blocks,threads>>>(g, Field3DRef<T>(ws), FieldRef<T>(wg), rhos, floor);
+    _remove_tr_floor<<<blocks,threads>>>(g, FieldRef<T>(wg), tracers, floor);
+    cudaDeviceSynchronize();
+    int count = 0;
+    int idxs[2] = {0,0};
+
+    while (t < tmax) {
+        printf("%1.12g %1.12g %g\n", calc_mass(g,tracers), calc_mass_cell(g,tracers), dt);
+        dt = std::min(dt, tmax-t) ;
+        t += take_step_tracers(g, rhos, wg, dt, tracers, idxs) ;
+        if (!(count%10)) {
+            std::cout << "Count = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
+            std::cout << "i index = " << idxs[0] << ", j index = " << idxs[1] << "\n";
+        }
+        count += 1;
+        if (dt < tmax/1e5) {
+            dt_coag = dt;
+            return;
+        }
+        printf("%1.12g %1.12g %g\n", calc_mass(g,tracers), calc_mass_cell(g,tracers), dt);
+    }
+    std::cout << "Count = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
+    std::cout << "i index = " << idxs[0] << ", j index = " << idxs[1] << "\n";
+
+    dt_coag = dt;
+
+    _copy_rho_backwards<<<blocks,threads>>>(g, Field3DRef<T>(ws), FieldRef<T>(wg), rhos, floor);
+    _add_tr_floor<<<blocks,threads>>>(g, FieldRef<T>(wg), tracers, floor);
+}
+
 
 
 template class Rk2Integration<CoagulationRate<BirnstielKernel<true>,SimpleErosion>> ;
 template class Rk2Integration<CoagulationRate<BirnstielKernel<false>,SimpleErosion>> ;
 template class Rk2Integration<CoagulationRate<BirnstielKernelVertInt<false>,SimpleErosion>> ;
 template class Rk2Integration<CoagulationRate<BirnstielKernelVertInt<true>,SimpleErosion>> ;
+template class Rk2Integration<CoagulationRate<BirnstielKernelIce<false>,SimpleErosion>> ;
+template class Rk2Integration<CoagulationRate<BirnstielKernelIce<true>,SimpleErosion>> ;
 template class Rk2Integration<CoagulationRate<ConstantKernel,SimpleErosion>> ;
 
 template class BS32Integration<CoagulationRate<BirnstielKernel<true>,SimpleErosion>> ;
 template class BS32Integration<CoagulationRate<BirnstielKernel<false>,SimpleErosion>> ;
 template class BS32Integration<CoagulationRate<BirnstielKernelVertInt<false>,SimpleErosion>> ;
 template class BS32Integration<CoagulationRate<BirnstielKernelVertInt<true>,SimpleErosion>> ;
+template class BS32Integration<CoagulationRate<BirnstielKernelIce<false>,SimpleErosion>> ;
+template class BS32Integration<CoagulationRate<BirnstielKernelIce<true>,SimpleErosion>> ;
 template class BS32Integration<CoagulationRate<ConstantKernel,SimpleErosion>> ;
 
 
@@ -646,3 +884,7 @@ template void TimeIntegration::integrate_debug<double>(Grid& g, Field3D<double>&
 template void TimeIntegration::integrate<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, double tmax, double& dt_coag, double floor) const;
 template void TimeIntegration::integrate<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, double tmax, double& dt_coag, double floor) const;
 template void TimeIntegration::integrate<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, double tmax, double& dt_coag, double floor) const;
+
+template void TimeIntegration::integrate_tracers<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, Field3D<double>& tracers, double tmax, double& dt_coag, double floor) const;
+template void TimeIntegration::integrate_tracers<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, Field3D<double>& tracers, double tmax, double& dt_coag, double floor) const;
+template void TimeIntegration::integrate_tracers<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, Field3D<double>& tracers, double tmax, double& dt_coag, double floor) const;
