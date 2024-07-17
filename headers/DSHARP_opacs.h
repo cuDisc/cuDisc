@@ -330,11 +330,11 @@ class DSHARP_opacsRef {
         double* k_sca_g_ptr;
 } ;
 
-void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, DSHARP_opacs& opacs,
+void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, Field<double>& rho_tot, DSHARP_opacs& opacs,
                                     Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca, 
                                     double kgas_abs, double kgas_sca);
 
-void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, DSHARP_opacs& opacs,
+void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, Field<double>& rho_tot, DSHARP_opacs& opacs,
                                     Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca);
 
 void calculate_total_rhokappa(Grid& g, Field3D<double>& rho_d, Field<Prims>& wg, DSHARP_opacs& opacs,

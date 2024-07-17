@@ -69,6 +69,22 @@ __global__ void _calc_rho_kappa(GridRef g, Field3DConstRef<double> rho_d, FieldC
     }
 } 
 
+
+__global__ void _calc_rho_tot(GridRef g, Field3DConstRef<Prims> wd, FieldConstRef<Prims> wg, FieldRef<double> rho_tot) {
+
+    int j = threadIdx.y + blockIdx.y*blockDim.y ;
+    int i = threadIdx.z + blockIdx.z*blockDim.z ;
+
+    if (j < g.Nphi + 2*g.Nghost && i < g.NR+2*g.Nghost) {
+
+        double rho_tot_temp = 0.;
+        for (int k=0; k<wd.Nd; k++) {
+            rho_tot_temp += wd(i,j,k).rho;
+        }    
+        rho_tot(i,j) = wg(i,j).rho + rho_tot_temp;
+    }
+} 
+
 __global__ void _calc_grain_rho_kappa(GridRef g, Field3DConstRef<Prims> qd, DSHARP_opacsRef opacs,
                                         Field3DRef<double> rhokabs, Field3DRef<double> rhoksca) {
 
@@ -91,7 +107,7 @@ __global__ void _calc_grain_rho_kappa(GridRef g, Field3DConstRef<Prims> qd, DSHA
     }
 } 
 
-void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, DSHARP_opacs& opacs,
+void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, Field<double>& rho_tot, DSHARP_opacs& opacs,
                                     Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca, 
                                     double kgas_abs, double kgas_sca) {
 
@@ -107,9 +123,15 @@ void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, DSH
 
     _calc_rho_kappa<<<blocks,threads>>>(g, qd, wg, opacs, kgas_abs, kgas_sca, rhokappa_abs, rhokappa_sca);
     check_CUDA_errors("_calc_rho_kappa") ;
+
+    dim3 threads2D(1,32,32);
+    dim3 blocks2D(1,(g.Nphi+ 2*g.Nghost +31)/32, (g.NR+2*g.Nghost+31)/32);
+
+    _calc_rho_tot<<<blocks2D,threads2D>>>(g, qd, wg, rho_tot);
+    check_CUDA_errors("_calc_rho_tot") ;
 }
 
-void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, DSHARP_opacs& opacs,
+void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, Field<double>& rho_tot, DSHARP_opacs& opacs,
                                     Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca) {
 
     int nk = 1 ;
@@ -124,6 +146,12 @@ void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, DSH
     
     _calc_rho_kappa<<<blocks,threads>>>(g, qd, wg, opacs, rhokappa_abs, rhokappa_sca);
     check_CUDA_errors("_calc_rho_kappa") ;
+
+    dim3 threads2D(1,32,32);
+    dim3 blocks2D(1,(g.Nphi+ 2*g.Nghost +31)/32, (g.NR+2*g.Nghost+31)/32);
+
+    _calc_rho_tot<<<blocks2D,threads2D>>>(g, qd, wg, rho_tot);
+    check_CUDA_errors("_calc_rho_tot") ;
 }
 
 void calculate_total_rhokappa(Grid& g, Field3D<double>& rho_d, Field<Prims>& wg, DSHARP_opacs& opacs,
