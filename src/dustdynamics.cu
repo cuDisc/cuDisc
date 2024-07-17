@@ -15,6 +15,8 @@
 #include "utils.h"
 #include "sources.h"
 #include "van_leer.h"
+#include "icevapour.h"
+
 // Advection-Diffusion Solver
 
 
@@ -799,4 +801,213 @@ void DustDynamics::floor_above(Grid& g, Field3D<Prims>& w_dust, Field<Prims>& w_
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (w_dust.Nd+7)/8) ;
 
     _floor_above<<<blocks,threads>>>(g, w_dust, w_gas, h.get(), _floor);
+}
+
+// Ice-vapour dynamics
+
+__global__ void _init_tracer_prims(GridRef g, Field3DRef<Prims> w, FieldConstRef<Prims> wg, Field3DRef<Prims> w_trac, Field3DRef<Prims> w_trac_vap, Field3DRef<double> tracers, MoleculeRef mol) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
+
+            w_trac_vap(i,j,0).rho = mol.rho(i,j).vap;
+
+            for (int l=1; l<4; l++) {
+                w_trac_vap(i,j,0)[l] = wg(i,j)[l];
+            }
+
+            for (int k=0; k<w.Nd; k++) {
+
+                w_trac(i,j,k).rho = tracers(i,j,k);
+                for (int l=1; l<4; l++) {
+                    w_trac(i,j,k)[l] = w(i,j,k)[l];
+                }
+
+            }
+        }
+    }
+
+}
+
+__global__ void _update_tracers(GridRef g, Field3DRef<Prims> w_trac, Field3DRef<double> tracers) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
+            for (int k=kidx; k<w_trac.Nd; k+=kstride) {
+
+                tracers(i,j,k) = w_trac(i,j,k).rho;
+
+            }
+        }
+    }
+
+}
+
+__global__ void _update_tracer_vap(GridRef g, Field3DRef<Prims> w_trac, MoleculeRef mol) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
+
+            mol.rho(i,j).vap = w_trac(i,j,0).rho;
+        }
+    }
+
+}
+
+void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas, double dt, Field3D<double>& tracers, Molecule& mol) {
+
+    if (g.Nghost < 2)
+        throw std::invalid_argument("Dust dynamics requires at least 2 ghost cells") ;
+
+    Field3D<Quants> q_mids = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, w_dust.Nd);
+    Field3D<Quants> q = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, w_dust.Nd);
+
+    Field3D<Quants> fluxR = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, w_dust.Nd);
+    Field3D<Quants> fluxZ = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, w_dust.Nd);
+
+    dim3 threads(16,8,4) ;
+    dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (q.Nd+3)/4) ;
+
+    dim3 threads2D(32,32,1) ;
+    dim3 blocks2D((g.NR + 2*g.Nghost+31)/32,(g.Nphi + 2*g.Nghost+31)/32,1) ;
+
+    dim3 threads_vap(16,32,1) ;
+    dim3 blocks_vap((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+31)/32, 1) ;
+
+    // Initialise tracers
+
+    Field3D<Prims> w_trac = create_field3D<Prims>(g, w_dust.Nd);
+    Field3D<Prims> w_trac_vap = create_field3D<Prims>(g, 1);
+    _init_tracer_prims<<<blocks2D,threads2D>>>(g, w_dust, w_gas, w_trac, w_trac_vap, tracers, mol);
+
+    // Update main
+
+    _set_boundaries<<<blocks,threads>>>(g, w_dust, _boundary, _floor);
+    _calc_conserved<<<blocks,threads>>>(g, q, w_dust);
+
+    // Calc donor cell flux
+    if (_DoDiffusion)
+        _calc_donor_flux<true><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+    else
+        _calc_donor_flux<false><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+
+    // Update quantities a half time step and and source terms.
+    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
+    _update_quants<<<blocks,threads>>>(g, q_mids, q, dt/2., fluxR, fluxZ);
+    _sources.source_exp(g, w_dust, q_mids, dt/2.);
+    _calc_prim<<<blocks,threads>>>(g, q_mids, w_dust);
+    _sources.source_imp(g, w_dust, dt/2.);
+    _floor_prim<<<blocks,threads>>>(g, w_dust, w_gas, _floor);
+    
+    _set_boundaries<<<blocks,threads>>>(g, w_dust, _boundary, _floor);
+
+    // Compute fluxes with Van Leer
+    if (_DoDiffusion)
+        _calc_diff_flux_vl<true><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+    else
+        _calc_diff_flux_vl<false><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+
+    // Update quantities a full time step and and source terms.
+
+    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
+
+    _update_quants<<<blocks,threads>>>(g, q_mids, q, dt, fluxR, fluxZ);
+    _sources.source_exp(g, w_dust, q_mids, dt);
+    _calc_prim<<<blocks, threads>>>(g, q_mids, w_dust);
+    _sources.source_imp(g, w_dust, dt);
+    _floor_prim<<<blocks,threads>>>(g, w_dust, w_gas, _floor);
+
+
+
+    // Update tracers
+
+    _set_boundaries<<<blocks,threads>>>(g, w_trac, _boundary,1e-100*_floor);
+    _calc_conserved<<<blocks,threads>>>(g, q, w_trac);
+
+    // Calc donor cell flux
+    if (_DoDiffusion)
+        _calc_donor_flux<true><<<blocks,threads>>>(g, w_trac, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+    else
+        _calc_donor_flux<false><<<blocks,threads>>>(g, w_trac, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+
+    // Update quantities a half time step and and source terms.
+    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
+    _update_quants<<<blocks,threads>>>(g, q_mids, q, dt/2., fluxR, fluxZ);
+    _sources.source_exp(g, w_trac, q_mids, dt/2.);
+    _calc_prim<<<blocks,threads>>>(g, q_mids, w_trac);
+    _sources.source_imp(g, w_trac, dt/2.);
+    _floor_prim<<<blocks,threads>>>(g, w_trac, w_gas,1e-100*_floor);
+    
+    _set_boundaries<<<blocks,threads>>>(g, w_trac, _boundary,1e-100*_floor);
+
+    // Compute fluxes with Van Leer
+    if (_DoDiffusion)
+        _calc_diff_flux_vl<true><<<blocks,threads>>>(g, w_trac, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+    else
+        _calc_diff_flux_vl<false><<<blocks,threads>>>(g, w_trac, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+
+    // Update quantities a full time step and and source terms.
+
+    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
+
+    _update_quants<<<blocks,threads>>>(g, q_mids, q, dt, fluxR, fluxZ);
+    _sources.source_exp(g, w_trac, q_mids, dt);
+    _calc_prim<<<blocks, threads>>>(g, q_mids, w_trac);
+    _sources.source_imp(g, w_trac, dt);
+    _floor_prim<<<blocks,threads>>>(g, w_trac, w_gas,1e-100*_floor);
+
+    _update_tracers<<<blocks,threads>>>(g, w_trac, tracers);
+
+    // Vap update
+
+    _set_boundaries<<<blocks_vap, threads_vap>>>(g, w_trac_vap, _boundary, 1e-100*_floor);
+    _calc_conserved<<<blocks_vap, threads_vap>>>(g, q, w_trac_vap);
+
+    // Calc donor cell flux
+    if (_DoDiffusion)
+        _calc_donor_flux<true><<<blocks_vap, threads_vap>>>(g, w_trac_vap, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+    else
+        _calc_donor_flux<false><<<blocks_vap, threads_vap>>>(g, w_trac_vap, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+
+    // Update quantities a half time step and and source terms.
+    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
+    _update_quants<<<blocks_vap, threads_vap>>>(g, q_mids, q, dt/2., fluxR, fluxZ);
+    _calc_prim<<<blocks_vap, threads_vap>>>(g, q_mids, w_trac_vap);
+    _floor_prim<<<blocks_vap, threads_vap>>>(g, w_trac_vap, w_gas,1e-100*_floor);
+    
+    _set_boundaries<<<blocks_vap, threads_vap>>>(g, w_trac_vap, _boundary,1e-100*_floor);
+
+    // Compute fluxes with Van Leer
+    if (_DoDiffusion)
+        _calc_diff_flux_vl<true><<<blocks_vap, threads_vap>>>(g, w_trac_vap, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+    else
+        _calc_diff_flux_vl<false><<<blocks_vap, threads_vap>>>(g, w_trac_vap, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+
+    // Update quantities a full time step and and source terms.
+
+    _set_boundary_flux<<<blocks_vap, threads_vap>>>(g, _boundary, fluxR, fluxZ);
+
+    _update_quants<<<blocks_vap, threads_vap>>>(g, q_mids, q, dt, fluxR, fluxZ);
+    _calc_prim<<<blocks_vap, threads_vap>>>(g, q_mids, w_trac_vap);
+    _floor_prim<<<blocks_vap, threads_vap>>>(g, w_trac_vap, w_gas,1e-100*_floor);
+
+    _update_tracer_vap<<<blocks2D, threads2D>>>(g, w_trac_vap, mol);
+
 }
