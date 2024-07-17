@@ -2,8 +2,9 @@
 #define _CUDISC_ICEVAPOUR_H
 
 #include "field.h"
-#include "dustdynamics.h"
 #include "coagulation/size_grid.h"
+
+struct Prims;
 
 struct IceVap {
     double vap, ice, tot;
