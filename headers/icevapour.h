@@ -5,43 +5,35 @@
 #include "coagulation/size_grid.h"
 
 struct Prims;
-
-struct IceVap {
-    double vap, ice, tot;
-};
-
+struct Quants;
 class Molecule {
 
+    private:
+
+        int _ndust;
+        Grid& _g;
+    
     public:
+
+        static Molecule nullMol;
 
         double m_mol;
         double T_bind;
 
-        Molecule() {};
-
-        Molecule(Grid& g, double m_mol, double T_bind) : m_mol(m_mol), T_bind(T_bind) {
-            _rho = make_CudaArray<IceVap>((g.NR+2*g.Nghost)*(g.Nphi+2*g.Nghost));
-            stride = g.Nphi+2*g.Nghost;
-            for (int i=0; i<(g.NR+2*g.Nghost)*(g.Nphi+2*g.Nghost); i++) {
-                _rho[i].ice = _rho[i].tot = _rho[i].vap = 0.;
-            }
+        Molecule(Grid& g, double m_mol, double T_bind, int ndust) : _ndust(ndust), _g(g), m_mol(m_mol), T_bind(T_bind) {
+            set_all(_g, vap, 0.);
+            set_all(_g, ice, 0.);
         }
 
-        IceVap& rho(int i, int j) {
-            return _rho[i*stride + j];
-        }
+        Field<double> vap = create_field<double>(_g); 
+        Field3D<double> ice = create_field3D<double>(_g,_ndust); 
 
         void set_T_bind(double T) {
             T_bind = T;
         }
 
-    private:
-
-        CudaArray<IceVap> _rho; 
-        int stride;
-
-        friend class MoleculeRef;
 };
+
 
 class MoleculeRef {
 
@@ -50,19 +42,10 @@ class MoleculeRef {
         double m_mol;
         double T_bind;
 
-        MoleculeRef(Molecule& _mol) : 
-            m_mol(_mol.m_mol), T_bind(_mol.T_bind), stride(_mol.stride), _rho(_mol._rho.get()) 
-            {}
+        MoleculeRef(Molecule& mol) : m_mol(mol.m_mol), T_bind(mol.T_bind), vap(mol.vap), ice(mol.ice) {}
 
-        __host__ __device__
-        IceVap& rho(int i, int j) {
-            return _rho[i*stride + j];
-        }
-
-    private:
-        
-        int stride;
-        IceVap* _rho; 
+        FieldRef<double> vap; 
+        Field3DRef<double> ice; 
         
 };
 
@@ -74,7 +57,6 @@ class IceVapChem {
         FieldConstRef<double> _T;
         Field3DRef<Prims> _W;
         FieldRef<Prims> _Wg;
-        Field3DRef<double> _ice_grains;
         SizeGridIce& _sizes;
         MoleculeRef _mol;
         double _floor;
@@ -82,12 +64,13 @@ class IceVapChem {
 
     public:
 
-        IceVapChem(const Grid& g, const Field<double>& T, Field3D<Prims>& W_dust, Field<Prims>& W_gas, Field3D<double>& tracers, SizeGridIce& sizes, 
+        IceVapChem(const Grid& g, const Field<double>& T, Field3D<Prims>& W_dust, Field<Prims>& W_gas, SizeGridIce& sizes, 
                         Molecule& mol, double floor = 1.e-100, double N_s = 1.5e15) :
-                        _g(g), _T(T), _W(W_dust),  _Wg(W_gas), _ice_grains(tracers), _sizes(sizes), _mol(mol), _floor(floor), N_s(N_s)
+                        _g(g), _T(T), _W(W_dust),  _Wg(W_gas), _sizes(sizes), _mol(mol), _floor(floor), N_s(N_s)
                         {} ; 
 
         void imp_update(double dt);
+
         void change_molecule(Molecule& mol) {
             _mol = mol;
         }
@@ -108,9 +91,9 @@ class IceVapChem {
             for (int i=0; i<_g.NR+2*_g.Nghost; i++) {
                 for (int j=0; j<_g.Nphi+2*_g.Nghost; j++) {
                     
-                    f.write((char*) &_mol.rho(i,j).vap, sizeof(double));
+                    f.write((char*) &_mol.vap(i,j), sizeof(double));
                     for (int k=0; k<nspec; k++) {
-                        f.write((char*) &_ice_grains(i,j,k), sizeof(double));
+                        f.write((char*) &_mol.ice(i,j,k), sizeof(double));
                         f.write((char*) &_sizes.ice(i,j,k).a, sizeof(double));
                         f.write((char*) &_sizes.ice(i,j,k).rho, sizeof(double));
                     }
@@ -137,17 +120,13 @@ class IceVapChem {
             for (int i=0; i<_g.NR+2*_g.Nghost; i++) {
                 for (int j=0; j<_g.Nphi+2*_g.Nghost; j++) {
                     
-                    f.read((char*) &_mol.rho(i,j).vap, sizeof(double));
+                    f.read((char*) &_mol.vap(i,j), sizeof(double));
                     double ice_tot = 0;
                     for (int k=0; k<nspec; k++) {
-                        f.read((char*) &_ice_grains(i,j,k), sizeof(double));
+                        f.read((char*) &_mol.ice(i,j,k), sizeof(double));
                         f.read((char*) &_sizes.ice(i,j,k).a, sizeof(double));
                         f.read((char*) &_sizes.ice(i,j,k).rho, sizeof(double));
-                        ice_tot += _ice_grains(i,j,k);
                     }
-                    _mol.rho(i,j).ice = ice_tot;
-                    _mol.rho(i,j).tot = _mol.rho(i,j).ice + _mol.rho(i,j).vap;
-
                 }
             }  
             f.close();
@@ -157,7 +136,7 @@ class IceVapChem {
 
 };
 
-
-
+void update_sizegrid(Grid& g, SizeGridIce& sizes, Field3D<Quants>& Qd, Field3D<Quants>& Qice);
+void update_sizegrid(Grid& g, SizeGridIce& sizes, Field3D<Prims>& Qd, Field3D<double>& Qice);
 
 #endif// _CUDISC_ICEVAPOUR_H
