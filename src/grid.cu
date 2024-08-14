@@ -32,6 +32,9 @@ Grid::Grid(Grid::params p)
 
     _Rc = make_CudaArray<double>(NR + 2*Nghost) ;
     _Re = make_CudaArray<double>(NR + 2*Nghost + 1) ;
+    _Ar = make_CudaArray<double>(NR + 2*Nghost + 1) ;
+    _Az = make_CudaArray<double>(NR + 2*Nghost + 1) ;
+    _V  = make_CudaArray<double>(NR + 2*Nghost + 1) ;
 
 
     switch(p.R_spacing) {
@@ -201,6 +204,8 @@ Grid::Grid(Grid::params p)
         break ;
         
     } 
+
+    set_coord_system(coord_system) ;
 } 
 
 Grid::Grid(int NR_, int Nphi_, int Nghost_, 
@@ -214,6 +219,9 @@ Grid::Grid(int NR_, int Nphi_, int Nghost_,
     // Set up radial grid
     _Rc = make_CudaArray<double>(NR + 2*Nghost) ;
     _Re = std::move(R) ;
+    _Ar = make_CudaArray<double>(NR + 2*Nghost + 1) ;
+    _Az = make_CudaArray<double>(NR + 2*Nghost + 1) ;
+    _V  = make_CudaArray<double>(NR + 2*Nghost + 1) ;
 
     for (int i=0; i < NR + 2*Nghost; i++) {
         _Rc[i] = centroid(_Re[i], _Re[i+1]) ;
@@ -243,6 +251,29 @@ Grid::Grid(int NR_, int Nphi_, int Nghost_,
         _cos_theta_c[i] = std::cos(phic) ;
     }
 
+    set_coord_system(coord_system) ;
+}
+
+void Grid::set_coord_system(Coords system) {
+    coord_system = system;
+    
+    switch(coord_system) {
+    case Coords::cart:
+        for (int i=0; i < NR + 2*Nghost+1; i++) {
+            _Ar[i] = _Re[i] ;
+            _Az[i] = _Re[i] ;
+            _V[i]  = _Re[i]*_Re[i]/2. ;
+        }
+        break ;
+      case Coords::cyl:
+        for (int i=0; i < NR + 2*Nghost+1; i++) {
+            _Ar[i] = _Re[i]*_Re[i] ;
+            _Az[i] = _Re[i]*_Re[i]/2. ;
+            _V[i]  = _Re[i]*_Re[i]*_Re[i]/3. ;
+        }
+        break ;
+      default: __builtin_unreachable() ;
+    }
 }
 
 OrthGrid::OrthGrid(int _NR, int _NZ, int _Nghost, double Rmin, double Rmax, double Zmin, double Zmax) {
