@@ -815,7 +815,7 @@ __global__ void _add_tr_floor(GridRef g, FieldRef<double> wg, Field3DRef<double>
 }
 
 template<typename T>
-void TimeIntegration::integrate_tracers(Grid& g, Field3D<T>& ws, Field<T>& wg, Field3D<double>& tracers, double tmax, double& dt_coag, double floor) const {
+void TimeIntegration::integrate_tracers(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const {
     double dt = dt_coag ;
     if (dt_coag < tmax && dt_coag > _SAFETY*tmax)
         dt /= 2 ;
@@ -829,33 +829,33 @@ void TimeIntegration::integrate_tracers(Grid& g, Field3D<T>& ws, Field<T>& wg, F
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (ws.Nd+7)/8) ;
 
     _copy_rho_forwards<<<blocks,threads>>>(g, Field3DRef<T>(ws), FieldRef<T>(wg), rhos, floor);
-    _remove_tr_floor<<<blocks,threads>>>(g, FieldRef<T>(wg), tracers, floor);
+    _remove_tr_floor<<<blocks,threads>>>(g, FieldRef<T>(wg), mol.ice, floor);
     cudaDeviceSynchronize();
     int count = 0;
     int idxs[2] = {0,0};
 
     while (t < tmax) {
-        printf("%1.12g %1.12g %g\n", calc_mass(g,tracers), calc_mass_cell(g,tracers), dt);
+        // printf("%1.12g %1.12g %g\n", calc_mass(g,tracers), calc_mass_cell(g,tracers), dt);
         dt = std::min(dt, tmax-t) ;
-        t += take_step_tracers(g, rhos, wg, dt, tracers, idxs) ;
+        t += take_step_tracers(g, rhos, wg, dt, mol.ice, idxs) ;
         if (!(count%10)) {
             std::cout << "Count = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
             std::cout << "i index = " << idxs[0] << ", j index = " << idxs[1] << "\n";
         }
         count += 1;
-        if (dt < tmax/1e5) {
-            dt_coag = dt;
-            return;
-        }
-        printf("%1.12g %1.12g %g\n", calc_mass(g,tracers), calc_mass_cell(g,tracers), dt);
+        // if (dt < tmax/1e5) {
+        //     dt_coag = dt;
+        //     return;
+        // }
+        // printf("%1.12g %1.12g %g\n", calc_mass(g,tracers), calc_mass_cell(g,tracers), dt);
     }
-    std::cout << "Count = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
-    std::cout << "i index = " << idxs[0] << ", j index = " << idxs[1] << "\n";
+    // std::cout << "Count = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
+    // std::cout << "i index = " << idxs[0] << ", j index = " << idxs[1] << "\n";
 
     dt_coag = dt;
 
     _copy_rho_backwards<<<blocks,threads>>>(g, Field3DRef<T>(ws), FieldRef<T>(wg), rhos, floor);
-    _add_tr_floor<<<blocks,threads>>>(g, FieldRef<T>(wg), tracers, floor);
+    _add_tr_floor<<<blocks,threads>>>(g, FieldRef<T>(wg), mol.ice, floor);
 }
 
 
@@ -885,6 +885,6 @@ template void TimeIntegration::integrate<Prims>(Grid& g, Field3D<Prims>& ws, Fie
 template void TimeIntegration::integrate<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, double tmax, double& dt_coag, double floor) const;
 template void TimeIntegration::integrate<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, double tmax, double& dt_coag, double floor) const;
 
-template void TimeIntegration::integrate_tracers<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, Field3D<double>& tracers, double tmax, double& dt_coag, double floor) const;
-template void TimeIntegration::integrate_tracers<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, Field3D<double>& tracers, double tmax, double& dt_coag, double floor) const;
-template void TimeIntegration::integrate_tracers<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, Field3D<double>& tracers, double tmax, double& dt_coag, double floor) const;
+template void TimeIntegration::integrate_tracers<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const;
+template void TimeIntegration::integrate_tracers<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const;
+template void TimeIntegration::integrate_tracers<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const;

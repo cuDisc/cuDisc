@@ -223,7 +223,10 @@ KernelResult BirnstielKernelIce<use_full_stokes>::operator()(int i, int j, int k
     
     result.K = xsec * v_turb ;
 
-    RealType _v_frag = _v_frag_b + (_v_frag_i-_v_frag_b) * min(1., 5.*_ice_grain(i,j,k1)/(_ice_grain(i,j,k1)+_wd(i,j,k1).rho) + 5.*_ice_grain(i,j,k2)/(_ice_grain(i,j,k2)+_wd(i,j,k2).rho));
+    RealType i_to_t_rat1 = (1.-ice1.rho/_sizes.solid_density()) / (ice1.rho * (1./_sizes.ice_density() - 1./_sizes.solid_density()));
+    RealType i_to_t_rat2 = (1.-ice2.rho/_sizes.solid_density()) / (ice2.rho * (1./_sizes.ice_density() - 1./_sizes.solid_density()));
+
+    RealType _v_frag = _v_frag_b + (_v_frag_i-_v_frag_b) * min(1., 5.*i_to_t_rat1 + 5.*i_to_t_rat2);
 
     result.p_frag = (1.5*(_v_frag/v_turb)*(_v_frag/v_turb) + 1.) * exp(-1.5*(_v_frag/v_turb)*(_v_frag/v_turb)); // From https://iopscience.iop.org/article/10.3847/1538-4357/ac7d58/pdf
     result.p_coag = 1. - result.p_frag;
@@ -384,6 +387,8 @@ __global__ void _compute_coagulation_rate(_CoagulationRateHelper<Kernel,Fragment
                     for (int t=1; t < num_tracers+1; t++) {
                         double tracer_rate = frag_rate * dust_density(iR, iZ, i + t*coag.size) ;
                         tracer_rate /= dust_density(iR, iZ, i) ;
+                        // double tracer_rate =  Kij.K * Kij.p_frag * nj * dust_density(iR, iZ, i + t*coag.size)/mi ;
+                        // if (i == j) tracer_rate /= 2 ;
                         
                         atomicAdd_block(&rate(iR,iZ,k_rem + t*coag.size),     tracer_rate * (          m_rem) * eps) ;
                         atomicAdd_block(&rate(iR,iZ,k_rem + 1 + t*coag.size), tracer_rate * (          m_rem) * (1-eps)) ;

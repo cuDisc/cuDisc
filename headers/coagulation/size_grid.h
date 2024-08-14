@@ -203,7 +203,7 @@ class SizeGridIce : public SizeGrid {
         }
 
         RealType solid_density() const {
-            return rho_d ;
+            return _rho_daux ;
         }
 
         RealType ice_density() const {
@@ -228,7 +228,7 @@ class SizeGridIce : public SizeGrid {
             f << "# mass size\n" ;
             for (int i=0; i < size()+1; i++) 
                 f << edge_mass(i) << " " 
-                << std::pow(3*edge_mass(i)/(4*M_PI*rho_d), 1/3.) << "\n" ;
+                << std::pow(3*edge_mass(i)/(4*M_PI*_rho_daux), 1/3.) << "\n" ;
         }
 
         void write_grid(std::string folder) {
@@ -237,7 +237,7 @@ class SizeGridIce : public SizeGrid {
             f << "# mass size\n" ;
             for (int i=0; i < size()+1; i++) 
                 f << edge_mass(i) << " " 
-                << std::pow(3*edge_mass(i)/(4*M_PI*rho_d), 1/3.) << "\n" ;
+                << std::pow(3*edge_mass(i)/(4*M_PI*_rho_daux), 1/3.) << "\n" ;
         }
 
 } ;
@@ -249,6 +249,7 @@ class SizeGridIceRef {
         GridRef _g;
         int stride;
         RealType _rho_m_ice;
+        RealType _rho_m_solid;
 
     public:
 
@@ -256,10 +257,16 @@ class SizeGridIceRef {
             _g(size._g),
             stride(size.stride),
             _rho_m_ice(size._rho_m_ice),
+            _rho_m_solid(size._rho_daux),
             ice(size.ice)
         {}
 
         Field3DRef<Ice> ice;
+
+        __host__ __device__
+        RealType solid_density() const {
+            return _rho_m_solid ;
+        }
 
         __host__ __device__
         RealType ice_density() const {

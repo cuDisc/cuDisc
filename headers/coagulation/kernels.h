@@ -109,10 +109,10 @@ class BirnstielKernelVertInt {
 template<bool use_full_stokes=false>
 class BirnstielKernelIce {
   public:
-    BirnstielKernelIce(Grid&g, SizeGridIce& sizes, const Field3D<double>& ice_grain, const Field3D<Prims>& wd, 
+    BirnstielKernelIce(Grid&g, SizeGridIce& sizes, const Field3D<Prims>& wd, 
                     const Field<Prims>& wg, const Field<double>& sound_speed, 
                     const Field<double>& alpha, double mu, double Mstar=1)
-      : _g(g), _cs(sound_speed), _sizes(sizes), _ice_grain(ice_grain),
+      : _g(g), _cs(sound_speed), _sizes(sizes),
         _wd(wd), _wg(wg),
         _alpha_t(alpha), _GMstar(Mstar*GMsun), _mu(mu)
     { } ;
@@ -138,12 +138,11 @@ class BirnstielKernelIce {
     GridRef _g ;
     FieldConstRef<double> _cs ;
     SizeGridIceRef _sizes;
-    Field3DConstRef<double> _ice_grain ;
     Field3DConstRef<Prims> _wd ;
     FieldConstRef<Prims> _wg ;
     FieldConstRef<double> _alpha_t ;
 
-    RealType _sqrtRe=1e4, _GMstar, _mu;
+    RealType _GMstar, _mu;
     RealType _v_frag_b=1000., _v_frag_i=1000.;
 
 } ;
