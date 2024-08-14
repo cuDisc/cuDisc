@@ -48,7 +48,7 @@ __global__ void _calc_rho_kappa(GridRef g, Field3DConstRef<Prims> qd, FieldConst
 } 
 
 __global__ void _calc_rho_kappa_ice(GridRef g, Field3DConstRef<Prims> qd, FieldConstRef<Prims> wg, 
-                                DSHARP_opacsRef opacs, Field3DRef<double> rhokabs, Field3DRef<double> rhoksca, Field3DRef<double> rho_ices) {
+                                DSHARP_opacsRef opacs, Field3DRef<double> rhokabs, Field3DRef<double> rhoksca, MoleculeRef mol) {
 
     int k = threadIdx.x + blockIdx.x*blockDim.x ;
     int j = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -60,8 +60,8 @@ __global__ void _calc_rho_kappa_ice(GridRef g, Field3DConstRef<Prims> qd, FieldC
         double rhok_dust_sca = 0;
 
         for (int l=0; l<opacs.n_a; l++) { 
-            rhok_dust_abs += (qd(i,j,l).rho + rho_ices(i,j,l))*opacs.k_abs(l,k);
-            rhok_dust_sca += (qd(i,j,l).rho + rho_ices(i,j,l))*opacs.k_sca(l,k);
+            rhok_dust_abs += (qd(i,j,l).rho + mol.ice(i,j,l))*opacs.k_abs(l,k);
+            rhok_dust_sca += (qd(i,j,l).rho + mol.ice(i,j,l))*opacs.k_sca(l,k);
         }
 
         rhokabs(i,j,k) = wg(i,j).rho*opacs.k_abs_g(k) + rhok_dust_abs;
@@ -127,7 +127,7 @@ void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, DSH
 }
 
 void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, DSHARP_opacs& opacs,
-                                    Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca, Field3D<double>& rho_ices) {
+                                    Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca, Molecule& mol) {
 
     int nk = 1 ;
     while (nk < opacs.n_lam && nk < 32)
@@ -139,7 +139,7 @@ void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, DSH
                 (g.Nphi +  2*g.Nghost + nj-1)/nj, 
                  g.NR +  2*g.Nghost) ;
     
-    _calc_rho_kappa_ice<<<blocks,threads>>>(g, qd, wg, opacs, rhokappa_abs, rhokappa_sca, rho_ices);
+    _calc_rho_kappa_ice<<<blocks,threads>>>(g, qd, wg, opacs, rhokappa_abs, rhokappa_sca, mol);
     check_CUDA_errors("_calc_rho_kappa_ice") ;
 }
 
