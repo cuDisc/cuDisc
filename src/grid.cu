@@ -33,8 +33,8 @@ Grid::Grid(Grid::params p)
     _Rc = make_CudaArray<double>(NR + 2*Nghost) ;
     _Re = make_CudaArray<double>(NR + 2*Nghost + 1) ;
     _Ar = make_CudaArray<double>(NR + 2*Nghost + 1) ;
-    _Az = make_CudaArray<double>(NR + 2*Nghost + 1) ;
-    _V  = make_CudaArray<double>(NR + 2*Nghost + 1) ;
+    _Az = make_CudaArray<double>(NR + 2*Nghost) ;
+    _V  = make_CudaArray<double>(NR + 2*Nghost) ;
 
 
     switch(p.R_spacing) {
@@ -220,8 +220,8 @@ Grid::Grid(int NR_, int Nphi_, int Nghost_,
     _Rc = make_CudaArray<double>(NR + 2*Nghost) ;
     _Re = std::move(R) ;
     _Ar = make_CudaArray<double>(NR + 2*Nghost + 1) ;
-    _Az = make_CudaArray<double>(NR + 2*Nghost + 1) ;
-    _V  = make_CudaArray<double>(NR + 2*Nghost + 1) ;
+    _Az = make_CudaArray<double>(NR + 2*Nghost) ;
+    _V  = make_CudaArray<double>(NR + 2*Nghost) ;
 
     for (int i=0; i < NR + 2*Nghost; i++) {
         _Rc[i] = centroid(_Re[i], _Re[i+1]) ;
@@ -259,17 +259,19 @@ void Grid::set_coord_system(Coords system) {
     
     switch(coord_system) {
     case Coords::cart:
-        for (int i=0; i < NR + 2*Nghost+1; i++) {
-            _Ar[i] = _Re[i] ;
-            _Az[i] = _Re[i] ;
-            _V[i]  = _Re[i]*_Re[i]/2. ;
+        _Ar[0] = _Re[0] ;
+        for (int i=0; i < NR + 2*Nghost; i++) {
+            _Ar[i+1] = _Re[i+1] ;
+            _Az[ i ] = _Re[i+1] - _Re[i] ;
+            _V [ i ] = (_Re[i+1]*_Re[i+1] - _Re[i]*_Re[i])/2. ;
         }
         break ;
       case Coords::cyl:
-        for (int i=0; i < NR + 2*Nghost+1; i++) {
-            _Ar[i] = _Re[i]*_Re[i] ;
-            _Az[i] = _Re[i]*_Re[i]/2. ;
-            _V[i]  = _Re[i]*_Re[i]*_Re[i]/3. ;
+        _Ar[0] = _Re[0]*_Re[0] ;
+        for (int i=0; i < NR + 2*Nghost; i++) {
+            _Ar[i+1] =  _Re[i+1]*_Re[i+1] ;
+            _Az[ i ] = (_Re[i+1]*_Re[i+1] - _Re[i]*_Re[i])/2. ;
+            _V [ i ] = (_Re[i+1]*_Re[i+1]*_Re[i+1] - _Re[i]*_Re[i]*_Re[i])/3. ;
         }
         break ;
       default: __builtin_unreachable() ;

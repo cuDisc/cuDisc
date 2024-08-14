@@ -17,6 +17,8 @@ struct Prims1D {
     } ;
 } ;
 
+struct Prims ;
+
 template<bool use_full_stokes=false>
 class DustDyn1D {
 

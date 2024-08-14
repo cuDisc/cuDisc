@@ -154,7 +154,7 @@ class Grid {
     }
     
     double volume(int i, int j) const {
-        return (_V[i+1] - _V[i])* (_tan_theta_e[j+1] - _tan_theta_e[j]);
+        return _V[i]* (_tan_theta_e[j+1] - _tan_theta_e[j]);
     }
 
     // Locations in cylindrical co-ordinates
@@ -232,12 +232,12 @@ class GridRef {
 
     __host__ __device__ 
     double area_Z(int i, int j) const { 
-        return (_Az[i+1] - _Az[i])/_cos_theta_e[j];
+        return _Az[i]/_cos_theta_e[j];
     }
     
     __host__ __device__ 
     double volume(int i, int j) const {
-        return (_V[i+1] - _V[i])* (_tan_theta_e[j+1] - _tan_theta_e[j]);
+        return _V[i]* (_tan_theta_e[j+1] - _tan_theta_e[j]);
     }
 
 
