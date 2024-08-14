@@ -16,5 +16,7 @@ void compute_hydrostatic_equilibrium(const Star&, const Grid&, Field<Prims>&,
                                      const Field<double>&, const CudaArray<double>&, Field3D<Prims>& q_d, double gasfloor=1e-100) ;
 void compute_hydrostatic_equilibrium(const Star&, const Grid&, Field<Prims>&, 
                                      const Field<double>&, const CudaArray<double>&, Molecule& mol, double gasfloor=1e-100) ;
+void compute_hydrostatic_equilibrium2(const Star&, const Grid&, Field<Prims>&, 
+                                     const Field<double>&, const CudaArray<double>&, Molecule& mol, double gasfloor=1e-100) ;
 
 #endif// _CUSDISC_HYDROSTATIC_H_
