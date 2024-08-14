@@ -540,6 +540,48 @@ __global__ void _update_quants(GridRef g, Field3DRef<Quants> q_mids, Field3DRef<
     }
 }
 
+__global__ void _update_quants(GridRef g, Field3DRef<Quants> q_mids, Field3DRef<Quants> q, Field3DRef<Quants> q_mids_trac, Field3DRef<Quants> q_trac, double dt,
+                                        Field3DRef<Quants> fluxR, Field3DRef<Quants> fluxZ, Field3DRef<Quants> fluxR_trac, Field3DRef<Quants> fluxZ_trac) {
+    
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
+            for (int k=kidx; k<q.Nd; k+=kstride) {
+                double df = (fluxR(i,j,k).rho * g.area_R(i,j) - fluxR(i+1,j,k).rho * g.area_R(i+1,j)) 
+                            + (fluxZ(i,j,k).rho * g.area_Z(i,j) - fluxZ(i,j+1,k).rho * g.area_Z(i,j+1));
+                q_mids(i,j,k).rho = q(i,j,k).rho + (dt/g.volume(i,j))*df;
+
+                df = (fluxR_trac(i,j,k).rho * g.area_R(i,j) - fluxR_trac(i+1,j,k).rho * g.area_R(i+1,j)) 
+                            + (fluxZ_trac(i,j,k).rho * g.area_Z(i,j) - fluxZ_trac(i,j+1,k).rho * g.area_Z(i,j+1));
+                q_mids_trac(i,j,k).rho = q_trac(i,j,k).rho + (dt/g.volume(i,j))*df;
+
+                double mom_tot;
+                
+                for (int l=1; l<4; l++) {
+                    df = (fluxR(i,j,k)[l] * g.area_R(i,j) - fluxR(i+1,j,k)[l] * g.area_R(i+1,j)) 
+                            + (fluxZ(i,j,k)[l] * g.area_Z(i,j) - fluxZ(i,j+1,k)[l] * g.area_Z(i,j+1));
+
+                    mom_tot = q(i,j,k)[l] + (dt/g.volume(i,j))*df;
+
+                    df = (fluxR_trac(i,j,k)[l] * g.area_R(i,j) - fluxR_trac(i+1,j,k)[l] * g.area_R(i+1,j)) 
+                            + (fluxZ_trac(i,j,k)[l] * g.area_Z(i,j) - fluxZ_trac(i,j+1,k)[l] * g.area_Z(i,j+1));
+
+                    mom_tot += q_trac(i,j,k)[l] + (dt/g.volume(i,j))*df;
+                    
+                    q_mids(i,j,k)[l] = mom_tot * q_mids(i,j,k).rho/(q_mids(i,j,k).rho+q_mids_trac(i,j,k).rho);
+                    q_mids_trac(i,j,k)[l] = mom_tot * q_mids_trac(i,j,k).rho/(q_mids(i,j,k).rho+q_mids_trac(i,j,k).rho);
+                }
+            }
+        }
+    }
+}
+
 __global__ void _set_boundary_flux(GridRef g, int bound, Field3DRef<Quants> fluxR, Field3DRef<Quants> fluxZ) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
@@ -724,6 +766,58 @@ void _compute_CFL_diff(GridRef g, Field3DConstRef<Prims> w, FieldConstRef<Prims>
     } 
 }
 
+__global__
+void _compute_CFL_diff(GridRef g, Field3DConstRef<Prims> w, FieldConstRef<Prims> w_gas, FieldRef<double> vap, FieldRef<double> CFL_grid, Field3DConstRef<double> D,
+                        double CFL_adv, double CFL_diff, double floor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
+            double CFL_k = 1e308;
+            if (vap(i,j) > 10.*w_gas(i,j).rho*1e-100*floor) {
+
+                double dtR = abs(g.dRe(i)/w_gas(i,j).v_R);
+                double dtZ = abs(g.dZe(i,j)/w_gas(i,j).v_Z);
+
+                double CFL_RZmin = min(dtR, dtZ);
+                CFL_k = min(CFL_k, CFL_adv*CFL_RZmin);
+
+                if (D(i,j,0) != 0) {
+                    dtR = abs(g.dRe(i)*g.dRe(i) * w_gas(i,j).rho / D(i,j,0));
+                    dtZ = abs(g.dZe(i,j)*g.dZe(i,j) * w_gas(i,j).rho / D(i,j,0));
+
+                    CFL_RZmin = min(dtR, dtZ);
+                    CFL_k = min(CFL_k, CFL_diff*CFL_RZmin);
+                }
+            }
+            for (int k=0; k<w.Nd; k++) {
+
+                if (w(i,j,k).rho > 10.*w_gas(i,j).rho*floor) {
+
+                    double dtR = abs(g.dRe(i)/w(i,j,k).v_R);
+                    double dtZ = abs(g.dZe(i,j)/w(i,j,k).v_Z);
+
+                    double CFL_RZmin = min(dtR, dtZ);
+                    CFL_k = min(CFL_k, CFL_adv*CFL_RZmin);
+
+                    if (D(i,j,k) != 0) {
+                        dtR = abs(g.dRe(i)*g.dRe(i) * w_gas(i,j).rho / D(i,j,k));
+                        dtZ = abs(g.dZe(i,j)*g.dZe(i,j) * w_gas(i,j).rho / D(i,j,k));
+
+                        CFL_RZmin = min(dtR, dtZ);
+                        CFL_k = min(CFL_k, CFL_diff*CFL_RZmin);
+                    }
+                }
+            }
+            CFL_grid(i,j) = CFL_k;
+        }
+    } 
+}
+
 double DustDynamics::get_CFL_limit(const Grid& g, const Field3D<Prims>& w, const Field<Prims>& w_gas) {
 
     dim3 threads(32,32) ;
@@ -733,6 +827,26 @@ double DustDynamics::get_CFL_limit(const Grid& g, const Field3D<Prims>& w, const
     set_all(g, CFL_grid, std::numeric_limits<double>::max());
 
     _compute_CFL_diff<<<blocks,threads>>>(g, w, w_gas, CFL_grid, _D, _CFL_adv, _CFL_diff, _floor);
+    check_CUDA_errors("_compute_CFL_diff") ;
+    Reduction::scan_R_min(g, CFL_grid);
+
+    double dt = CFL_grid(g.NR+g.Nghost-1,g.Nghost) ;
+    for (int j=g.Nghost; j < g.Nphi+g.Nghost; j++) {
+        dt = std::min(dt, CFL_grid(g.NR+g.Nghost-1, j)) ;
+    }
+
+    return dt;
+}
+
+double DustDynamics::get_CFL_limit(const Grid& g, const Field3D<Prims>& w, const Field<Prims>& w_gas, Molecule& mol) {
+
+    dim3 threads(32,32) ;
+    dim3 blocks((g.NR + 2*g.Nghost+31)/32,(g.Nphi + 2*g.Nghost+31)/32) ;
+
+    Field<double> CFL_grid = create_field<double>(g);
+    set_all(g, CFL_grid, std::numeric_limits<double>::max());
+
+    _compute_CFL_diff<<<blocks,threads>>>(g, w, w_gas, mol.vap, CFL_grid, _D, _CFL_adv, _CFL_diff, _floor);
     check_CUDA_errors("_compute_CFL_diff") ;
     Reduction::scan_R_min(g, CFL_grid);
 
@@ -815,7 +929,7 @@ __global__ void _init_tracer_prims(GridRef g, Field3DRef<Prims> w, FieldConstRef
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
 
-            w_trac_vap(i,j,0).rho = mol.rho(i,j).vap;
+            w_trac_vap(i,j,0).rho = mol.vap(i,j);
 
             for (int l=1; l<4; l++) {
                 w_trac_vap(i,j,0)[l] = wg(i,j)[l];
@@ -855,6 +969,33 @@ __global__ void _update_tracers(GridRef g, Field3DRef<Prims> w_trac, Field3DRef<
 
 }
 
+__global__ void _update_tracers(GridRef g, Field3DRef<Quants> w_trac, FieldConstRef<Prims> w_gas, Field3DRef<double> tracers, double floor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
+            for (int k=kidx; k<w_trac.Nd; k+=kstride) {
+
+                double f = w_trac(i,j,k).rho / (floor * w_gas(i,j).rho) ;
+                if (f < 1.1) {
+                    tracers(i,j,k) = w_gas(i,j).rho * floor;
+                }          
+                else{
+                    tracers(i,j,k) = w_trac(i,j,k).rho;
+                }         
+
+            }
+        }
+    }
+
+}
+
 __global__ void _update_tracer_vap(GridRef g, Field3DRef<Prims> w_trac, MoleculeRef mol) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
@@ -865,13 +1006,13 @@ __global__ void _update_tracer_vap(GridRef g, Field3DRef<Prims> w_trac, Molecule
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
 
-            mol.rho(i,j).vap = w_trac(i,j,0).rho;
+            mol.vap(i,j) = w_trac(i,j,0).rho;
         }
     }
 
 }
 
-void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas, double dt, Field3D<double>& tracers, Molecule& mol) {
+void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas, double dt, Molecule& mol) {
 
     if (g.Nghost < 2)
         throw std::invalid_argument("Dust dynamics requires at least 2 ghost cells") ;
@@ -895,7 +1036,7 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
 
     Field3D<Prims> w_trac = create_field3D<Prims>(g, w_dust.Nd);
     Field3D<Prims> w_trac_vap = create_field3D<Prims>(g, 1);
-    _init_tracer_prims<<<blocks2D,threads2D>>>(g, w_dust, w_gas, w_trac, w_trac_vap, tracers, mol);
+    _init_tracer_prims<<<blocks2D,threads2D>>>(g, w_dust, w_gas, w_trac, w_trac_vap, mol.ice, mol);
 
     // Update main
 
@@ -973,7 +1114,7 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     _sources.source_imp(g, w_trac, dt);
     _floor_prim<<<blocks,threads>>>(g, w_trac, w_gas,1e-100*_floor);
 
-    _update_tracers<<<blocks,threads>>>(g, w_trac, tracers);
+    _update_tracers<<<blocks,threads>>>(g, w_trac, mol.ice);
 
     // Vap update
 
@@ -1007,6 +1148,222 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     _update_quants<<<blocks_vap, threads_vap>>>(g, q_mids, q, dt, fluxR, fluxZ);
     _calc_prim<<<blocks_vap, threads_vap>>>(g, q_mids, w_trac_vap);
     _floor_prim<<<blocks_vap, threads_vap>>>(g, w_trac_vap, w_gas,1e-100*_floor);
+
+    _update_tracer_vap<<<blocks2D, threads2D>>>(g, w_trac_vap, mol);
+
+}
+
+__global__ void _copy_dust_vels(GridRef g, Field3DRef<Prims> wd, Field3DRef<Prims> wtrac, Field3DRef<Quants> qtrac) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ; 
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {   
+            for (int k=kidx; k<wd.Nd; k+=kstride) {
+
+                wtrac(i,j,k).rho = qtrac(i,j,k).rho;
+                for (int l=1; l<4; l++) {
+                    wtrac(i,j,k)[l] = wd(i,j,k)[l];
+                }
+            }
+        }
+    }
+}
+
+void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas, double dt, Molecule& mol, SizeGridIce& sizes) {
+
+    if (g.Nghost < 2)
+        throw std::invalid_argument("Dust dynamics requires at least 2 ghost cells") ;
+
+    Field3D<Quants> q_mids = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, w_dust.Nd);
+    Field3D<Quants> q = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, w_dust.Nd);
+    Field3D<Quants> q_mids_trac = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, w_dust.Nd);
+    Field3D<Quants> q_trac = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, w_dust.Nd);
+
+    Field3D<Quants> fluxR = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, w_dust.Nd);
+    Field3D<Quants> fluxZ = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, w_dust.Nd);
+
+    dim3 threads(16,8,4) ;
+    dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (q.Nd+3)/4) ;
+
+    dim3 threads2D(32,32,1) ;
+    dim3 blocks2D((g.NR + 2*g.Nghost+31)/32,(g.Nphi + 2*g.Nghost+31)/32,1) ;
+
+    dim3 threads_vap(16,32,1) ;
+    dim3 blocks_vap((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+31)/32, 1) ;
+
+    // Initialise tracers
+
+    Field3D<Prims> w_trac = create_field3D<Prims>(g, w_dust.Nd);
+    Field3D<Prims> w_trac_vap = create_field3D<Prims>(g, 1);
+    _init_tracer_prims<<<blocks2D,threads2D>>>(g, w_dust, w_gas, w_trac, w_trac_vap, mol.ice, mol);
+
+    // Calc dust donor fluxes
+
+    _set_boundaries<<<blocks,threads>>>(g, w_dust, _boundary, _floor);
+    _calc_conserved<<<blocks,threads>>>(g, q, w_dust);
+
+    // Calc donor cell flux
+    if (_DoDiffusion)
+        _calc_donor_flux<true><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+    else
+        _calc_donor_flux<false><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+
+    // Update quantities a half time step and and source terms.
+    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
+    _update_quants<<<blocks,threads>>>(g, q_mids, q, dt/2., fluxR, fluxZ);
+
+    // Calc tracer donor fluxes
+
+    _set_boundaries<<<blocks,threads>>>(g, w_trac, _boundary,1e-100*_floor);
+    _calc_conserved<<<blocks,threads>>>(g, q_trac, w_trac);
+
+    // Calc donor cell flux
+    if (_DoDiffusion)
+        _calc_donor_flux<true><<<blocks,threads>>>(g, w_trac, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+    else
+        _calc_donor_flux<false><<<blocks,threads>>>(g, w_trac, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+
+    // Update quantities a half time step and and source terms.
+    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
+    _update_quants<<<blocks,threads>>>(g, q_mids_trac, q_trac, dt/2., fluxR, fluxZ);
+
+    // Update sizegrid for half-time quantities
+
+    update_sizegrid(g, sizes, q_mids, q_mids_trac);
+
+    // Update sources
+
+    _sources.source_exp(g, w_dust, q_mids, dt/2.);
+    _calc_prim<<<blocks,threads>>>(g, q_mids, w_dust);
+    _sources.source_imp(g, w_dust, dt/2.);
+    _floor_prim<<<blocks,threads>>>(g, w_dust, w_gas, _floor);
+    
+    _set_boundaries<<<blocks,threads>>>(g, w_dust, _boundary, _floor);
+
+    // Copy dust velocities to tracers
+    _copy_dust_vels<<<blocks,threads>>>(g, w_dust, w_trac, q_mids_trac);
+
+    // Compute dust fluxes with Van Leer
+    if (_DoDiffusion)
+        _calc_diff_flux_vl<true><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+    else
+        _calc_diff_flux_vl<false><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+
+    // Update quantities a full time step
+
+    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
+
+    _update_quants<<<blocks,threads>>>(g, q_mids, q, dt, fluxR, fluxZ);
+
+    // Calc tracer VL fluxes
+
+    _floor_prim<<<blocks,threads>>>(g, w_trac, w_gas,1e-100*_floor);
+    
+    _set_boundaries<<<blocks,threads>>>(g, w_trac, _boundary,1e-100*_floor);
+
+    if (_DoDiffusion)
+        _calc_diff_flux_vl<true><<<blocks,threads>>>(g, w_trac, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+    else
+        _calc_diff_flux_vl<false><<<blocks,threads>>>(g, w_trac, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+
+    // Update tracer quantities a full time step
+
+    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
+
+    _update_quants<<<blocks,threads>>>(g, q_mids_trac, q_trac, dt, fluxR, fluxZ);
+
+    // Update sizegrid for full-time quantities
+
+    update_sizegrid(g, sizes, q_mids, q_mids_trac);
+
+    // Update sources
+
+    _sources.source_exp(g, w_dust, q_mids, dt);
+    _calc_prim<<<blocks, threads>>>(g, q_mids, w_dust);
+    _sources.source_imp(g, w_dust, dt);
+    _floor_prim<<<blocks,threads>>>(g, w_dust, w_gas, _floor);
+
+    // Update tracers
+
+    _update_tracers<<<blocks,threads>>>(g, q_mids_trac, w_gas, mol.ice, 1e-100*_floor);
+
+    // Vap update
+
+    // cudaFree(&q);
+    // cudaFree(&q_mids);
+    // cudaFree(&q_trac);
+    // cudaFree(&q_mids_trac);
+    // cudaFree(&fluxR);
+    // cudaFree(&fluxZ);
+
+    Field3D<Quants> q_mids_vap = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, 1);
+    Field3D<Quants> q_vap = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, 1);
+
+    Field3D<Quants> fluxZ_vap = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, 1);
+    Field3D<Quants> fluxR_vap = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, 1);
+
+    _set_boundaries<<<blocks_vap, threads_vap>>>(g, w_trac_vap, _boundary, 1e-100*_floor);
+    _calc_conserved<<<blocks_vap, threads_vap>>>(g, q_vap, w_trac_vap);
+
+    // Calc donor cell flux
+    if (_DoDiffusion)
+        _calc_donor_flux<true><<<blocks_vap, threads_vap>>>(g, w_trac_vap, w_gas, _cs, fluxR_vap, fluxZ_vap, _D, _gas_floor);
+    else
+        _calc_donor_flux<false><<<blocks_vap, threads_vap>>>(g, w_trac_vap, w_gas, _cs, fluxR_vap, fluxZ_vap, _D, _gas_floor);
+
+    // Update quantities a half time step and and source terms.
+    _set_boundary_flux<<<blocks_vap,threads_vap>>>(g, _boundary, fluxR_vap, fluxZ_vap);
+    _update_quants<<<blocks_vap, threads_vap>>>(g, q_mids_vap, q_vap, dt/2., fluxR_vap, fluxZ_vap);
+
+    _calc_prim<<<blocks_vap, threads_vap>>>(g, q_mids_vap, w_trac_vap);
+    _floor_prim<<<blocks_vap, threads_vap>>>(g, w_trac_vap, w_gas, 1e-100*_floor);
+
+    _set_boundaries<<<blocks_vap, threads_vap>>>(g, w_trac_vap, _boundary, 1e-100*_floor);
+
+    // Compute fluxes with Van Leer
+    if (_DoDiffusion)
+        _calc_diff_flux_vl<true><<<blocks_vap, threads_vap>>>(g, w_trac_vap, w_gas, _cs, fluxR_vap, fluxZ_vap, _D, _gas_floor);
+    else
+        _calc_diff_flux_vl<false><<<blocks_vap, threads_vap>>>(g, w_trac_vap, w_gas, _cs, fluxR_vap, fluxZ_vap, _D, _gas_floor);
+
+    // Update quantities a full time step and and source terms.
+
+    _set_boundary_flux<<<blocks_vap, threads_vap>>>(g, _boundary, fluxR_vap, fluxZ_vap);
+
+    // cudaDeviceSynchronize();
+    // for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
+    //     std::cout << fluxR_vap(2,j,0).rho << ", " ;
+    // }
+    // std::cout << "\n";
+    // for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
+    //     std::cout << fluxR_vap(2,j,0).rho << ", " ;
+    // }
+    // std::cout << "\n";
+
+    _update_quants<<<blocks_vap, threads_vap>>>(g, q_mids_vap, q_vap, dt, fluxR_vap, fluxZ_vap);
+
+    // cudaDeviceSynchronize();
+    // for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
+    //     std::cout << q_mids_vap(2,j,0).mom_R << ", " ;
+    // }
+    // std::cout << "\n";
+    // for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
+    //     std::cout << q_mids_vap(2,j,0).mom_Z << ", " ;
+    // }
+    // std::cout << "\n";
+    // for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
+    //     std::cout << q_mids_vap(2,j,0).rho << ", " ;
+    // }
+    // std::cout << "\n";
+
+    _calc_prim<<<blocks_vap, threads_vap>>>(g, q_mids_vap, w_trac_vap);
+    _floor_prim<<<blocks_vap, threads_vap>>>(g, w_trac_vap, w_gas, 1e-100*_floor);
 
     _update_tracer_vap<<<blocks2D, threads2D>>>(g, w_trac_vap, mol);
 

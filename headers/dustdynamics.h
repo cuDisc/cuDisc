@@ -41,7 +41,8 @@ class DustDynamics {
     public:
 
         DustDynamics(Field3D<double>& D, const Field<double>& cs, SourcesBase& sources, double CFL_adv=0.4, double CFL_diff=0.1, double floor=1.e-40, double gas_floor=1.e-30) : 
-               _DoDiffusion(true), _CFL_adv(CFL_adv), _CFL_diff(CFL_diff), _floor(floor), _gas_floor(gas_floor), _D(D), _cs(cs), _sources(sources) {};
+               _DoDiffusion(true), _CFL_adv(CFL_adv), _CFL_diff(CFL_diff), _floor(floor), _gas_floor(gas_floor), _D(D), _cs(cs), _sources(sources)
+            {};
         
         void disable_diffusion() {
             _DoDiffusion = false ;
@@ -70,9 +71,11 @@ class DustDynamics {
         void floor_above(Grid&g, Field3D<Prims>& w_dust, Field<Prims>& w_gas, CudaArray<double>& h);
 
         void operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas, double dt) ;
-        void operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas, double dt, Field3D<double>& tracers, Molecule& mol) ;
+        void operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas, double dt, Molecule& mol) ;
+        void operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas, double dt, Molecule& mol, SizeGridIce& sizes) ;
 
         double get_CFL_limit(const Grid& g, const Field3D<Prims>& w, const Field<Prims>& w_gas) ;
+        double get_CFL_limit(const Grid& g, const Field3D<Prims>& w, const Field<Prims>& w_gas, Molecule& mol) ;
         double get_CFL_limit_debug(const Grid& g, const Field3D<Prims>& w, const Field<Prims>& w_gas);
         // double get_CFL_limit_debug(const Grid& g, const Field3D<Quants>& q, const Field3D<double>& D) ;
 
