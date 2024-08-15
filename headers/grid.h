@@ -143,45 +143,18 @@ class Grid {
     Grid(int NR, int Nphi, int Nghost, 
          CudaArray<double> R, CudaArray<double> phi, int index=-1);
 
-    void set_coord_system(Coords system) {
-        coord_system = system;
-    }
+    void set_coord_system(Coords system) ;
 
     double area_R(int i, int j) const { 
-        switch(coord_system) {
-            case Coords::cart:{
-                return Re(i)*(_tan_theta_e[j+1] - _tan_theta_e[j]);
-            }
-            case Coords::cyl: {
-                return Re(i) * Re(i) * (_tan_theta_e[j+1] - _tan_theta_e[j]) ;
-            }
-            default: __builtin_unreachable();
-        }
+        return _Ar[i]*(_tan_theta_e[j+1] - _tan_theta_e[j]);
     }
 
     double area_Z(int i, int j) const { 
-        switch(coord_system) {
-            case Coords::cart: {
-                return (Re(i+1) - Re(i))/_cos_theta_e[j];
-            }
-            case Coords::cyl: {
-                return 0.5 * (Re(i+1) * Re(i+1) - Re(i) * Re(i)) / _cos_theta_e[j] ;
-            }
-            default: __builtin_unreachable();
-        }
+        return _Az[i]/_cos_theta_e[j];
     }
     
     double volume(int i, int j) const {
-        switch(coord_system) {
-            case Coords::cart: {
-                return 0.5*(Re(i+1)*Re(i+1) - Re(i)*Re(i)) * (_tan_theta_e[j+1] - _tan_theta_e[j]); 
-            }
-            case Coords::cyl: {
-                double dV = (Re(i+1)*Re(i+1)*Re(i+1) - Re(i)*Re(i)*Re(i)) / 3 ;
-                return dV * (_tan_theta_e[j+1] - _tan_theta_e[j]) ;
-            }    
-            default: __builtin_unreachable();
-        }
+        return _V[i]* (_tan_theta_e[j+1] - _tan_theta_e[j]);
     }
 
     // Locations in cylindrical co-ordinates
@@ -217,7 +190,7 @@ class Grid {
     void write_grid(std::filesystem::path) const ;
 
   private:
-    CudaArray<double> _Re, _Rc ;
+    CudaArray<double> _Re, _Rc, _Ar, _Az, _V ;
     CudaArray<double> _sin_theta_e, _sin_theta_c ;
     CudaArray<double> _cos_theta_e, _cos_theta_c ;
     CudaArray<double> _tan_theta_e, _tan_theta_c ;
@@ -246,66 +219,25 @@ class GridRef {
 
     GridRef(const Grid& g)
      : NR(g.NR), Nphi(g.Nphi), Nghost(g.Nghost), index(g.index), coord_system(g.coord_system),
-       _Re(g._Re.get()), _Rc(g._Rc.get()), 
+       _Re(g._Re.get()), _Rc(g._Rc.get()), _Ar(g._Ar.get()), _Az(g._Az.get()), _V(g._V.get()),
        _sin_theta_e(g._sin_theta_e.get()), _sin_theta_c(g._sin_theta_c.get()),
        _cos_theta_e(g._cos_theta_e.get()), _cos_theta_c(g._cos_theta_c.get()),
        _tan_theta_e(g._tan_theta_e.get()), _tan_theta_c(g._tan_theta_c.get())
     { } ;
 
-    // __host__ __device__ 
-    // double area_R(int i, int j) const { 
-    //     //return Re(i)*(_tan_theta_e[j+1] - _tan_theta_e[j]); // cart coords
-    //     return Re(i) * Re(i) * (_tan_theta_e[j+1] - _tan_theta_e[j]) ;
-    // }
-    // __host__ __device__ 
-    // double area_Z(int i, int j) const { 
-    //     //return (Re(i+1) - Re(i))/_cos_theta_e[j]; // cart coords
-    //     return 0.5 * (Re(i+1) * Re(i+1) - Re(i) * Re(i)) / _cos_theta_e[j] ;
-    // }
-    
-    // __host__ __device__ 
-    // double volume(int i, int j) const {
-    //     //return 0.5*(Re(i+1)*Re(i+1) - Re(i)*Re(i)) * (_tan_theta_e[j+1] - _tan_theta_e[j]); // cart coords
-    //     double dV = (Re(i+1)*Re(i+1)*Re(i+1) - Re(i)*Re(i)*Re(i)) / 3 ;
-    //     return dV * (_tan_theta_e[j+1] - _tan_theta_e[j]) ;
-    // }
-
     __host__ __device__ 
     double area_R(int i, int j) const { 
-        switch(coord_system) {
-            case Coords::cart: {
-                return Re(i)*(_tan_theta_e[j+1] - _tan_theta_e[j]);
-            }
-            case Coords::cyl: {
-                return Re(i) * Re(i) * (_tan_theta_e[j+1] - _tan_theta_e[j]) ;
-            } 
-            default: __builtin_unreachable();
-        }
+        return _Ar[i]*(_tan_theta_e[j+1] - _tan_theta_e[j]);
     }
+
     __host__ __device__ 
     double area_Z(int i, int j) const { 
-        switch(coord_system) {
-            case Coords::cart: {
-                return (Re(i+1) - Re(i))/_cos_theta_e[j];
-            }    
-            case Coords::cyl: {
-                return 0.5 * (Re(i+1) * Re(i+1) - Re(i) * Re(i)) / _cos_theta_e[j] ;
-            }  
-            default: __builtin_unreachable();
-        }
+        return _Az[i]/_cos_theta_e[j];
     }
+    
     __host__ __device__ 
     double volume(int i, int j) const {
-        switch(coord_system) {
-            case Coords::cart: {
-                return 0.5*(Re(i+1)*Re(i+1) - Re(i)*Re(i)) * (_tan_theta_e[j+1] - _tan_theta_e[j]);
-            }    
-            case Coords::cyl: {
-                double dV = (Re(i+1)*Re(i+1)*Re(i+1) - Re(i)*Re(i)*Re(i)) / 3 ;
-                return dV * (_tan_theta_e[j+1] - _tan_theta_e[j]) ;
-            }
-            default: __builtin_unreachable();
-        }
+        return _V[i]* (_tan_theta_e[j+1] - _tan_theta_e[j]);
     }
 
 
@@ -358,7 +290,7 @@ class GridRef {
     double dsin_th(int j) const { return _sin_theta_e[j+1] - _sin_theta_e[j] ;}
 
   private:
-    const double *_Re, *_Rc ;
+    const double *_Re, *_Rc, *_Ar, *_Az, *_V ;
     const double *_sin_theta_e, *_sin_theta_c ;
     const double *_cos_theta_e, *_cos_theta_c ;
     const double *_tan_theta_e, *_tan_theta_c ;
