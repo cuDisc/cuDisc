@@ -151,11 +151,11 @@ int main() {
     // Set up spatial grid 
 
     Grid::params p;
-    p.NR = 256;
+    p.NR = 100;
     p.Nphi = 100;
     p.Nghost = 2;
 
-    p.Rmin = 0.5*au;
+    p.Rmin = 5.0*au;
     p.Rmax = 500.*au;
     p.theta_min = 0. ;
     p.theta_power = 0.75;
