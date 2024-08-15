@@ -145,17 +145,17 @@ void cs2_to_cs(Grid& g, Field<double> &cs, Field<double> &cs2) {
 
 int main() {
 
-    std::filesystem::path dir = std::string("./codes/outputs/isoPD");
+    std::filesystem::path dir = std::string("outputs/isoPD");
     std::filesystem::create_directories(dir);
 
     // Set up spatial grid 
 
     Grid::params p;
-    p.NR = 100;
+    p.NR = 256;
     p.Nphi = 100;
     p.Nghost = 2;
 
-    p.Rmin = 5.*au;
+    p.Rmin = 0.5*au;
     p.Rmax = 500.*au;
     p.theta_min = 0. ;
     p.theta_power = 0.75;
@@ -244,7 +244,7 @@ int main() {
                 sizes, 
                 kernel, 
                 SimpleErosion(1,11/6.,sizes.min_mass())), 
-            1e-2, 1e-10
+            1e-2, 1e-10, false
         ) ;
 
     std::cout << "Initial dust mass: " << M_dust/Msun << " M_sun\n";
@@ -269,7 +269,7 @@ int main() {
 
     double dt_CFL = dyn.get_CFL_limit(g, Ws_d, Ws_g);
 
-    std::cout << dt_CFL << "\n";
+    std::cout << "dt_CFL: " << dt_CFL/year << "yr" << std::endl;
 
     // Set up boundary conditions
 
@@ -281,7 +281,7 @@ int main() {
     start = std::chrono::high_resolution_clock::now();
     std::chrono::microseconds duration;
     double yps;
-    int count = 0;
+    int count = 0, count_coag = 0;
     double t_coag = 0, dt_coag = 0, t_temp = 0, dt_1perc = year;
 
     dt_CFL = 1;
@@ -318,7 +318,14 @@ int main() {
 
 
     // Main timestep iteration
-
+    double t_last = t ;
+    std::chrono::microseconds zero_ms{0};
+    std::chrono::_V2::system_clock::time_point wall_last, begin_step; 
+    std::chrono::microseconds time_hydro=zero_ms, time_coag=zero_ms, time_gas=zero_ms;
+    wall_last = std::chrono::high_resolution_clock::now();
+    
+    int print_freq = 1000 ;
+    
     for (double ti : ts) {
 
         if (t > ti) {
@@ -328,51 +335,88 @@ int main() {
 
         while (t < ti) {    
 
-            if (!(count%1000)) {
-                std::cout << "t = " << t/year << " years\n";
-                std::cout << "dt = " <<dt_CFL/year << " years\n";
+            if (count && !(count%print_freq)) {
+
                 stop = std::chrono::high_resolution_clock::now();
-                yps = ((t-t_restart)/year) / std::chrono::duration_cast<std::chrono::seconds>(stop - start).count();
-                std::cout << "Years per second: " << yps << "\n";
+                duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - wall_last);
+                yps = ((t-t_last)/year) / (1e-6*duration.count());
+
+                std::cout << "\n";
+                std::cout << "steps = " << count << ", coagulation = " << count_coag << "\n";
+                std::cout << "  t =       " << t/year << " years\n";
+                std::cout << "  dt =      " <<dt_CFL/year << " years\n";
+                std::cout << "  dt_coag = " << dt_coag/year << " years\n";
+                std::cout << "  Elapsed wall time: " << (1e-6*duration.count()) << " s\n";
+                std::cout << "  Years per second:  " << yps << "\n";
+                std::cout << "  Cells per second:  " << double(print_freq)*g.NR*g.Nphi*(1+n_spec)/(1e-6*duration.count()) << "\n";
+                std::cout << "  Fraction:\n";
+                std::cout << "    Dynamics:    " << time_hydro.count()/double(duration.count()) << "\n";
+                std::cout << "    Coagulation: " << time_coag.count()/double(duration.count()) << "\n";
+                std::cout << "    Gas:         " << time_gas.count()/double(duration.count())  << std::endl;
+
+                t_last = t ;
+                wall_last = stop ;
+                time_hydro = zero_ms ;
+                time_coag = zero_ms ;
+                time_gas = zero_ms ;
             }
 
             dt = std::min(dt_CFL, ti-t); // Set time-step according to CFL condition or proximity to selected time snapshots
-            
+
+
+            begin_step = std::chrono::high_resolution_clock::now();
+                        
             dyn(g, Ws_d, Ws_g, dt); // Diffusion-advection update
 
+            stop = std::chrono::high_resolution_clock::now();
+            time_hydro += std::chrono::duration_cast<std::chrono::microseconds>(stop - begin_step);
+
+
             // Gas updates
+            begin_step = std::chrono::high_resolution_clock::now();
 
             update_gas_sigma(g, Sig_g, dt, nu, gas_boundary, gas_floor);
             compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, Ws_d, gas_floor);
             calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor);  
             compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);
 
+            stop = std::chrono::high_resolution_clock::now();
+            time_gas += std::chrono::duration_cast<std::chrono::microseconds>(stop - begin_step);
+
             // Coagulation update when 1 internal coagulation time-step has passed in the global simulation time
 
             if ((t+dt >= t_coag+dt_coag)|| (t+2*dt >= t_coag+dt_coag && dt < dt_coag) || dt == ti-t) {
-                std::cout << "Coag step at count = " << count << "\n";
+                //std::cout << "Coag step at count = " << count << "\n";
+                begin_step = std::chrono::high_resolution_clock::now();
+
                 // Run coagulation internal integration (routine calculates its own sub-steps to integrate over the timestep passed into it)
-                coagulation_integrate.integrate(g, Ws_d, Ws_g, (t+dt)-t_coag, dt_coag, floor) ;
+                count_coag += coagulation_integrate.integrate(g, Ws_d, Ws_g, (t+dt)-t_coag, dt_coag, floor) ;
                 t_coag = t+dt;
+                
+                stop = std::chrono::high_resolution_clock::now();
+                time_coag += std::chrono::duration_cast<std::chrono::microseconds>(stop - begin_step);
             } 
 
             count += 1;
             t += dt;
 
+            begin_step = std::chrono::high_resolution_clock::now();
             if (count < 1000) {
                 dt_CFL = std::min(dyn.get_CFL_limit(g, Ws_d, Ws_g), 1.025*dt); // Calculate new CFL condition time-step 
             }
             else {
                 dt_CFL = dyn.get_CFL_limit(g, Ws_d, Ws_g);
             }
+            stop = std::chrono::high_resolution_clock::now();
+            time_hydro += std::chrono::duration_cast<std::chrono::microseconds>(stop - begin_step);
                 
             // Uncomment this section for writing restart files for jobs on clusters that need to be re-batched after a certain amount of time; here a restart file is written after 20 hrs
-            // if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start).count()/3600. > 20.) {
-            //     std::cout << "Writing restart at t = " << t/year << " years.\n" ;
-            //     write_restart_file(dir / ("restart_params.dat"), count, t, dt_CFL, t_coag, t_temp, dt_coag, dt_1perc, dummy);
-            //     write_restart_prims(dir, g, Ws_d, Ws_g, Sig_g);  
-            //     return 0;
-            // } 
+            if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start).count()/3600. > 20.) {
+                std::cout << "Writing restart at t = " << t/year << " years.\n" ;
+                write_restart_file(dir / ("restart_params.dat"), count, t, dt_CFL, t_coag, t_temp, dt_coag, dt_1perc, dummy);
+                write_restart_prims(dir, g, Ws_d, Ws_g, Sig_g);  
+                return 0;
+            } 
 
         }
 
@@ -392,5 +436,8 @@ int main() {
     
     duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
     std::cout << "Time taken: " << duration.count()/(1.e6*60.) << " mins" << std::endl;  
+
+    yps = ((t-t_restart)/year) / (1e-6*duration.count());
+    std::cout << "Years per second (total): " << yps << "\n";
     return 0;
 } 
