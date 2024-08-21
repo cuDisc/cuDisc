@@ -1187,6 +1187,8 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
 
     Field3D<Quants> fluxR = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, w_dust.Nd);
     Field3D<Quants> fluxZ = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, w_dust.Nd);
+    Field3D<Quants> fluxR_trac = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, w_dust.Nd);
+    Field3D<Quants> fluxZ_trac = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, w_dust.Nd);
 
     dim3 threads(16,8,4) ;
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (q.Nd+3)/4) ;
@@ -1216,7 +1218,7 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
 
     // Update quantities a half time step and and source terms.
     _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
-    _update_quants<<<blocks,threads>>>(g, q_mids, q, dt/2., fluxR, fluxZ);
+    // _update_quants<<<blocks,threads>>>(g, q_mids, q, dt/2., fluxR, fluxZ);
 
     // Calc tracer donor fluxes
 
@@ -1225,13 +1227,14 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
 
     // Calc donor cell flux
     if (_DoDiffusion)
-        _calc_donor_flux<true><<<blocks,threads>>>(g, w_trac, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+        _calc_donor_flux<true><<<blocks,threads>>>(g, w_trac, w_gas, _cs, fluxR_trac, fluxZ_trac, _D, _gas_floor);
     else
-        _calc_donor_flux<false><<<blocks,threads>>>(g, w_trac, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor);
+        _calc_donor_flux<false><<<blocks,threads>>>(g, w_trac, w_gas, _cs, fluxR_trac, fluxZ_trac, _D, _gas_floor);
 
     // Update quantities a half time step and and source terms.
-    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
-    _update_quants<<<blocks,threads>>>(g, q_mids_trac, q_trac, dt/2., fluxR, fluxZ);
+    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR_trac, fluxZ_trac);
+    // _update_quants<<<blocks,threads>>>(g, q_mids_trac, q_trac, dt/2., fluxR, fluxZ);
+    _update_quants<<<blocks,threads>>>(g, q_mids, q, q_mids_trac, q_trac, dt/2., fluxR, fluxZ, fluxR_trac, fluxZ_trac);
 
     // Update sizegrid for half-time quantities
 
@@ -1294,13 +1297,6 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     _update_tracers<<<blocks,threads>>>(g, q_mids_trac, w_gas, mol.ice, 1e-100*_floor);
 
     // Vap update
-
-    // cudaFree(&q);
-    // cudaFree(&q_mids);
-    // cudaFree(&q_trac);
-    // cudaFree(&q_mids_trac);
-    // cudaFree(&fluxR);
-    // cudaFree(&fluxZ);
 
     Field3D<Quants> q_mids_vap = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, 1);
     Field3D<Quants> q_vap = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, 1);
