@@ -32,8 +32,8 @@ class TimeIntegration {
      *     abs_tol : double, default=1e-10, absolute error tolerence (scaled to
      *               the total density.
      */
-    TimeIntegration(int order, double rel_tol=1e-2, double abs_tol=1e-10)
-      : _rel_tol(rel_tol), _abs_tol(abs_tol), _order(order) 
+    TimeIntegration(int order, double rel_tol=1e-2, double abs_tol=1e-10, bool verbose=true)
+      : _rel_tol(rel_tol), _abs_tol(abs_tol), _order(order), _verbose(verbose)
     { } ;
 
 
@@ -46,13 +46,11 @@ class TimeIntegration {
   template<typename T>
   double take_step_tracers(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess, Field3D<double>& tracers, int* idxs) const ;
 
-  void integrate(Grid& g, Field3D<double>& y, double tmax) const ;
-  
   template<typename T>
-  void integrate(Grid& g, Field3D<T>& ws, Field<T>& wg, double tmax, double& dt_coag, double floor = 1.e-40) const ;
+  int integrate(Grid& g, Field3D<T>& ws, Field<T>& wg, double tmax, double& dt_coag, double floor = 1.e-40) const ;
 
   template<typename T>
-  void integrate_debug(Grid& g, Field3D<T>& ws, Field<T>& wg, double tmax, double& dt_coag, double floor) const ;
+  int integrate_debug(Grid& g, Field3D<T>& ws, Field<T>& wg, double tmax, double& dt_coag, double floor) const ;
 
   template<typename T>
   void integrate_tracers(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const ;
@@ -77,7 +75,8 @@ private:
   static constexpr double _MIN_FACTOR = 0.2 ;
   static constexpr double _SAFETY     = 0.9 ;
 
-  int _order ;    
+  int _order ;
+  bool _verbose;    
 } ;
 
 template<class Rate>
@@ -88,8 +87,8 @@ class Rk2Integration :
     using Rate::set_kernel ;
     using Rate::operator() ;
 
-    Rk2Integration(Rate rate, double rel_tol=1e-2, double abs_tol=1e-10)
-      : Rate(std::move(rate)), TimeIntegration(2, rel_tol, abs_tol)
+    Rk2Integration(Rate rate, double rel_tol=1e-2, double abs_tol=1e-10, bool verbose=true)
+      : Rate(std::move(rate)), TimeIntegration(2, rel_tol, abs_tol, verbose)
     { } ;
 
   protected:
@@ -105,8 +104,8 @@ class BS32Integration :
     using Rate::set_kernel ;
     using Rate::operator() ;
 
-    BS32Integration(Rate rate, double rel_tol=1e-2, double abs_tol=1e-10)
-      : Rate(std::move(rate)), TimeIntegration(3, rel_tol, abs_tol)
+    BS32Integration(Rate rate, double rel_tol=1e-2, double abs_tol=1e-10, bool verbose=true)
+      : Rate(std::move(rate)), TimeIntegration(3, rel_tol, abs_tol, verbose)
     { } ;
 
   protected:

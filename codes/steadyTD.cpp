@@ -221,18 +221,6 @@ void compute_D(const Grid &g, Field3D<double> &D, Field<Prims> &wg, CudaArray<do
     }
 }
 
-void compute_total_density(Grid& g, Field<Prims>& w_g, Field3D<Prims>& w_d, Field<double>& rho_tot) {
-    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-        for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {   
-            double rho_tot_temp = 0.;
-            for (int k=0; k<w_d.Nd; k++) {
-                rho_tot_temp += w_d(i,j,k).rho;
-            }    
-            rho_tot(i,j) = w_g(i,j).rho + rho_tot_temp;
-        }
-    }
-}
-
 void cs2_to_cs(Grid& g, Field<double> &cs, Field<double> &cs2) {
     for (int i=0; i<g.NR + 2*g.Nghost; i++) {
         for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
@@ -475,9 +463,7 @@ int main() {
             
             std::cout << "Iteration: " << n << "\n" ;  
 
-            compute_total_density(g, Ws_g, Ws_d, rho_tot);
-
-            calculate_total_rhokappa(g, Ws_d, Ws_g, opacs, rhok_abs, rhok_sca);
+            calculate_total_rhokappa(g, Ws_d, Ws_g, rho_tot, opacs, rhok_abs, rhok_sca);
 
             rhok_abs_binned = bins.bin_planck(g, rhok_abs, T);
             bin_central(g, rhok_sca, rhok_sca_binned, num_wavelengths, n_bands);
@@ -581,10 +567,8 @@ int main() {
                         copy_field(g, oldT, T); 
                         copy_field(g, oldJ, J);
                     }
-                    
-                    compute_total_density(g, Ws_g, Ws_d, rho_tot);
 
-                    calculate_total_rhokappa(g, Ws_d, Ws_g, opacs, rhok_abs, rhok_sca);
+                    calculate_total_rhokappa(g, Ws_d, Ws_g, rho_tot, opacs, rhok_abs, rhok_sca);
 
                     rhok_abs_binned = bins.bin_planck(g, rhok_abs, T);
                     bin_central(g, rhok_sca, rhok_sca_binned, num_wavelengths, n_bands);

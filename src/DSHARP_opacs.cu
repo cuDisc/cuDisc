@@ -69,6 +69,44 @@ __global__ void _calc_rho_kappa_ice(GridRef g, Field3DConstRef<Prims> qd, FieldC
     }
 } 
 
+
+__global__ void _calc_rho_kappa(GridRef g, Field3DConstRef<double> rho_d, FieldConstRef<Prims> wg, 
+                                DSHARP_opacsRef opacs, Field3DRef<double> rhokabs, Field3DRef<double> rhoksca) {
+
+    int k = threadIdx.x + blockIdx.x*blockDim.x ;
+    int j = threadIdx.y + blockIdx.y*blockDim.y ;
+    int i = threadIdx.z + blockIdx.z*blockDim.z ;
+
+    if (k < opacs.n_lam && j < g.Nphi + 2*g.Nghost && i < g.NR+2*g.Nghost) {
+
+        double rhok_dust_abs = 0;
+        double rhok_dust_sca = 0;
+
+        for (int l=0; l<opacs.n_a; l++) { 
+            rhok_dust_abs += rho_d(i,j,l)*opacs.k_abs(l,k);
+            rhok_dust_sca += rho_d(i,j,l)*opacs.k_sca(l,k);
+        }
+
+        rhokabs(i,j,k) = wg(i,j).rho*opacs.k_abs_g(k) + rhok_dust_abs;
+        rhoksca(i,j,k) = wg(i,j).rho*opacs.k_sca_g(k) + rhok_dust_sca;
+    }
+} 
+
+__global__ void _calc_rho_tot(GridRef g, Field3DConstRef<Prims> wd, FieldConstRef<Prims> wg, FieldRef<double> rho_tot) {
+
+    int j = threadIdx.y + blockIdx.y*blockDim.y ;
+    int i = threadIdx.z + blockIdx.z*blockDim.z ;
+
+    if (j < g.Nphi + 2*g.Nghost && i < g.NR+2*g.Nghost) {
+
+        double rho_tot_temp = 0.;
+        for (int k=0; k<wd.Nd; k++) {
+            rho_tot_temp += wd(i,j,k).rho;
+        }    
+        rho_tot(i,j) = wg(i,j).rho + rho_tot_temp;
+    }
+} 
+
 __global__ void _calc_grain_rho_kappa(GridRef g, Field3DConstRef<Prims> qd, DSHARP_opacsRef opacs,
                                         Field3DRef<double> rhokabs, Field3DRef<double> rhoksca) {
 
@@ -91,7 +129,7 @@ __global__ void _calc_grain_rho_kappa(GridRef g, Field3DConstRef<Prims> qd, DSHA
     }
 } 
 
-void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, DSHARP_opacs& opacs,
+void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, Field<double>& rho_tot, DSHARP_opacs& opacs,
                                     Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca, 
                                     double kgas_abs, double kgas_sca) {
 
@@ -107,9 +145,15 @@ void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, DSH
 
     _calc_rho_kappa<<<blocks,threads>>>(g, qd, wg, opacs, kgas_abs, kgas_sca, rhokappa_abs, rhokappa_sca);
     check_CUDA_errors("_calc_rho_kappa") ;
+
+    dim3 threads2D(1,32,32);
+    dim3 blocks2D(1,(g.Nphi+ 2*g.Nghost +31)/32, (g.NR+2*g.Nghost+31)/32);
+
+    _calc_rho_tot<<<blocks2D,threads2D>>>(g, qd, wg, rho_tot);
+    check_CUDA_errors("_calc_rho_tot") ;
 }
 
-void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, DSHARP_opacs& opacs,
+void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, Field<double>& rho_tot, DSHARP_opacs& opacs,
                                     Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca) {
 
     int nk = 1 ;
@@ -123,6 +167,29 @@ void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, DSH
                  g.NR +  2*g.Nghost) ;
     
     _calc_rho_kappa<<<blocks,threads>>>(g, qd, wg, opacs, rhokappa_abs, rhokappa_sca);
+    check_CUDA_errors("_calc_rho_kappa") ;
+
+    dim3 threads2D(1,32,32);
+    dim3 blocks2D(1,(g.Nphi+ 2*g.Nghost +31)/32, (g.NR+2*g.Nghost+31)/32);
+
+    _calc_rho_tot<<<blocks2D,threads2D>>>(g, qd, wg, rho_tot);
+    check_CUDA_errors("_calc_rho_tot") ;
+}
+
+void calculate_total_rhokappa(Grid& g, Field3D<double>& rho_d, Field<Prims>& wg, DSHARP_opacs& opacs,
+                                    Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca) {
+
+    int nk = 1 ;
+    while (nk < opacs.n_lam && nk < 32)
+        nk *= 2 ;
+    int nj = 1024 / nk ;
+
+    dim3 threads(nk, nj, 1) ;
+    dim3 blocks((opacs.n_lam +  nk-1)/nk, 
+                (g.Nphi +  2*g.Nghost + nj-1)/nj, 
+                 g.NR +  2*g.Nghost) ;
+    
+    _calc_rho_kappa<<<blocks,threads>>>(g, rho_d, wg, opacs, rhokappa_abs, rhokappa_sca);
     check_CUDA_errors("_calc_rho_kappa") ;
 }
 

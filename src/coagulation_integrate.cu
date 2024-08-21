@@ -281,16 +281,6 @@ double TimeIntegration::take_step_debug(Grid& g, Field3D<double>& y, Field<T>& w
     return dt ;
 }
 
-void TimeIntegration::integrate(Grid& g, Field3D<double>& y, double tmax) const {
-    double dt = tmax ;
-    double t = 0 ;
-    Field<Prims> wg = create_field<Prims>(g);
-    while (t < tmax) {
-        dt = std::min(dt, tmax-t) ;
-        t += take_step(g, y, wg, dt) ;
-    }
-}
-
 template<typename T>
 __global__ void _copy_rho_forwards(GridRef g, Field3DRef<T> ws, FieldRef<T> wg, Field3DRef<double> rhos, double floor) {
 
@@ -339,8 +329,8 @@ __global__ void _copy_rho_backwards(GridRef g, Field3DRef<T> ws, FieldRef<T> wg,
     int jstride = gridDim.y * blockDim.y ;
     int kstride = gridDim.z * blockDim.z ;
 
-    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
-        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) { 
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
             for (int k=kidx; k<ws.Nd; k+=kstride) { 
                 ws(i,j,k)[0] = rhos(i,j,k) + floor*wg(i,j)[0]; 
             }
@@ -358,8 +348,8 @@ __global__ void _copy_rho_backwards(GridRef g, Field3DRef<double> ws, FieldRef<d
     int jstride = gridDim.y * blockDim.y ;
     int kstride = gridDim.z * blockDim.z ;
 
-    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
-        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) { 
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
             for (int k=kidx; k<ws.Nd; k+=kstride) { 
                 ws(i,j,k) = rhos(i,j,k) + floor*wg(i,j); 
             }
@@ -394,7 +384,7 @@ double calc_mass_cell(Grid& g, Field3D<double>& q) {
 }
 
 template<typename T>
-void TimeIntegration::integrate(Grid& g, Field3D<T>& ws, Field<T>& wg, double tmax, double& dt_coag, double floor) const {
+int TimeIntegration::integrate(Grid& g, Field3D<T>& ws, Field<T>& wg, double tmax, double& dt_coag, double floor) const {
     double dt = dt_coag ;
     if (dt_coag < tmax && dt_coag > _SAFETY*tmax)
         dt /= 2 ;
@@ -415,19 +405,22 @@ void TimeIntegration::integrate(Grid& g, Field3D<T>& ws, Field<T>& wg, double tm
         dt = std::min(dt, tmax-t) ;
         t += take_step(g, rhos, wg, dt) ;
         count += 1;
-        if ((count%100) == 0) {
+        if (_verbose && (count%100) == 0) {
             std::cout << "Coagulation Steps = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
         }
     }
-    std::cout << "Coagulation Steps = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
+    if (_verbose) 
+        std::cout << "Coagulation Steps = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
     
     dt_coag = dt;
 
     _copy_rho_backwards<<<blocks,threads>>>(g, Field3DRef<T>(ws), FieldRef<T>(wg), rhos, floor);
+
+    return count ;
 }
 
 template<typename T>
-void TimeIntegration::integrate_debug(Grid& g, Field3D<T>& ws, Field<T>& wg, double tmax, double& dt_coag, double floor) const {
+int TimeIntegration::integrate_debug(Grid& g, Field3D<T>& ws, Field<T>& wg, double tmax, double& dt_coag, double floor) const {
     double dt = dt_coag ; 
     if (dt_coag < tmax && dt_coag > _SAFETY*tmax)
         dt /= 2 ;
@@ -463,6 +456,8 @@ void TimeIntegration::integrate_debug(Grid& g, Field3D<T>& ws, Field<T>& wg, dou
     dt_coag = dt;
 
     _copy_rho_backwards<<<blocks,threads>>>(g, Field3DRef<T>(ws), FieldRef<T>(wg), rhos, floor);
+
+    return count ;
 }
 
 __global__ void _Rk2_update1(GridRef g, Field3DConstRef<double> y, 
@@ -877,14 +872,14 @@ template class BS32Integration<CoagulationRate<BirnstielKernelIce<true>,SimpleEr
 template class BS32Integration<CoagulationRate<ConstantKernel,SimpleErosion>> ;
 
 
-template void TimeIntegration::integrate_debug<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, double tmax, double& dt_coag, double floor) const;
-template void TimeIntegration::integrate_debug<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, double tmax, double& dt_coag, double floor) const;
-template void TimeIntegration::integrate_debug<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, double tmax, double& dt_coag, double floor) const;
-
-template void TimeIntegration::integrate<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, double tmax, double& dt_coag, double floor) const;
-template void TimeIntegration::integrate<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, double tmax, double& dt_coag, double floor) const;
-template void TimeIntegration::integrate<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, double tmax, double& dt_coag, double floor) const;
+template int TimeIntegration::integrate_debug<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, double tmax, double& dt_coag, double floor) const;
+template int TimeIntegration::integrate_debug<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, double tmax, double& dt_coag, double floor) const;
+template int TimeIntegration::integrate_debug<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, double tmax, double& dt_coag, double floor) const;
 
 template void TimeIntegration::integrate_tracers<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const;
 template void TimeIntegration::integrate_tracers<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const;
 template void TimeIntegration::integrate_tracers<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const;
+
+template int TimeIntegration::integrate<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, double tmax, double& dt_coag, double floor) const;
+template int TimeIntegration::integrate<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, double tmax, double& dt_coag, double floor) const;
+template int TimeIntegration::integrate<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, double tmax, double& dt_coag, double floor) const;

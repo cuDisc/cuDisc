@@ -17,6 +17,8 @@ struct Prims1D {
     } ;
 } ;
 
+struct Prims ;
+
 template<bool use_full_stokes=false>
 class DustDyn1D {
 
@@ -41,7 +43,7 @@ class DustDyn1D {
         }
 
         void operator() (Grid& g, Field3D<Prims1D>& W_d, Field<Prims1D>& W_g, double dt) ;
-
+        void operator() (Grid& g, Grid& g2D, Field3D<Prims1D>& W_d, Field<Prims1D>& W_g, Field<Prims>& W_g2D, double dt) ;
         double get_CFL_limit(const Grid& g, const Field3D<Prims1D>& W_d, const Field<Prims1D>& W_g) ;
 
     private:

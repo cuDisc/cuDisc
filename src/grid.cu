@@ -32,6 +32,9 @@ Grid::Grid(Grid::params p)
 
     _Rc = make_CudaArray<double>(NR + 2*Nghost) ;
     _Re = make_CudaArray<double>(NR + 2*Nghost + 1) ;
+    _Ar = make_CudaArray<double>(NR + 2*Nghost + 1) ;
+    _Az = make_CudaArray<double>(NR + 2*Nghost) ;
+    _V  = make_CudaArray<double>(NR + 2*Nghost) ;
 
 
     switch(p.R_spacing) {
@@ -201,6 +204,8 @@ Grid::Grid(Grid::params p)
         break ;
         
     } 
+
+    set_coord_system(coord_system) ;
 } 
 
 Grid::Grid(int NR_, int Nphi_, int Nghost_, 
@@ -214,6 +219,9 @@ Grid::Grid(int NR_, int Nphi_, int Nghost_,
     // Set up radial grid
     _Rc = make_CudaArray<double>(NR + 2*Nghost) ;
     _Re = std::move(R) ;
+    _Ar = make_CudaArray<double>(NR + 2*Nghost + 1) ;
+    _Az = make_CudaArray<double>(NR + 2*Nghost) ;
+    _V  = make_CudaArray<double>(NR + 2*Nghost) ;
 
     for (int i=0; i < NR + 2*Nghost; i++) {
         _Rc[i] = centroid(_Re[i], _Re[i+1]) ;
@@ -243,6 +251,31 @@ Grid::Grid(int NR_, int Nphi_, int Nghost_,
         _cos_theta_c[i] = std::cos(phic) ;
     }
 
+    set_coord_system(coord_system) ;
+}
+
+void Grid::set_coord_system(Coords system) {
+    coord_system = system;
+    
+    switch(coord_system) {
+    case Coords::cart:
+        _Ar[0] = _Re[0] ;
+        for (int i=0; i < NR + 2*Nghost; i++) {
+            _Ar[i+1] = _Re[i+1] ;
+            _Az[ i ] = _Re[i+1] - _Re[i] ;
+            _V [ i ] = (_Re[i+1]*_Re[i+1] - _Re[i]*_Re[i])/2. ;
+        }
+        break ;
+      case Coords::cyl:
+        _Ar[0] = _Re[0]*_Re[0] ;
+        for (int i=0; i < NR + 2*Nghost; i++) {
+            _Ar[i+1] =  _Re[i+1]*_Re[i+1] ;
+            _Az[ i ] = (_Re[i+1]*_Re[i+1] - _Re[i]*_Re[i])/2. ;
+            _V [ i ] = (_Re[i+1]*_Re[i+1]*_Re[i+1] - _Re[i]*_Re[i]*_Re[i])/3. ;
+        }
+        break ;
+      default: __builtin_unreachable() ;
+    }
 }
 
 OrthGrid::OrthGrid(int _NR, int _NZ, int _Nghost, double Rmin, double Rmax, double Zmin, double Zmax) {
@@ -340,12 +373,13 @@ Grid GridManager::add_subgrid(double R_in, double R_out) {
         throw std::runtime_error("Outer edge of sub-grid is less than inner edge of main grid!") ;
 
     for (int i=in_idx[sg_idx]; i<g.NR+2*g.Nghost+1; i++) {
+        if (i >= g.NR+g.Nghost) {
+            out_idx.push_back(g.NR+2*g.Nghost);
+            break;
+        }
         if (g.Re(i) > R_out) {
-            if (i >= g.NR+g.Nghost) {
-                out_idx.push_back(g.NR+2*g.Nghost);
-                break;
-            } // Check whether we are nearer Re(i) or Re(i-1) and use the closest
-            else if ((g.Re(i)-R_out) < (R_out-g.Re(i-1))) {
+             // Check whether we are nearer Re(i) or Re(i-1) and use the closest
+            if ((g.Re(i)-R_out) < (R_out-g.Re(i-1))) {
                 out_idx.push_back(i + g.Nghost);
                 break;
             }
@@ -367,6 +401,71 @@ Grid GridManager::add_subgrid(double R_in, double R_out) {
     }
 
     Grid subg = Grid(out_idx[sg_idx]-in_idx[sg_idx] - 2*g.Nghost, g.Nphi, g.Nghost, std::move(Re_sub), std::move(phie_sub), sg_idx);
+
+    subgrids.push_back(subg);
+
+    return subg;
+}
+
+Grid GridManager::add_1Dsubgrid(double R_in, double R_out) {
+
+    int sg_idx = in_idx.size();
+
+    if (R_in > R_out) {
+        throw std::runtime_error("Subgrid R_in greater than R_out; check values!");
+    }
+
+    for (int i=0; i<g.NR+2*g.Nghost+1; i++) {
+        if (g.Re(i) > R_in) {
+            
+            if (i <= g.Nghost) {
+                in_idx.push_back(0);
+                break;
+            } // Check whether we are nearer Re(i) or Re(i-1) and use the closest
+            else if ((g.Re(i)-R_in) < (R_in-g.Re(i-1))) {
+                in_idx.push_back(i - g.Nghost);
+                break;
+            }
+            else {
+                in_idx.push_back(i-1 - g.Nghost);
+                break;
+            }
+        }
+        if (i==g.NR+g.Nghost) {throw std::runtime_error("Inner radius of subgrid at outer edge of main grid; check R_in for subgrid!");}
+    }
+
+    if (R_out < g.Re(g.Nghost))
+        throw std::runtime_error("Outer edge of sub-grid is less than inner edge of main grid!") ;
+
+    for (int i=in_idx[sg_idx]; i<g.NR+2*g.Nghost+1; i++) {
+        if (i >= g.NR+g.Nghost) {
+            out_idx.push_back(g.NR+2*g.Nghost);
+            break;
+        }
+        if (g.Re(i) > R_out) {
+             // Check whether we are nearer Re(i) or Re(i-1) and use the closest
+            if ((g.Re(i)-R_out) < (R_out-g.Re(i-1))) {
+                out_idx.push_back(i + g.Nghost);
+                break;
+            }
+            else {
+                out_idx.push_back(i-1 + g.Nghost);
+                break;
+            }
+        }
+    }
+
+    CudaArray<double> Re_sub = make_CudaArray<double>(out_idx[sg_idx]-in_idx[sg_idx]+1);
+    CudaArray<double> phie_sub = make_CudaArray<double>(1+2*g.Nghost+1);
+
+    for (int i=0; i<out_idx[sg_idx]-in_idx[sg_idx]+1; i++) {
+        Re_sub[i] = g.Re(i+in_idx[sg_idx]);
+    }
+    for (int i=0; i<1+2*g.Nghost+1; i++) {
+        phie_sub[i] = -0.1 + 4.e-2*i;
+    }
+
+    Grid subg = Grid(out_idx[sg_idx]-in_idx[sg_idx] - 2*g.Nghost, 1, g.Nghost, std::move(Re_sub), std::move(phie_sub), sg_idx);
 
     subgrids.push_back(subg);
 
@@ -485,7 +584,42 @@ void GridManager::copy_from_subgrid(Grid& g_sub, Field3D<T>& F_main, const Field
     check_CUDA_errors("_copy_from_subgrid");
 }
 
+template<typename T>
+void GridManager::copy_to_subgrid(Grid& g_sub, const CudaArray<T>& F_main, CudaArray<T>& F_sub) { 
+    
+    int sg_idx = g_sub.index;
 
+    if (g_sub.Re(0) != subgrids[sg_idx].Re(0) || g_sub.Re(g_sub.NR+2*g_sub.Nghost) != subgrids[sg_idx].Re(subgrids[sg_idx].NR+2*subgrids[sg_idx].Nghost)) {
+        throw std::runtime_error("Incorrect subgrid passed to copier.");
+    }
+
+    for (int i=0; i<g_sub.NR+2*g_sub.Nghost; i++) {
+        F_sub[i] = F_main[in_idx[sg_idx]+i]; 
+    }
+}
+
+template<typename T>
+void GridManager::copy_from_subgrid(Grid& g_sub, CudaArray<T>& F_main, const CudaArray<T>& F_sub) { 
+    
+    int sg_idx = g_sub.index;
+
+    if (g_sub.Re(0) != subgrids[sg_idx].Re(0) || g_sub.Re(g_sub.NR+2*g_sub.Nghost) != subgrids[sg_idx].Re(subgrids[sg_idx].NR+2*subgrids[sg_idx].Nghost)) {
+        throw std::runtime_error("Incorrect subgrid passed to copier.");
+    }
+
+    for (int i=0; i<g_sub.NR+2*g_sub.Nghost; i++) {
+
+        if (i<g_sub.Nghost && in_idx[sg_idx] != 0) {
+            continue;
+        }
+        else if (i>g_sub.NR+g_sub.Nghost-1 && out_idx[sg_idx] != g.NR+2*g.Nghost) {
+            continue;
+        }
+        else {  
+            F_main[in_idx[sg_idx]+i] = F_sub[i];
+        }
+    }
+}
 
 
 template void GridManager::copy_to_subgrid<double>(Grid& g_sub, const Field<double>& F_main, Field<double>& F_sub);
@@ -505,3 +639,9 @@ template void GridManager::copy_from_subgrid<int>(Grid& g_sub, Field3D<int>& F_m
 
 template void GridManager::copy_to_subgrid<Prims>(Grid& g_sub, const Field3D<Prims>& F_main, Field3D<Prims>& F_sub);
 template void GridManager::copy_from_subgrid<Prims>(Grid& g_sub, Field3D<Prims>& F_main, const Field3D<Prims>& F_sub);
+
+template void GridManager::copy_to_subgrid<double>(Grid& g_sub, const CudaArray<double>& F_main, CudaArray<double>& F_sub);
+template void GridManager::copy_from_subgrid<double>(Grid& g_sub, CudaArray<double>& F_main, const CudaArray<double>& F_sub);
+
+template void GridManager::copy_to_subgrid<int>(Grid& g_sub, const CudaArray<int>& F_main, CudaArray<int>& F_sub);
+template void GridManager::copy_from_subgrid<int>(Grid& g_sub, CudaArray<int>& F_main, const CudaArray<int>& F_sub);

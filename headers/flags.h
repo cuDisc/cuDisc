@@ -9,6 +9,12 @@ enum BoundaryFlags {
     open_Z_inner = 1 << 2,
     open_Z_outer = 1 << 3,
 
+    set_ext_R_inner = 1 << 4,
+    set_ext_R_outer = 1 << 5,
+    set_ext_Z_inner = 1 << 6,
+    set_ext_Z_outer = 1 << 7,
+
+
     // INFLOW BOUNDARIES NEED ADDING
 
     // zero_R_outer = 1 << 4,
