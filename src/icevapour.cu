@@ -50,9 +50,13 @@ ChemRate R_d_jac(MoleculeRef mol, Field3DRef<double> ice_grain, double N_s, Fiel
 
 __host__ __device__
 ChemRate R_ph_jac(MoleculeRef mol, Field3DRef<double> ice_grain, double N_s, Field3DConstRef<double> J, FieldRef<Prims> Wg, 
-                    Field3DRef<Prims>& W, const RealType* m, Field3DRef<Ice>& ice,  int i, int j, int k) {
+                    Field3DRef<Prims>& W, const RealType* m, Field3DRef<Ice>& ice, int Jbin_idx, int i, int j, int k) {
 
-    double gamma_UV = J(i,j,0)/(4.*M_PI);
+    double gamma_UV = 0.;
+    
+    for (int l=0; l<Jbin_idx; l++) {
+        gamma_UV += max(J(i,j,l)/(4.*M_PI), 0.);
+    }
 
     double eta_CR = 1.e-17, Y = 2.7e-3;
     double n_H = 2. * Wg(i,j).rho / (2.8*m_H);
@@ -62,13 +66,13 @@ ChemRate R_ph_jac(MoleculeRef mol, Field3DRef<double> ice_grain, double N_s, Fie
         sum_mfp += M_PI * ice(i,j,l).a * ice(i,j,l).a * W(i,j,l).rho / m[l];   
     }
 
-    double gamma_CR = 0.15*eta_CR*n_H / (sum_mfp);
+    double gamma_CR = 0.15*eta_CR*n_H / max(sum_mfp,1e-100);
 
     double mass_per_layer = 4.*M_PI * ice(i,j,k).a * ice(i,j,k).a * N_s * W(i,j,k).rho / m[k] * mol.m_mol;
     double num_layers = ice_grain(i,j,k) / max(mass_per_layer,1e-100); 
 
     ChemRate Rd;
-    Rd.rate  = (gamma_UV+gamma_CR) * Y * M_PI * ice(i,j,k).a * ice(i,j,k).a * (W(i,j,k).rho / m[k]) / (1+num_layers);
+    Rd.rate  = (gamma_UV+gamma_CR) * Y / (4.*N_s*(1+num_layers));
     Rd.jac = 0.;
 
     return Rd;
@@ -131,8 +135,8 @@ __global__ void _update_sizegrid(GridRef g, Field3DRef<Ice> ice, Field3DRef<Quan
 }
 
 
-__global__ void _implicit_update(GridRef g, Field3DRef<Prims> W, FieldConstRef<double> T, Field3DRef<Ice> ice, const RealType* a, const RealType* m, double N_s, 
-                                    MoleculeRef mol, Field3DRef<double> rhos, double dt) {
+__global__ void _implicit_update(GridRef g, Field3DRef<Prims> W, FieldRef<Prims> Wg, FieldConstRef<double> T, Field3DConstRef<double> J, Field3DRef<Ice> ice, const RealType* a, 
+                                    const RealType* m, double N_s, MoleculeRef mol, Field3DRef<double> rhos, int Jbin_idx, double dt) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -149,9 +153,10 @@ __global__ void _implicit_update(GridRef g, Field3DRef<Prims> W, FieldConstRef<d
                 
                 ChemRate R_a = R_a_jac(mol, T, W, ice, m,a,i,j,k);
                 ChemRate R_d = R_d_jac(mol, rhos, N_s, T, ice, W, a, m, i,j,k);
+                ChemRate R_phd = R_ph_jac(mol, rhos, N_s, J, Wg, W, m, ice, Jbin_idx, i,j,k);
 
-                A += R_d.rate * dt * mol.ice(i,j,k) / (1. + R_d.rate * dt);
-                B += R_a.rate * dt / (1. + R_d.rate * dt);
+                A += (R_d.rate+R_phd.rate) * dt * mol.ice(i,j,k) / (1. + (R_d.rate+R_phd.rate) * dt);
+                B += R_a.rate * dt / (1. + (R_d.rate+R_phd.rate) * dt);
             }
 
             rhos(i,j,ndust) = (mol.vap(i,j) + A) / (1. + B);
@@ -160,8 +165,9 @@ __global__ void _implicit_update(GridRef g, Field3DRef<Prims> W, FieldConstRef<d
 
                 ChemRate R_a = R_a_jac(mol, T, W, ice, m,a, i,j,k);
                 ChemRate R_d = R_d_jac(mol, rhos, N_s, T, ice, W, a, m, i,j,k);
+                ChemRate R_phd = R_ph_jac(mol, rhos, N_s, J, Wg, W, m, ice, Jbin_idx, i,j,k);
 
-                rhos(i,j,k) = (mol.ice(i,j,k) + R_a.rate * dt * rhos(i,j,ndust))  / (1. + R_d.rate * dt);
+                rhos(i,j,k) = (mol.ice(i,j,k) + R_a.rate * dt * rhos(i,j,ndust))  / (1. + (R_d.rate+R_phd.rate) * dt);
             }
 
         }
@@ -276,7 +282,7 @@ void IceVapChem::imp_update(double dt) {
 
         _copy_rhos<<<blocks2,threads2>>>(_g, rhos, rhos_0);
 
-        _implicit_update<<<blocks,threads>>>(_g, W_nofloor, _T, _sizes.ice, _sizes.grain_sizes(), _sizes.grain_masses(), N_s, _mol, rhos, dt);
+        _implicit_update<<<blocks,threads>>>(_g, W_nofloor, _Wg, _T, _J, _sizes.ice, _sizes.grain_sizes(), _sizes.grain_masses(), N_s, _mol, rhos, _Jbin_idx, dt);
 
         get_tol<<<blocks2,threads2>>>(rhos, rhos_0, _g, _W.Nd, err.get());
 

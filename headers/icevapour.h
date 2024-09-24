@@ -2,6 +2,7 @@
 #define _CUDISC_ICEVAPOUR_H
 
 #include "field.h"
+#include "bins.h"
 #include "coagulation/size_grid.h"
 
 struct Prims;
@@ -55,19 +56,27 @@ class IceVapChem {
 
         GridRef _g;
         FieldConstRef<double> _T;
+        Field3DConstRef<double> _J;
         Field3DRef<Prims> _W;
         FieldRef<Prims> _Wg;
         SizeGridIce& _sizes;
         MoleculeRef _mol;
         double _floor;
+        int _Jbin_idx;
 
 
     public:
 
-        IceVapChem(const Grid& g, const Field<double>& T, Field3D<Prims>& W_dust, Field<Prims>& W_gas, SizeGridIce& sizes, 
+        IceVapChem(const Grid& g, const Field<double>& T, WavelengthBinner& bins, const Field3D<double>& J, Field3D<Prims>& W_dust, Field<Prims>& W_gas, SizeGridIce& sizes, 
                         Molecule& mol, double floor = 1.e-100, double N_s = 1.5e15) :
-                        _g(g), _T(T), _W(W_dust),  _Wg(W_gas), _sizes(sizes), _mol(mol), _floor(floor), N_s(N_s)
-                        {} ; 
+                        _g(g), _T(T), _J(J), _W(W_dust),  _Wg(W_gas), _sizes(sizes), _mol(mol), _floor(floor), N_s(N_s)
+                        {
+                            for (int i=0; i<bins.num_bands; i++) {
+                                if (bins.bands[i] < 0.2) {
+                                    _Jbin_idx = i+1;
+                                }
+                            }
+                        } ; 
 
         void imp_update(double dt);
 
