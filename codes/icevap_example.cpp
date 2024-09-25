@@ -153,67 +153,6 @@ void init_dust(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, CudaArray<double>&
     }
 }
 
-void set_up_dust(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, CudaArray<double>& Sig_g, Field3D<double>& D, SizeGrid& sizes, double alpha, Field<double>& cs, double M_gas, double floor) {
-
-    double d_to_g = 0.01;
-    double M_star = 1.;
-    double h_0 = 3.33e-2*au;
-    double p = -2.25;
-    double q = -0.5;
-    double Sc = 1.;
-    double M_dust=0;
-
-    for (int i=0; i<g.NR+2*g.Nghost; i++) {
-
-        double h_g = cs(i,2)/std::sqrt(GMsun/(g.Rc(i)*g.Rc(i)*g.Rc(i)));
-        for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
-            for (int k=0; k<qd.Nd; k++) {
-                // Initialise dust with MRN profile and exponential cut off for large grains
-                double Sig_d = std::pow(sizes.centre_size(k)/sizes.centre_size(0), 0.5) * std::exp(-std::pow(sizes.centre_size(k)/0.2, 10.)) * Sig_g[i] * std::exp(-g.Rc(i)/(10.*au));
-                qd(i,j,k).rho = Sig_d/(std::sqrt(2.*M_PI)*h_g) * std::exp(-g.Zc(i,j)*g.Zc(i,j)/(2.*h_g*h_g));
-                D(i,j,k) = wg(i,j).rho * (alpha * cs(i,j) * cs(i,j) / std::sqrt(GMsun/std::pow(g.Rc(i), 3.))) / Sc ;
-            }
-        }
-    }
-    for (int i=g.Nghost; i<g.NR + g.Nghost; i++) {
-        for (int j=g.Nghost; j<g.Nphi + g.Nghost; j++) {
-            for (int k=0; k<qd.Nd; k++) {
-                M_dust += 4.*M_PI * qd(i,j,k).rho * g.volume(i,j);
-            }
-        }
-    }
-    
-    for (int i=0; i<g.NR+2*g.Nghost; i++) {
-        for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
-
-            double h_g = h_0 * std::pow(g.Rc(i)/au, (q+3)/2);
-            double eta = - std::pow(h_g/g.Rc(i), 2) * std::exp(-std::pow(5./(g.Rc(i)/au),10)) * (p + q + ((q+3)/2)*std::pow(g.Zc(i,j)/h_g, 2) + 10*std::pow(5./(g.Rc(i)/au),10));
-            double vk = std::sqrt(GMsun*M_star/g.Rc(i));
-            double az = vk*vk * g.Zc(i,j) / (g.Rc(i)*g.Rc(i)) ;
-
-            for (int k=0; k < sizes.size(); k++) {
-                qd(i,j,k).rho = qd(i,j,k).rho * d_to_g*M_gas/M_dust ;
-                qd(i,j,k).rho = std::max(qd(i,j,k).rho, floor*wg(i,j).rho);
-
-                // Set initial dust velocities through standard drift velocity equations
-                
-                double St = (vk/g.Rc(i))*sizes.solid_density() * sizes.centre_size(k) / (cs(i,j) * wg(i,j).rho * std::sqrt(8./M_PI)) ;
-
-                qd(i,j,k).v_R   = 0.;// (- eta * vk * St / (1 + St*St)) ;
-                qd(i,j,k).v_phi = vk;
-                qd(i,j,k).v_Z   = 0.;//- (vk/g.Rc(i)) * St * g.Zc(i,j);
-
-                // if (qd(i,j,k).rho <= 1.e-40) {
-                //     qd(i,j,k).v_R   = 0;
-                //     qd(i,j,k).v_phi = 0;
-                //     qd(i,j,k).v_Z = 0;
-                // }
-            }
-        }
-    }
-
-}
-
 void compute_cs2(const Grid &g, Field<double> &T, Field<double> &cs2, double mu) {
 
     // Calculates square of the sound speed
@@ -410,7 +349,7 @@ int main() {
         
     int gas_boundary = BoundaryFlags::open_R_inner | BoundaryFlags::open_R_outer | BoundaryFlags::open_Z_outer;
     double gas_floor = 1e-100;
-    double floor = 1.e-12;
+    double floor = 1.e-10;
 
     compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g);
     calc_gas_velocities_full(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor);   
@@ -435,7 +374,7 @@ int main() {
     // Set up molecule
 
     Molecule CO(g, 28*m_H, 850, sizes.size());
-    IceVapChem COchem(g, T, bins, J, Ws_d, Ws_g, sizes, CO, 1.e-100*floor);
+    IceVapChem COchem(g, T, bins, J, Ws_d, Ws_g, sizes, CO, floor);
 
     // Initialise coag solver
 
@@ -602,7 +541,7 @@ int main() {
             FLD.solve_multi_band(g, 0, Cv, rhok_abs_binned, rhok_sca_binned, rho_tot, heat, binned_scattering, bins.edges, T, J);
 
             compute_cs2(g,T,cs2,mu);
-            compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, CO, gas_floor, 1e-100*floor);
+            compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, CO, gas_floor, floor);
             cs2_to_cs(g, cs, cs2);
 
             std::cout << "T:" << T[T.index(1,1)] << " " << T[T.index(g.NR, 1)] 
@@ -717,7 +656,7 @@ int main() {
                 }
                 else {
                     compute_cs2(g,T,cs2,mu);
-                    compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, CO, gas_floor, 1e-100*floor);
+                    compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, CO, gas_floor, floor);
                     compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);
                     compute_nu(g, nu, cs2, M_star, alpha);
                     calc_gas_velocities_full(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor);   
@@ -739,7 +678,12 @@ int main() {
 
             count += 1;
             t += dt;
-            dt_CFL = std::min(dyn.get_CFL_limit(g, Ws_d, Ws_g), 2.*dt); 
+            if (count < 200) {
+                dt_CFL = std::min(dyn.get_CFL_limit(g, Ws_d, Ws_g), 1.1*dt); // Calculate new CFL condition time-step 
+            }
+            else {
+                dt_CFL = dyn.get_CFL_limit(g, Ws_d, Ws_g);
+            }
 
             // if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start).count()/3600. > 29.) {
             //     std::cout << "Writing restart at t = " << t/year << " years.\n" ;
