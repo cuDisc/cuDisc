@@ -358,10 +358,10 @@ void _calc_rho_vap(GridRef g, FieldRef<Prims> w_g, FieldRef<double> Sig, FieldRe
         for (int j=g.Nghost; j<g.Nphi+g.Nghost; j++) {
 
             if (w_g(i,j).rho <= gas_floor) {
-                vap(i,j) = floor*w_g(i,j).rho;
+                vap(i,j) = 1e-100*floor*w_g(i,j).rho;
             }
             else {
-                vap(i,j) = max((Sig(i,g.Nphi+2*g.Nghost-1-j)-Sig(i,g.Nphi+2*g.Nghost-1-(j+1)))/g.dZe(i,j),floor*w_g(i,j).rho);
+                vap(i,j) = max((Sig(i,g.Nphi+2*g.Nghost-1-j)-Sig(i,g.Nphi+2*g.Nghost-1-(j+1)))/g.dZe(i,j),1e-100*floor*w_g(i,j).rho);
             }
 
         }

@@ -187,9 +187,9 @@ __global__ void copy_initial_values(GridRef g, Field3DRef<double> rhos, Molecule
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
             
-            rhos(i,j,n_grains) = mol.vap(i,j);
+            rhos(i,j,n_grains) = max(mol.vap(i,j) - 1.1e-100*floor*wg(i,j).rho, 0.);
             for (int k=0; k<n_grains; k++) {
-                rhos(i,j,k) = mol.ice(i,j,k); 
+                rhos(i,j,k) = max(mol.ice(i,j,k) - 1.1e-100*floor*wg(i,j).rho, 0.);
                 w_nof(i,j,k).rho = max(w(i,j,k).rho - 1.1*floor*wg(i,j).rho, 0.);
             }
         }
