@@ -20,7 +20,7 @@ struct vec3 {
     RealType R, Z, phi ;
 } ;
 
-template<bool use_full_stokes=false>
+template<bool use_full_stokes=false, bool inc_bouncing=false>
 class BirnstielKernel {
   public:
     BirnstielKernel(Grid&g, SizeGrid& sizes, const Field3D<Prims>& wd,
@@ -48,6 +48,10 @@ class BirnstielKernel {
     void set_fragmentation_threshold(double v_frag) {
         _v_frag = v_frag ;
     }
+    
+    void set_rolling_force(double F_roll) {
+        _v_frag = F_roll ;
+    }
 
   private:
     GridRef _g ;
@@ -60,10 +64,10 @@ class BirnstielKernel {
 
     RealType _GMstar, _mu;
     RealType _v_frag=1e3, _rho_grain ;
-
+    RealType _F_roll=1e-4;
 } ;
 
-template<bool use_full_stokes=false>
+template<bool use_full_stokes=false, bool inc_bouncing=false>
 class BirnstielKernelVertInt {
   public:
     BirnstielKernelVertInt(Grid&g, SizeGrid& sizes, const Field3D<Prims1D>& wd,
@@ -92,6 +96,10 @@ class BirnstielKernelVertInt {
         _v_frag = v_frag ;
     }
 
+    void set_rolling_force(double F_roll) {
+        _v_frag = F_roll ;
+    }
+
   private:
     GridRef _g ;
     FieldConstRef<double> _cs ;
@@ -103,7 +111,7 @@ class BirnstielKernelVertInt {
 
     RealType  _GMstar, _mu;
     RealType _v_frag=1e3, _rho_grain ;
-
+    RealType _F_roll=1e-4;
 } ;
 
 

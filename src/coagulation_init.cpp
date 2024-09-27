@@ -113,11 +113,15 @@ void CoagulationRate<Kernel,Fragments>::_set_fragment_properties(Fragments fragm
     }
 }
 
-template class CoagulationRate<BirnstielKernel<false>,SimpleErosion> ;
-template class CoagulationRate<BirnstielKernel<true>,SimpleErosion> ;
+template class CoagulationRate<BirnstielKernel<false,false>,SimpleErosion> ;
+template class CoagulationRate<BirnstielKernel<true,false>,SimpleErosion> ;
+template class CoagulationRate<BirnstielKernel<false,true>,SimpleErosion> ;
+template class CoagulationRate<BirnstielKernel<true,true>,SimpleErosion> ;
 
-template class CoagulationRate<BirnstielKernelVertInt<false>,SimpleErosion> ;
-template class CoagulationRate<BirnstielKernelVertInt<true>,SimpleErosion> ;
+template class CoagulationRate<BirnstielKernelVertInt<false,false>,SimpleErosion> ;
+template class CoagulationRate<BirnstielKernelVertInt<true,false>,SimpleErosion> ;
+template class CoagulationRate<BirnstielKernelVertInt<false,true>,SimpleErosion> ;
+template class CoagulationRate<BirnstielKernelVertInt<true,true>,SimpleErosion> ;
 
 
 template class CoagulationRate<ConstantKernel,SimpleErosion> ;

@@ -621,16 +621,24 @@ void BS32Integration<Rate>::do_step(double dt, Grid& g, const Field3D<double>& y
 
 
 
-template class Rk2Integration<CoagulationRate<BirnstielKernel<true>,SimpleErosion>> ;
-template class Rk2Integration<CoagulationRate<BirnstielKernel<false>,SimpleErosion>> ;
-template class Rk2Integration<CoagulationRate<BirnstielKernelVertInt<false>,SimpleErosion>> ;
-template class Rk2Integration<CoagulationRate<BirnstielKernelVertInt<true>,SimpleErosion>> ;
+template class Rk2Integration<CoagulationRate<BirnstielKernel<true,false>,SimpleErosion>> ;
+template class Rk2Integration<CoagulationRate<BirnstielKernel<false,false>,SimpleErosion>> ;
+template class Rk2Integration<CoagulationRate<BirnstielKernel<true,true>,SimpleErosion>> ;
+template class Rk2Integration<CoagulationRate<BirnstielKernel<false,true>,SimpleErosion>> ;
+template class Rk2Integration<CoagulationRate<BirnstielKernelVertInt<false,false>,SimpleErosion>> ;
+template class Rk2Integration<CoagulationRate<BirnstielKernelVertInt<true,false>,SimpleErosion>> ;
+template class Rk2Integration<CoagulationRate<BirnstielKernelVertInt<false,true>,SimpleErosion>> ;
+template class Rk2Integration<CoagulationRate<BirnstielKernelVertInt<true,true>,SimpleErosion>> ;
 template class Rk2Integration<CoagulationRate<ConstantKernel,SimpleErosion>> ;
 
-template class BS32Integration<CoagulationRate<BirnstielKernel<true>,SimpleErosion>> ;
-template class BS32Integration<CoagulationRate<BirnstielKernel<false>,SimpleErosion>> ;
-template class BS32Integration<CoagulationRate<BirnstielKernelVertInt<false>,SimpleErosion>> ;
-template class BS32Integration<CoagulationRate<BirnstielKernelVertInt<true>,SimpleErosion>> ;
+template class BS32Integration<CoagulationRate<BirnstielKernel<true,false>,SimpleErosion>> ;
+template class BS32Integration<CoagulationRate<BirnstielKernel<false,false>,SimpleErosion>> ;
+template class BS32Integration<CoagulationRate<BirnstielKernel<true,true>,SimpleErosion>> ;
+template class BS32Integration<CoagulationRate<BirnstielKernel<false,true>,SimpleErosion>> ;
+template class BS32Integration<CoagulationRate<BirnstielKernelVertInt<false,false>,SimpleErosion>> ;
+template class BS32Integration<CoagulationRate<BirnstielKernelVertInt<true,false>,SimpleErosion>> ;
+template class BS32Integration<CoagulationRate<BirnstielKernelVertInt<false,true>,SimpleErosion>> ;
+template class BS32Integration<CoagulationRate<BirnstielKernelVertInt<true,true>,SimpleErosion>> ;
 template class BS32Integration<CoagulationRate<ConstantKernel,SimpleErosion>> ;
 
 

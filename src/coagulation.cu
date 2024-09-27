@@ -39,9 +39,9 @@ RealType Vrel_sqd_OC07(RealType St1, RealType St2, RealType sqrtRe_1) {
     return max(((St1 - St2) / (St1 + St2)) * (V1(St1) - V1(St2)) + V2(St1) + V2(St2),0.) ;
 }
 
-template<bool use_full_stokes>
+template<bool use_full_stokes, bool inc_bouncing>
 __device__ __host__
-KernelResult BirnstielKernel<use_full_stokes>::operator()(int i, int j, int k1, int k2) const {
+KernelResult BirnstielKernel<use_full_stokes,inc_bouncing>::operator()(int i, int j, int k1, int k2) const {
 
     // Step 0: Compute the geometric cross-section
 
@@ -93,17 +93,23 @@ KernelResult BirnstielKernel<use_full_stokes>::operator()(int i, int j, int k1, 
     result.K = xsec * v_turb ;
 
     result.p_frag = (1.5*(_v_frag/v_turb)*(_v_frag/v_turb) + 1.) * exp(-1.5*(_v_frag/v_turb)*(_v_frag/v_turb)); // From https://iopscience.iop.org/article/10.3847/1538-4357/ac7d58/pdf
-    result.p_coag = 1. - result.p_frag;
+    
+    if (inc_bouncing) {
+        RealType m_mu = (_grain_masses[k1]*_grain_masses[k2]) / (_grain_masses[k1] + _grain_masses[k2]);
+        RealType v_b = min(sqrt(5.*M_PI*_grain_sizes[0]*_F_roll/m_mu), _v_frag);
 
-    // result.p_coag = max(0.0, min(1.0, 10*(1-v_turb/_v_frag))) ;
-    // result.p_frag = 1 - result.p_coag ;
+        result.p_coag = 1. - (1.5*(v_b/v_turb)*(v_b/v_turb) + 1.) * exp(-1.5*(v_b/v_turb)*(v_b/v_turb));
+    }
+    else {
+        result.p_coag = 1. - result.p_frag;
+    }
 
     return result ;
 }
 
-template<bool use_full_stokes>
+template<bool use_full_stokes, bool inc_bouncing>
 __device__ __host__
-KernelResult BirnstielKernelVertInt<use_full_stokes>::operator()(int i, int j, int k1, int k2) const {
+KernelResult BirnstielKernelVertInt<use_full_stokes,inc_bouncing>::operator()(int i, int j, int k1, int k2) const {
 
     // Step 0: Compute the geometric cross-section
 
@@ -160,7 +166,16 @@ KernelResult BirnstielKernelVertInt<use_full_stokes>::operator()(int i, int j, i
     result.K = xsec * v_turb * 1./sqrt(2.*M_PI*(h12+h22));
 
     result.p_frag = (1.5*(_v_frag/v_turb)*(_v_frag/v_turb) + 1.) * exp(-1.5*(_v_frag/v_turb)*(_v_frag/v_turb)); // From https://iopscience.iop.org/article/10.3847/1538-4357/ac7d58/pdf
-    result.p_coag = 1. - result.p_frag;
+    
+    if (inc_bouncing) {
+        RealType m_mu = (_grain_masses[k1]*_grain_masses[k2]) / (_grain_masses[k1] + _grain_masses[k2]);
+        RealType v_b = min(sqrt(5.*M_PI*_grain_sizes[0]*_F_roll/m_mu), _v_frag);
+
+        result.p_coag = 1. - (1.5*(v_b/v_turb)*(v_b/v_turb) + 1.) * exp(-1.5*(v_b/v_turb)*(v_b/v_turb));
+    }
+    else {
+        result.p_coag = 1. - result.p_frag;
+    }
 
     return result ;
 }
@@ -398,10 +413,14 @@ void CoagulationRate<Kernel,Fragments>::operator()(const Field3D<double>& dust_d
 
 }
 
-template class CoagulationRate<BirnstielKernel<false>,SimpleErosion> ;
-template class CoagulationRate<BirnstielKernel<true>,SimpleErosion> ;
+template class CoagulationRate<BirnstielKernel<false,false>,SimpleErosion> ;
+template class CoagulationRate<BirnstielKernel<true,false>,SimpleErosion> ;
+template class CoagulationRate<BirnstielKernel<false,true>,SimpleErosion> ;
+template class CoagulationRate<BirnstielKernel<true,true>,SimpleErosion> ;
 
-template class CoagulationRate<BirnstielKernelVertInt<false>,SimpleErosion> ;
-template class CoagulationRate<BirnstielKernelVertInt<true>,SimpleErosion> ;
+template class CoagulationRate<BirnstielKernelVertInt<false,false>,SimpleErosion> ;
+template class CoagulationRate<BirnstielKernelVertInt<true,false>,SimpleErosion> ;
+template class CoagulationRate<BirnstielKernelVertInt<false,true>,SimpleErosion> ;
+template class CoagulationRate<BirnstielKernelVertInt<true,true>,SimpleErosion> ;
 
 template class CoagulationRate<ConstantKernel,SimpleErosion> ;
