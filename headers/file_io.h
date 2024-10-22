@@ -8,6 +8,7 @@
 #include <fstream>
 #include "field.h"
 #include "DSHARP_opacs.h"
+#include "cuzzi_opacs.h"
 #include "bins.h"
 #include "dustdynamics1D.h"
 
@@ -33,6 +34,23 @@ void write_grids(std::filesystem::path folder, Grid* g, SizeGrid* s, DSHARP_opac
     }
 }
 
+template<typename T>
+void write_grids(std::filesystem::path folder, Grid* g, SizeGrid* s, CuzziOpacs<T>* o = nullptr, WavelengthBinner* b = nullptr) {
+
+    if ((o != nullptr && b == nullptr) || (o == nullptr && b != nullptr)) {
+        throw std::runtime_error("One of bins or opacity grids missing - both are required.\n"); 
+    }
+
+    g->write_grid(folder);
+    s->write_grid(folder);
+
+    if (o != nullptr) {
+        o->write_interp(folder);
+    }
+    if (b != nullptr) {
+        b->write_wle(folder);
+    }
+}
 
 
 /* write_prims
