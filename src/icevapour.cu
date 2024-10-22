@@ -125,9 +125,10 @@ __global__ void _update_sizegrid(GridRef g, Field3DRef<Ice> ice, Field3DRef<Quan
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
             for (int k=kidx; k<W.Nd; k+=kstride) {
-                double rho_1 = (rhoice(i,j,k).rho/(W(i,j,k)[0] * rho_mi) + 1./rho_ms);
+                double rho_1 = (max(rhoice(i,j,k).rho,0.)/(W(i,j,k)[0] * rho_mi) + 1./rho_ms);
                 ice(i,j,k).a = pow((3.*m[k]/(4.*M_PI)) * rho_1, 1./3.);
-                ice(i,j,k).rho = (rhoice(i,j,k).rho + W(i,j,k)[0]) / (W(i,j,k)[0] * rho_1);
+                ice(i,j,k).rho = (max(rhoice(i,j,k).rho,0.) + W(i,j,k)[0]) / (W(i,j,k)[0] * rho_1);
+                // if (i==g.NR+g.Nghost-1 && j==82 && k==0) {printf("%g %g\n",rhoice(i,j,k).rho,W(i,j,k)[0]);}// rho_1, ice(i,j,k).a, ice(i,j,k).rho);}
             } 
         }
     }
@@ -309,4 +310,5 @@ void update_sizegrid(Grid& g, SizeGridIce& sizes, Field3D<Prims>& Qd, Field3D<do
     dim3 blocks3((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+15)/16, (Qd.Nd + 3)/4);
 
     _update_sizegrid<<<blocks3,threads3>>>(g, sizes.ice, Qd, ice, sizes.grain_masses(), sizes.solid_density(), sizes.ice_density());
+    cudaDeviceSynchronize();
 }
