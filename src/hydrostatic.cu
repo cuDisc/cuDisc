@@ -291,7 +291,6 @@ void _calc_Sigvap_new(GridRef g, FieldRef<double> Sig0, FieldRef<double> Sig1, F
 
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
-            int j_r = g.Nphi+2*g.Nghost-1-j;
 
             int j_interp = g.Nphi+g.Nghost-2;
             for (int jint=g.Nghost; jint<g.Nphi+g.Nghost; jint++) {
