@@ -934,8 +934,8 @@ __global__ void _init_tracer_prims(GridRef g, Field3DRef<Prims> w, FieldConstRef
     int istride = gridDim.x * blockDim.x ;
     int jstride = gridDim.y * blockDim.y ;
 
-    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
-        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
 
             w_trac_vap(i,j,0).rho = mol.vap(i,j);
 
@@ -1270,7 +1270,7 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
 
     _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
 
-    _update_quants<<<blocks,threads>>>(g, q_mids, q, dt, fluxR, fluxZ);
+    // _update_quants<<<blocks,threads>>>(g, q_mids, q, dt, fluxR, fluxZ);
 
     // Calc tracer VL fluxes
 
@@ -1279,15 +1279,16 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     _set_boundaries<<<blocks,threads>>>(g, w_trac, _boundary,1e-100*_floor);
 
     if (_DoDiffusion)
-        _calc_diff_flux_vl<true><<<blocks,threads>>>(g, w_trac, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor, _boundary);
+        _calc_diff_flux_vl<true><<<blocks,threads>>>(g, w_trac, w_gas, _cs, fluxR_trac, fluxZ_trac, _D, _gas_floor, _boundary);
     else
-        _calc_diff_flux_vl<false><<<blocks,threads>>>(g, w_trac, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor, _boundary);
+        _calc_diff_flux_vl<false><<<blocks,threads>>>(g, w_trac, w_gas, _cs, fluxR_trac, fluxZ_trac, _D, _gas_floor, _boundary);
 
     // Update tracer quantities a full time step
 
     _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
 
-    _update_quants<<<blocks,threads>>>(g, q_mids_trac, q_trac, dt, fluxR, fluxZ);
+    // _update_quants<<<blocks,threads>>>(g, q_mids_trac, q_trac, dt, fluxR, fluxZ);
+    _update_quants<<<blocks,threads>>>(g, q_mids, q, q_mids_trac, q_trac, dt, fluxR, fluxZ, fluxR_trac, fluxZ_trac);
 
     // Update sizegrid for full-time quantities
 
