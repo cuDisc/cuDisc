@@ -164,9 +164,11 @@ CudaArray<RefIndx> load_warren(int n_lam, double* lam) {
 CudaArray<RefIndx> load_gavdush(int n_lam, double* lam) {
 
     // int n_lam_inp = 2146;
-    int n_lam_inp = 2344;
+    // int n_lam_inp = 2344;
+    // int n_lam_inp = 2524;
+    int n_lam_inp = 2366;
     // std::string filename = opacity_dir + "/optical_constants/gavdush/eps_CO.dat";
-    std::string filename = opacity_dir + "/optical_constants/gavdush/CO.lnk";
+    std::string filename = opacity_dir + "/optical_constants/gavdush/CO_ext_cut.lnk";
     std::ifstream opt(filename);
 
     if (!opt) {
@@ -304,7 +306,7 @@ void CuzziOpacs<CompMix>::calc_opacs(SizeGrid& sizes, double por) {
     double rho_1 = 0;
     for (int i=0; i<comp.n_comp; i++) {rho_1 += comp[i].mf/comp[i].dens;}
     double rho_av = 1./rho_1;
-    std::cout << "Bulk density: " << rho_av << " gcm-3";
+    std::cout << "Bulk density: " << rho_av << " gcm-3\n";
 
     for (int i=0; i<comp.n_comp; i++) {
         vfs[i] = (1.-por)*rho_av*comp[i].mf/comp[i].dens;
@@ -479,9 +481,6 @@ __global__ void _calc_rho_kappa_vol(GridRef g, Field3DConstRef<Prims> qd, FieldC
                 k_abs_g = x*Q_a * 1e-10;
                 k_sca_g = x*Q_s * 1e-10;
             }
-            if (i==50 && j==2 && k==50 && n==0) {
-                printf("%g, ", x*Q_a);
-            }
 
             rhok_dust_abs += (qd(i,j,n).rho + mol.ice(i,j,n))*x*Q_a;
             rhok_dust_sca += (qd(i,j,n).rho + mol.ice(i,j,n))*x*Q_s;
@@ -572,7 +571,7 @@ __global__ void _calc_rho_kappa_vol(GridRef g, GridRef g_in, Field3DConstRef<dou
 
                 x = 2.*M_PI*sizes.ice(i-g_in.NR,j,n).a/(lam[k]/1.e4);
 
-                double Q_a = min(1.,12.*x*eps2/((eps1+2.)*(eps1+2.)+eps2*eps2));
+                double Q_a = max(min(1.,12.*x*eps2/((eps1+2.)*(eps1+2.)+eps2*eps2)),0.);
                 double Q_s, g_asym;
                 
                 if (x < 1.3) {
@@ -591,7 +590,7 @@ __global__ void _calc_rho_kappa_vol(GridRef g, GridRef g_in, Field3DConstRef<dou
                     else { g_asym = 0.5; } 
                 }
 
-                Q_s = min(Q_s*(1.-g_asym),1.);
+                Q_s = max(min(Q_s*(1.-g_asym),1.),0.);
 
                 // x = M_PI*sizes.ice(i,j,n).a*sizes.ice(i,j,n).a/(4.188790205*);
                 x = 0.75/(sizes.ice(i-g_in.NR,j,n).a*sizes.ice(i-g_in.NR,j,n).rho);
