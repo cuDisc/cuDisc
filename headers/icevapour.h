@@ -62,6 +62,7 @@ class IceVapChem {
         SizeGridIce& _sizes;
         MoleculeRef _mol;
         double _floor;
+        WavelengthBinner& _bins;
         int _Jbin_idx;
 
 
@@ -69,7 +70,7 @@ class IceVapChem {
 
         IceVapChem(const Grid& g, const Field<double>& T, WavelengthBinner& bins, const Field3D<double>& J, Field3D<Prims>& W_dust, Field<Prims>& W_gas, SizeGridIce& sizes, 
                         Molecule& mol, double floor = 1.e-100, double N_s = 1.5e15) :
-                        _g(g), _T(T), _J(J), _W(W_dust),  _Wg(W_gas), _sizes(sizes), _mol(mol), _floor(floor), N_s(N_s)
+                        _g(g), _T(T), _J(J), _W(W_dust),  _Wg(W_gas), _sizes(sizes), _mol(mol), _floor(floor), _bins(bins), N_s(N_s)
                         {
                             for (int i=0; i<bins.num_bands; i++) {
                                 if (bins.bands[i] < 0.2) {
