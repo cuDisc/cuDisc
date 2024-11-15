@@ -818,6 +818,36 @@ void calc_gas_velocities(Grid& g, CudaArray<double>& Sig_g, Field<Prims>& wg, Fi
     _set_v_bounds<<<blocks,threads>>>(g, wg, bound, 1, vrbuff);
 }
 
+__global__ void _mov_av(GridRef g, FieldRef<double> vR, FieldRef<Prims> Ws_g, int window) {
+    // int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    // int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.x * blockDim.x ;
+
+    // for (int i=iidx+(window-1)/2; i<g.NR+2*g.Nghost-(window-1)/2; i+=istride) {
+    for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
+        for (int i=window-1; i<g.NR+2*g.Nghost; i++) {
+            double wind_sum = vR(i,j)/(double)window;
+            if (i>=window) {wind_sum -= vR(i-window,j)/(double)window;}
+            Ws_g(i-(window-1)/2,j).v_R = wind_sum;
+        }
+        // for (int i=0; i<)
+    }
+}
+
+__global__ void _copy_vR(GridRef g, FieldRef<double> vR, FieldRef<Prims> Ws_g) {
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
+            vR(i,j) = Ws_g(i,j).v_R;
+        }
+    }
+} 
+
 void calc_gas_velocities_full(Grid& g, CudaArray<double>& Sig_g, Field<Prims>& wg, Field<double>& cs2, CudaArray<double>& nu, double alpha, Star& star, int bound, double floor, double cav) {
 
     Field<double> Trphi = create_field<double>(g);
@@ -827,6 +857,7 @@ void calc_gas_velocities_full(Grid& g, CudaArray<double>& Sig_g, Field<Prims>& w
     Field<double> p = create_field<double>(g);
     Field<double> rho = create_field<double>(g);
     Field<double> vphig = create_field<double>(g);
+    Field<double> vR = create_field<double>(g);
 
     dim3 threads(16,16) ;
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+15)/16) ;
@@ -843,6 +874,9 @@ void calc_gas_velocities_full(Grid& g, CudaArray<double>& Sig_g, Field<Prims>& w
     _calc_T<<<blocks,threads>>>(g, Trphi, TZphi, vphig, drvphidr, dvphidZ, wg, nu.get(), 0);
     _calc_vr<<<blocks,threads>>>(g, Trphi, TZphi, vphig, drvphidr, dvphidZ, wg, floor, 2, cav);
     _set_v_bounds<<<blocks,threads>>>(g, wg, bound, 1, vrbuff);
+    _copy_vR<<<blocks,threads>>>(g, vR, wg);
+    Reduction::scan_R_sum(g, vR);
+    _mov_av<<<1,1024>>>(g, vR, wg, 11);
 }
 
 void calc_gas_velocities_wind(Grid& g, Field<Prims>& wg, CudaArray<double>& Sig_g, Field<double>& cs2, CudaArray<double>& nu, CudaArray<double>& Sig_dot_w, 
@@ -1355,19 +1389,19 @@ void _calc_v_gas(GridRef g, FieldRef<Prims1D> W_g, double GMstar, FieldConstRef<
 
         W_g(i,j).v_phi = vk*sqrt(1.-eta);
 
-        if (W_g(i,j).Sig < 10.*gas_floor) { 
-            W_g(i,j).v_R  = -100; 
-            continue;
-        }
+        // if (W_g(i,j).Sig < 10.*gas_floor) { 
+        //     W_g(i,j).v_R  = -100; 
+        //     continue;
+        // }
 
         double f1 = sqrt(g.Rc(i+1)) * W_g(i+1,j).Sig * nu[i+1];
         double f0 = sqrt(g.Rc(i-1)) * W_g(i-1,j).Sig * nu[i-1];
 
         W_g(i,j).v_R = -3./(W_g(i,j).Sig * sqrt(g.Rc(i))) * (f1-f0)/(g.Rc(i+1)-g.Rc(i-1));
 
-        if (W_g(i,j).v_R  < -100) {
-            W_g(i,j).v_R  = -100;
-        }
+        // if (W_g(i,j).v_R  < -100) {
+        //     W_g(i,j).v_R  = -100;
+        // }
 
     }
 }
