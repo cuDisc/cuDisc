@@ -274,6 +274,50 @@ void compute_diffusion_matrix(GridRef& g, FieldType D,
 }
 
 
+// 3-point stencil scheme for 1+1D diffusion in vertical direction
+template<typename FieldType, typename... Indices>
+__device__ 
+void compute_diffusion_matrix_1p1D(GridRef& g, FieldType D, 
+                                 double (&Dij)[3], int boundary, 
+                                 int i, int j, Indices... k) {
+                                    
+
+    double wm, wp ;
+    Dij[1] = 0 ;
+
+    wp = D(i,j,k...)   / (g.Zc(i,j)-g.Ze(i,j)),
+    wm = D(i,j-1,k...) / (g.Ze(i,j)-g.Zc(i,j-1)) ;
+
+    Dij[0] = -(wp*wm / (wp + wm)) * g.area_Z(i, j) * g.face_normal_Z(i, j).Z ;
+    Dij[1] -= Dij[0] ;
+
+    wp = D(i,j+1,k...) / (g.Zc(i,j+1)-g.Ze(i,j+1)),
+    wm = D(i,j,k...)   / (g.Ze(i,j+1)-g.Zc(i,j)) ;
+
+    Dij[2] = -(wp*wm / (wp + wm)) * g.area_Z(i, j+1) * g.face_normal_Z(i, j+1).Z ; ;
+    Dij[1] -= Dij[2] ;
+
+    /////////////////////////////////
+    // Apply closed boundaries:
+    //   - subtract the boundary terms from the matrix
+
+    if (!(boundary & BoundaryFlags::open_Z_inner))
+        if (j == g.Nghost) {
+            Dij[1] += Dij[0] ;
+            Dij[0] = 0;
+        }
+    
+    if (!(boundary & BoundaryFlags::open_Z_outer))
+        if (j == g.Nphi + g.Nghost - 1) {
+            Dij[1] += Dij[2] ;
+            Dij[2] = 0;
+        }
+
+}
+
+
+
+
 /* _compute_CFL_limit_diffusion
  *
  * Get the CFL limit for each cell for a diffusion process.

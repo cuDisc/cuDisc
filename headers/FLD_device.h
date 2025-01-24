@@ -62,6 +62,43 @@ double gradJ(GridRef& g, FieldType& J, int i, int j, Indices... k) {
 }
 
 
+/* gradJ
+ *
+ * Computes |\grad J| / J for the flux limiter in 1+1D geometry
+*/
+template<typename FieldType, typename... Indices>
+ __device__
+double gradJ_1p1D(GridRef& g, FieldType& J, int i, int j, Indices... k) {
+    
+    double J0 = J(i,j,k...) ;
+    double Jtot = J0*J0 ; int n = 1;
+    double grad_J = 0 ;
+
+    // Clip i/j to make sure we get a sensible flux-limiter at the boundaries.
+    i = min(max(i, g.Nghost), g.NR   + g.Nghost-1) ;
+    j = min(max(j, g.Nghost), g.Nphi + g.Nghost-1) ;
+
+    
+    if (j > g.Nghost) {
+        grad_J += 
+            0.5 * (J(i,j-1,k...) - J0) / ((g.Zc(i,j-1) - g.Zc(i,j))) ;
+        Jtot += J(i,j-1,k...)*J(i,j-1,k...) ;
+        n++ ;
+    }
+    if (j < g.Nphi + g.Nghost-1) {
+        grad_J += 
+            0.5 * (J(i,j+1,k...) - J0) / ((g.Zc(i,j+1) - g.Zc(i,j))) ;
+        Jtot += J(i,j+1,k...)*J(i,j+1,k...);
+        n++ ;
+    }
+    if (j == g.Nghost || j ==  g.Nphi + g.Nghost-1)
+        grad_J *= 2 ;
+
+    Jtot /= n ;
+    
+    return sqrt(grad_J*grad_J / (Jtot+1e-300)) ;
+}
+
 /* diffusion_coeff
  *
  * Computes the flux-limited diffusion coefficient D = \lambda(J) / (k*rho), 
@@ -73,6 +110,25 @@ double diffusion_coeff(GridRef& g, FieldType& J, double krho,
                        int i, int j, Indices... k) {
 
     double gJ = gradJ(g, J, i, j, k...) ;
+
+    if (gJ < 2*krho)
+        return 2 / (3*krho + sqrt(9*krho*krho + 10*gJ*gJ)) ;
+    else 
+        return 10 / (9*krho + 10*gJ + sqrt(81*krho*krho + 180*gJ*krho)) ;
+}
+
+
+/* diffusion_coeff
+ *
+ * Computes the flux-limited diffusion coefficient D = \lambda(J) / (k*rho), 
+ * where \lambda(J) is the flux limiter, for 1+1D diffusion
+ */
+template<typename FieldType, typename... Indices>
+inline __device__ 
+double diffusion_coeff_1p1D(GridRef& g, FieldType& J, double krho,
+                       int i, int j, Indices... k) {
+
+    double gJ = gradJ_1p1D(g, J, i, j, k...) ;
 
     if (gJ < 2*krho)
         return 2 / (3*krho + sqrt(9*krho*krho + 10*gJ*gJ)) ;
@@ -97,5 +153,27 @@ __global__ void compute_diffusion_coeff(GridRef g, Field3DConstRef<double> J,
                                         Field3DConstRef<double> kappa_ext,
                                         Field3DRef<double> D) ;
 
+__global__ void compute_diffusion_coeff_1p1D(GridRef g, FieldConstRef<double> J,
+                                             FieldConstRef<double> rho,  
+                                             FieldConstRef<double> kappa_R,
+                                             FieldRef<double> D) ;
+
+__global__ void compute_diffusion_coeff_1p1D(GridRef g, Field3DConstRef<double> J,
+                                             FieldConstRef<double> rho,  
+                                             Field3DConstRef<double> kappa_ext,
+                                             Field3DRef<double> D) ;
+
+
+__global__ void copy_initial_values(GridRef g, FieldConstRef<double> T, 
+                                    FieldConstRef<double> J, DnVecRef x) ;
+
+__global__ void copy_final_values(GridRef g, FieldRef<double> T, 
+                                  FieldRef<double> J, DnVecConstRef x) ;
+
+__global__ void copy_initial_values(GridRef g, FieldConstRef<double> T, 
+                                    Field3DConstRef<double> J, DnVecRef x) ;
+
+__global__ void copy_final_values(GridRef g, FieldRef<double> T, 
+                                  Field3DRef<double> J, DnVecConstRef x) ;
 
 #endif //_CUDISC_HEADERS_FLD_DEVICE_H_

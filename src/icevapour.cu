@@ -73,8 +73,8 @@ ChemRate R_ph_jac(MoleculeRef mol, Field3DRef<double> ice_grain, double N_s, Fie
     double num_layers = ice_grain(i,j,k) / max(mass_per_layer,1e-100); 
 
     ChemRate Rd;
-    Rd.rate  = 0.;//(gamma_UV+gamma_CR) * Y / (4.*N_s*(1+num_layers));
-    Rd.jac = 0.;
+    Rd.rate  = (gamma_UV+gamma_CR) * Y / (4.*N_s*(1+num_layers));
+    Rd.jac = - Rd.rate * num_layers / (1 + num_layers) ;
 
     return Rd;
 }

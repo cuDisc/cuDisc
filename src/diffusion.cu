@@ -10,12 +10,56 @@
 #include "diffusion_device.h"
 #include "grid.h"
 #include "advection.h"
+#include "dustdynamics.h"
 #include "reductions.h"
 #include "utils.h"
 #include "super_stepping.h"
 #include "timing.h"
 
+__global__ void compute_D_coeff(GridRef g, Field3DRef<double> D, FieldConstRef<Prims> wg, FieldConstRef<double> cs2, double M_star, double alpha, double Sc) {
+                                             
+    int j = threadIdx.x + blockIdx.x*blockDim.x ;
+    int i = threadIdx.y + blockIdx.y*blockDim.y ;
 
+    if (i < g.NR + 2*g.Nghost && j < g.Nphi + 2*g.Nghost) {
+        double Om = std::sqrt(GMsun * M_star / (g.Rc(i) * g.Rc(i) * g.Rc(i)));
+        for (int k=0; k < D.Nd; k++) {     
+            D(i,j,k) = wg(i,j).rho * alpha * cs2(i,j) / (Sc * Om);
+        }
+    }
+}
+
+// __global__ void compute_D_coeff_stratified(GridRef g, Field3DRef<double> D, FieldConstRef<Prims> wg, FieldConstRef<double> cs, double M_star) {
+    
+//     double h_0 = 3.33e-2;
+//     double q = -0.5;
+//     double pi = 3.14159265359;
+    
+//     int j = threadIdx.x + blockIdx.x * blockDim.x;
+//     int i = threadIdx.y + blockIdx.y * blockDim.y;
+
+//     if (i < g.NR + 2 * g.Nghost && j < g.Nphi + 2 * g.Nghost) {
+//         double Om = std::sqrt(GMsun * M_star / (g.Rc(i) * g.Rc(i) * g.Rc(i)));
+//         double tau_corr = (0.15 * 2 * pi)/ Om ;
+//         double delta_vz_mid = 0.05 * cs(i, j); 
+//         double delta_vz_up = 0.15 * cs(i, j);   
+//         double H_g = h_0*au * std::pow(g.Rc(i)/au, (q+3)/2);
+        
+//         for (int k = 0; k < D.Nd; k++) {
+//             double z = g.Zc(k);     
+//             double abs_z = fabs(z);
+//             double delta_vz;
+            
+//             if (abs_z < 2 * H_g) {
+//                 delta_vz = delta_vz_mid + (delta_vz_up - delta_vz_mid) * (abs_z / (2 * H_g));
+//             } else {
+//                 delta_vz = delta_vz_up;
+//             }
+
+//             D(i, j, k) = wg(i, j).rho * pow(delta_vz, 2) * tau_corr;
+//         }
+//     }
+// }
 
 __global__ void compute_Drho_gas(GridRef g, FieldConstRef<double> D,
                                  FieldConstRef<double> rho,  
@@ -74,7 +118,6 @@ __device__ double _compute_diffusion_rate(GridRef g, double Dij[3][3],
     }
 
     return drho ;
-
 }
 
 __global__ void compute_diffusive_flux_update(GridRef g, FieldConstRef<double> D, 
@@ -98,6 +141,29 @@ __global__ void compute_diffusive_flux_update(GridRef g, FieldConstRef<double> D
         }
     }
 }
+
+// void compute_diffusion_coeffient_stratified(const Grid &g, Field3D<double> &D, const Field<Prims> &wg, const Field<double> &cs, double M_star) {
+
+
+//     dim3 threads(32,32,1) ;
+//     dim3 blocks((g.Nphi + 2*g.Nghost + 31)/32, (g.NR + 2*g.Nghost + 31) / 32,  1);
+
+//     compute_D_coeff_stratified<<<blocks, threads>>>(g, D, wg, cs, M_star) ;
+//     check_CUDA_errors("compute_D") ;
+// }
+
+
+
+void compute_diffusion_coeffient(const Grid &g, Field3D<double> &D, const Field<Prims> &wg, const Field<double> &cs2, double M_star, double alpha, double Sc) {
+
+
+    dim3 threads(32,32,1) ;
+    dim3 blocks((g.Nphi + 2*g.Nghost + 31)/32, (g.NR + 2*g.Nghost + 31) / 32,  1);
+
+    compute_D_coeff<<<blocks, threads>>>(g, D, wg, cs2, M_star, alpha, Sc) ;
+    check_CUDA_errors("compute_D") ;
+}
+
 
 
 void Diffusion::operator()(const Grid& g, Field<double>& rho_dust,
@@ -308,5 +374,9 @@ double Diffusion::get_CFL_limit(const Grid& g, const Field<double>& D) {
 
 
     return _CFL * dt ;
+
+
+
+
 }
 
