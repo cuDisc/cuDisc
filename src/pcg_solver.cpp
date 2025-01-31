@@ -111,6 +111,9 @@ bool PCG_Solver::operator()(const CSR_SpMatrix& mat, const DnVec& rhs, DnVec& x,
                       << ", norm=" <<std::sqrt(normr/normrhs) << "\n" ;
             return 1;
         }
+
+        if(std::isnan(normr))
+            break ;
     }  
 
     std::cout << "CG iteration did not converge. Iterations=" << _max_iter 
@@ -315,6 +318,9 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
                       << ", norm=" <<std::sqrt(normr/normrhs) << "\n" ;
             return 1;
         }
+
+        if(std::isnan(normr))
+            break ;
     }  
 
     std::cout << "BiCGStab iteration did not converge. Iterations=" << _max_iter 

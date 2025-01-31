@@ -405,9 +405,14 @@ class CuDiscModel:
 
         return Sig_g, Sig_d, v_d, v_g
 
-    def load_mol(self):
+    def load_mol(self, snap=None):
         
-        num_snaps = self._get_num_snaps()
+        if snap is None:
+            num_snaps = self._get_num_snaps()
+            snaps = [f'mol_{s}.dat' for s in range(num_snaps)]
+        else:
+            snaps = [snap]
+            num_snaps = 1
 
         file = os.path.join(self.sim_dir, f'mol_0.dat')
 
@@ -416,14 +421,18 @@ class CuDiscModel:
         vap = np.zeros((num_snaps, NR, NZ))
         ice = np.zeros((num_snaps, NR, NZ, Ndust,3))
         
-        for snap in range(num_snaps):
-            file = os.path.join(self.sim_dir, f'mol_{snap}.dat')
+        for snap_num, name in enumerate(snaps):
+            file = os.path.join(self.sim_dir, f'mol_{snap_num}.dat')
 
             NR, NZ, Ndust = np.fromfile(file, dtype=np.intc, count=3)
             data = np.fromfile(file, dtype=np.double, offset=3*np.dtype(np.intc).itemsize)
             data = data.reshape(NR, NZ, 3*Ndust+1)
-            vap[snap] = data[:,:,0]
-            ice[snap] = data[:,:,1:].reshape(NR,NZ,Ndust,3)
+            vap[snap_num] = data[:,:,0]
+            ice[snap_num] = data[:,:,1:].reshape(NR,NZ,Ndust,3)
+        
+        if snap is not None:
+            vap = vap[0]
+            ice = ice[0]
         
         return Molecule(vap, ice)
 
@@ -453,6 +462,8 @@ class CuDiscModel:
             
         if 'restart' in snap_nums:
             snap_nums.remove('restart')
+
+        snap_nums = [s for s in snap_nums if s.isdigit()]
 
         if len(snap_nums) == 0:
             return 0

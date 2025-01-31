@@ -833,19 +833,14 @@ void TimeIntegration::integrate_tracers(Grid& g, Field3D<T>& ws, Field<T>& wg, M
         // printf("%1.12g %1.12g %g\n", calc_mass(g,tracers), calc_mass_cell(g,tracers), dt);
         dt = std::min(dt, tmax-t) ;
         t += take_step_tracers(g, rhos, wg, dt, mol.ice, idxs) ;
-        if (!(count%10)) {
+        if (!(count%100) && count) {
             std::cout << "Count = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
             std::cout << "i index = " << idxs[0] << ", j index = " << idxs[1] << "\n";
         }
         count += 1;
-        // if (dt < tmax/1e5) {
-        //     dt_coag = dt;
-        //     return;
-        // }
-        // printf("%1.12g %1.12g %g\n", calc_mass(g,tracers), calc_mass_cell(g,tracers), dt);
     }
-    // std::cout << "Count = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
-    // std::cout << "i index = " << idxs[0] << ", j index = " << idxs[1] << "\n";
+    std::cout << "Count = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
+    std::cout << "i index = " << idxs[0] << ", j index = " << idxs[1] << "\n";
 
     dt_coag = dt;
 
