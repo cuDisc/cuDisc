@@ -20,12 +20,9 @@ __global__ void _compute_ytot(GridRef g, Field3DConstRef<double> y,
         double res = 0 ;
         for (int k=0; k<y.Nd; k++)
             res += y(i,j,k) ;
-        if (res > y.Nd*10*1e-40*wg(i,j)[0]) {
-            yscale(i,j) = (res+1e-100)*scale ;
-        }
-        else {
-            yscale(i,j) = 1.;
-        }
+
+        yscale(i,j) = (res+1e-100)*scale ;
+
     }
 }
 
@@ -40,12 +37,9 @@ __global__ void _compute_ytot(GridRef g, Field3DConstRef<double> y,
         double res = 0 ;
         for (int k=0; k<y.Nd; k++)
             res += y(i,j,k) ;
-        if (res > y.Nd*10*1e-40*wg(i,j)) {
-            yscale(i,j) = (res+1e-100)*scale ;
-        }
-        else {
-            yscale(i,j) = 1.;
-        }
+
+        yscale(i,j) = (res+1e-100)*scale ;
+
     }
 }
 
@@ -688,14 +682,14 @@ double TimeIntegration::take_step_tracers(Grid& g, Field3D<double>& y, Field<T>&
 
     dim3 threads(32,32,1) ;
     dim3 blocks((g.Nphi+2*g.Nghost+31)/32,(g.NR+2*g.Nghost+31)/32,1) ;
-
-    // Compute the total density for the error estimation
-    _compute_ytot<<<blocks,threads>>>(g, y, yabs, _abs_tol, FieldRef<T>(wg)) ; 
-    check_CUDA_errors("_compute_ytot") ;
       
     bool success = false ;
 
     _combine_rho_tr<<<blocks,threads>>>(g, y, tracers, ywtr);
+
+    // Compute the total density for the error estimation
+    _compute_ytot<<<blocks,threads>>>(g, ywtr, yabs, _abs_tol, FieldRef<T>(wg)) ; 
+    check_CUDA_errors("_compute_ytot") ;
 
     while (not success) {
         if (dt == 0)
@@ -704,7 +698,7 @@ double TimeIntegration::take_step_tracers(Grid& g, Field3D<double>& y, Field<T>&
         do_step(dt, g, ywtr, ynew, error) ;
 
         // Compute the normalized error
-        _compute_error_norm_debug<<<blocks,threads>>>(g, y, ynew, yabs, _rel_tol, 
+        _compute_error_norm_debug<<<blocks,threads>>>(g, ywtr, ynew, yabs, _rel_tol, 
                                                 error, err_tot, idxgrid) ;
         check_CUDA_errors("_compute_error_norm") ;
 
@@ -736,7 +730,7 @@ double TimeIntegration::take_step_tracers(Grid& g, Field3D<double>& y, Field<T>&
 }
 
 template<typename T>
-__global__ void _remove_tr_floor(GridRef g, FieldRef<T> wg, Field3DRef<double> tr, double floor) {
+__global__ void _remove_tr_floor(GridRef g, FieldRef<T> wg, Field3DRef<double> rhos, Field3DRef<double> tr, double floor) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -748,7 +742,9 @@ __global__ void _remove_tr_floor(GridRef g, FieldRef<T> wg, Field3DRef<double> t
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
             for (int k=kidx; k<tr.Nd; k+=kstride) { 
-                tr(i,j,k) = max(tr(i,j,k)-1.1e-100*floor*wg(i,j)[0], 0.);
+                if (rhos(i,j,k) < floor*wg(i,j)[0]) {
+                    tr(i,j,k) = 0.;
+                }
             }
         }
     }
@@ -773,7 +769,7 @@ __global__ void _add_tr_floor(GridRef g, FieldRef<T> wg, Field3DRef<double> tr, 
     }
 }
 
-__global__ void _remove_tr_floor(GridRef g, FieldRef<double> wg, Field3DRef<double> tr, double floor) {
+__global__ void _remove_tr_floor(GridRef g, FieldRef<double> wg, Field3DRef<double> rhos, Field3DRef<double> tr, double floor) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -785,7 +781,9 @@ __global__ void _remove_tr_floor(GridRef g, FieldRef<double> wg, Field3DRef<doub
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
             for (int k=kidx; k<tr.Nd; k+=kstride) { 
-                tr(i,j,k) = max(tr(i,j,k)-1.1e-100*floor*wg(i,j), 0.);
+                if (rhos(i,j,k)<floor*wg(i,j)) {
+                    tr(i,j,k) = 0.;
+                }
             }
         }
     }
@@ -824,7 +822,8 @@ void TimeIntegration::integrate_tracers(Grid& g, Field3D<T>& ws, Field<T>& wg, M
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (ws.Nd+7)/8) ;
 
     _copy_rho_forwards<<<blocks,threads>>>(g, Field3DRef<T>(ws), FieldRef<T>(wg), rhos, floor);
-    _remove_tr_floor<<<blocks,threads>>>(g, FieldRef<T>(wg), mol.ice, floor);
+    cudaDeviceSynchronize();
+    _remove_tr_floor<<<blocks,threads>>>(g, FieldRef<T>(wg), rhos, mol.ice, floor);
     cudaDeviceSynchronize();
     int count = 0;
     int idxs[2] = {0,0};

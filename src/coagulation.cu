@@ -385,10 +385,7 @@ __global__ void _compute_coagulation_rate(_CoagulationRateHelper<Kernel,Fragment
 
                     // double rho_tot = dust_density(iR, iZ, i) + dust_density(iR, iZ, j) ;
                     for (int t=1; t < num_tracers+1; t++) {
-                        double tracer_rate = frag_rate * dust_density(iR, iZ, i + t*coag.size) ;
-                        tracer_rate /= dust_density(iR, iZ, i) ;
-                        // double tracer_rate =  Kij.K * Kij.p_frag * nj * dust_density(iR, iZ, i + t*coag.size)/mi ;
-                        // if (i == j) tracer_rate /= 2 ;
+                        double tracer_rate = frag_rate * (dust_density(iR, iZ, i + t*coag.size)/ni + dust_density(iR, iZ, j + t*coag.size)/nj)/(mi+mj) ;
                         
                         atomicAdd_block(&rate(iR,iZ,k_rem + t*coag.size),     tracer_rate * (          m_rem) * eps) ;
                         atomicAdd_block(&rate(iR,iZ,k_rem + 1 + t*coag.size), tracer_rate * (          m_rem) * (1-eps)) ;
