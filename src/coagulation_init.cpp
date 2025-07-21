@@ -119,6 +119,9 @@ template class CoagulationRate<BirnstielKernel<true>,SimpleErosion> ;
 template class CoagulationRate<BirnstielKernelVertInt<false>,SimpleErosion> ;
 template class CoagulationRate<BirnstielKernelVertInt<true>,SimpleErosion> ;
 
+template class CoagulationRate<BirnstielKernelVertIntIce<false>,SimpleErosion> ;
+template class CoagulationRate<BirnstielKernelVertIntIce<true>,SimpleErosion> ;
+
 template class CoagulationRate<BirnstielKernelIce<false>,SimpleErosion> ;
 template class CoagulationRate<BirnstielKernelIce<true>,SimpleErosion> ;
 

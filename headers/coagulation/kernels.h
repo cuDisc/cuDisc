@@ -147,6 +147,48 @@ class BirnstielKernelIce {
 
 } ;
 
+template<bool use_full_stokes=false>
+class BirnstielKernelVertIntIce {
+  public:
+    BirnstielKernelVertIntIce(Grid&g, SizeGridIce& sizes, const Field3D<Prims1D>& wd,
+                    const Field<Prims1D>& wg, const Field<double>& sound_speed, 
+                    const Field<double>& alpha, double mu, double Mstar=1)
+      : _g(g), _cs(sound_speed), _sizes(sizes),
+      _wd(wd), _wg(wg),
+      _alpha_t(alpha), _GMstar(Mstar*GMsun), _mu(mu)
+    { } ;
+
+    // Compute the kernel for cell i,j and species k1 and k2.
+    __device__ __host__
+    KernelResult operator()(int i, int j, int k1, int k2) const ;
+
+    __device__ __host__
+    int NR() const {
+        return _g.NR + 2*_g.Nghost ;
+    }
+    __device__ __host__
+    int Nphi() const {
+        return _g.Nphi + 2*_g.Nghost ;
+    }
+
+    void set_fragmentation_thresholds(double v_frag_base, double v_frag_ice) {
+      _v_frag_b = v_frag_base ;
+      _v_frag_i = v_frag_ice ;
+  }
+
+  private:
+    GridRef _g ;
+    FieldConstRef<double> _cs ;
+    SizeGridIceRef _sizes;
+    Field3DConstRef<Prims1D> _wd ;
+    FieldConstRef<Prims1D> _wg ;
+    FieldConstRef<double> _alpha_t ;
+
+    RealType  _GMstar, _mu;
+    RealType _v_frag_b=1000., _v_frag_i=1000.;
+
+} ;
+
 class ConstantKernel {
   public:
     ConstantKernel(const Grid& g)

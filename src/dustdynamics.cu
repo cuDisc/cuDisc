@@ -1224,6 +1224,8 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     else
         _calc_donor_flux<false><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor, _boundary);
 
+    // set_flux_to_zero<<<blocks,threads>>>(g, fluxR);
+
     // Update quantities a half time step and and source terms.
     _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
     // _update_quants<<<blocks,threads>>>(g, q_mids, q, dt/2., fluxR, fluxZ);
@@ -1238,6 +1240,8 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
         _calc_donor_flux<true><<<blocks,threads>>>(g, w_trac, w_gas, _cs, fluxR_trac, fluxZ_trac, _D, _gas_floor, _boundary);
     else
         _calc_donor_flux<false><<<blocks,threads>>>(g, w_trac, w_gas, _cs, fluxR_trac, fluxZ_trac, _D, _gas_floor, _boundary);
+
+    // set_flux_to_zero<<<blocks,threads>>>(g, fluxR_trac);
 
     // Update quantities a half time step and and source terms.
     _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR_trac, fluxZ_trac);
@@ -1266,6 +1270,8 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     else
         _calc_diff_flux_vl<false><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor, _boundary);
 
+    // set_flux_to_zero<<<blocks,threads>>>(g, fluxR);
+
     // Update quantities a full time step
 
     _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
@@ -1283,9 +1289,11 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     else
         _calc_diff_flux_vl<false><<<blocks,threads>>>(g, w_trac, w_gas, _cs, fluxR_trac, fluxZ_trac, _D, _gas_floor, _boundary);
 
+    // set_flux_to_zero<<<blocks,threads>>>(g, fluxR_trac);
+
     // Update tracer quantities a full time step
 
-    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
+    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR_trac, fluxZ_trac);
 
     // _update_quants<<<blocks,threads>>>(g, q_mids_trac, q_trac, dt, fluxR, fluxZ);
     _update_quants<<<blocks,threads>>>(g, q_mids, q, q_mids_trac, q_trac, dt, fluxR, fluxZ, fluxR_trac, fluxZ_trac);
@@ -1322,6 +1330,8 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     else
         _calc_donor_flux<false><<<blocks_vap, threads_vap>>>(g, w_trac_vap, w_gas, _cs, fluxR_vap, fluxZ_vap, _D, _gas_floor, _boundary);
 
+    // set_flux_to_zero<<<blocks,threads>>>(g, fluxR_vap);
+
     // Update quantities a half time step and and source terms.
     _set_boundary_flux<<<blocks_vap,threads_vap>>>(g, _boundary, fluxR_vap, fluxZ_vap);
     _update_quants<<<blocks_vap, threads_vap>>>(g, q_mids_vap, q_vap, dt/2., fluxR_vap, fluxZ_vap);
@@ -1336,6 +1346,8 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
         _calc_diff_flux_vl<true><<<blocks_vap, threads_vap>>>(g, w_trac_vap, w_gas, _cs, fluxR_vap, fluxZ_vap, _D, _gas_floor, _boundary);
     else
         _calc_diff_flux_vl<false><<<blocks_vap, threads_vap>>>(g, w_trac_vap, w_gas, _cs, fluxR_vap, fluxZ_vap, _D, _gas_floor, _boundary);
+
+    // set_flux_to_zero<<<blocks,threads>>>(g, fluxR_vap);
 
     // Update quantities a full time step and and source terms.
 

@@ -250,6 +250,7 @@ class SizeGridIceRef {
         int stride;
         RealType _rho_m_ice;
         RealType _rho_m_solid;
+        RealType* _mass_c;
 
     public:
 
@@ -258,10 +259,16 @@ class SizeGridIceRef {
             stride(size.stride),
             _rho_m_ice(size._rho_m_ice),
             _rho_m_solid(size._rho_daux),
+            _mass_c(size._mass_c.get()),
             ice(size.ice)
         {}
 
         Field3DRef<Ice> ice;
+
+        __host__ __device__ 
+        RealType base_mass(int idx) const {
+            return _mass_c[idx] ;
+        }
 
         __host__ __device__
         RealType solid_density() const {

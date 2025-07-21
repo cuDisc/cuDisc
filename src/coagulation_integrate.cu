@@ -827,25 +827,27 @@ void TimeIntegration::integrate_tracers(Grid& g, Field3D<T>& ws, Field<T>& wg, M
     cudaDeviceSynchronize();
     int count = 0;
     int idxs[2] = {0,0};
+    // for (int i=0; i<rhos.Nd; i++) {
+    //     printf("%g,",rhos(251,119,i));
+    // }
+    // std::cout << "\n";
+    // std::cout << "\n";
+    // for (int i=0; i<rhos.Nd; i++) {
+    //     printf("%g,",mol.ice(251,119,i));
+    // }
 
     while (t < tmax) {
         // printf("%1.12g %1.12g %g\n", calc_mass(g,tracers), calc_mass_cell(g,tracers), dt);
         dt = std::min(dt, tmax-t) ;
         t += take_step_tracers(g, rhos, wg, dt, mol.ice, idxs) ;
-        if (!(count%10)) {
-            std::cout << "Count = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
-            std::cout << "i index = " << idxs[0] << ", j index = " << idxs[1] << "\n";
-        }
         count += 1;
-        // if (dt < tmax/1e5) {
-        //     dt_coag = dt;
-        //     return;
-        // }
-        // printf("%1.12g %1.12g %g\n", calc_mass(g,tracers), calc_mass_cell(g,tracers), dt);
+        if (_verbose && (count%100) == 0) {
+            std::cout << "Coagulation Steps = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
+        }
     }
-    // std::cout << "Count = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
-    // std::cout << "i index = " << idxs[0] << ", j index = " << idxs[1] << "\n";
-
+    if (_verbose) 
+        std::cout << "Coagulation Steps = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
+    
     dt_coag = dt;
 
     _copy_rho_backwards<<<blocks,threads>>>(g, Field3DRef<T>(ws), FieldRef<T>(wg), rhos, floor);
@@ -858,6 +860,8 @@ template class Rk2Integration<CoagulationRate<BirnstielKernel<true>,SimpleErosio
 template class Rk2Integration<CoagulationRate<BirnstielKernel<false>,SimpleErosion>> ;
 template class Rk2Integration<CoagulationRate<BirnstielKernelVertInt<false>,SimpleErosion>> ;
 template class Rk2Integration<CoagulationRate<BirnstielKernelVertInt<true>,SimpleErosion>> ;
+template class Rk2Integration<CoagulationRate<BirnstielKernelVertIntIce<false>,SimpleErosion>> ;
+template class Rk2Integration<CoagulationRate<BirnstielKernelVertIntIce<true>,SimpleErosion>> ;
 template class Rk2Integration<CoagulationRate<BirnstielKernelIce<false>,SimpleErosion>> ;
 template class Rk2Integration<CoagulationRate<BirnstielKernelIce<true>,SimpleErosion>> ;
 template class Rk2Integration<CoagulationRate<ConstantKernel,SimpleErosion>> ;
@@ -866,6 +870,8 @@ template class BS32Integration<CoagulationRate<BirnstielKernel<true>,SimpleErosi
 template class BS32Integration<CoagulationRate<BirnstielKernel<false>,SimpleErosion>> ;
 template class BS32Integration<CoagulationRate<BirnstielKernelVertInt<false>,SimpleErosion>> ;
 template class BS32Integration<CoagulationRate<BirnstielKernelVertInt<true>,SimpleErosion>> ;
+template class BS32Integration<CoagulationRate<BirnstielKernelVertIntIce<false>,SimpleErosion>> ;
+template class BS32Integration<CoagulationRate<BirnstielKernelVertIntIce<true>,SimpleErosion>> ;
 template class BS32Integration<CoagulationRate<BirnstielKernelIce<false>,SimpleErosion>> ;
 template class BS32Integration<CoagulationRate<BirnstielKernelIce<true>,SimpleErosion>> ;
 template class BS32Integration<CoagulationRate<ConstantKernel,SimpleErosion>> ;
