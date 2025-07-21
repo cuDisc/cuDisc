@@ -3,6 +3,7 @@
 
 #include "field.h"
 #include "bins.h"
+#include "dustdynamics1D.h"
 #include "coagulation/size_grid.h"
 
 struct Prims;
@@ -146,7 +147,102 @@ class IceVapChem {
 
 };
 
+class IceVapChem1D {
+
+    private:
+
+        GridRef _g;
+        FieldConstRef<double> _T;
+        // Field3DConstRef<double> _J;
+        Field3DRef<Prims1D> _W;
+        FieldRef<Prims1D> _Wg;
+        SizeGridIce& _sizes;
+        MoleculeRef _mol;
+        double _mu;
+        double _GMstar;
+        double _floor;
+        // WavelengthBinner& _bins;
+        // int _Jbin_idx;
+
+
+    public:
+
+        IceVapChem1D(const Grid& g, const Field<double>& T, Field3D<Prims1D>& W_dust, Field<Prims1D>& W_gas, SizeGridIce& sizes, 
+                        Molecule& mol, double mu, double GMstar, double floor = 1.e-100, double N_s = 1.5e15) :
+                        _g(g), _T(T), _W(W_dust),  _Wg(W_gas), _sizes(sizes), _mol(mol), _mu(mu), _GMstar(GMstar), _floor(floor), N_s(N_s)
+                        {
+                           
+                        } ; 
+
+        void imp_update(double dt);
+
+        void change_molecule(Molecule& mol) {
+            _mol = mol;
+        }
+        
+        template<typename out_type>
+        void write_mol(std::filesystem::path dir, out_type out) {
+
+            std::stringstream out_string ;
+            out_string << out ;
+            
+            std::ofstream f(dir / ("mol_" + out_string.str() + ".dat"), std::ios::binary);
+            
+            int NR = _g.NR+2*_g.Nghost, NZ = _g.Nphi+2*_g.Nghost, nspec = _W.Nd;
+
+            f.write((char*) &NR, sizeof(int));
+            f.write((char*) &NZ, sizeof(int));
+            f.write((char*) &nspec, sizeof(int));
+            for (int i=0; i<_g.NR+2*_g.Nghost; i++) {
+                for (int j=0; j<_g.Nphi+2*_g.Nghost; j++) {
+                    
+                    f.write((char*) &_mol.vap(i,j), sizeof(double));
+                    for (int k=0; k<nspec; k++) {
+                        f.write((char*) &_mol.ice(i,j,k), sizeof(double));
+                        f.write((char*) &_sizes.ice(i,j,k).a, sizeof(double));
+                        f.write((char*) &_sizes.ice(i,j,k).rho, sizeof(double));
+                    }
+
+                }
+            }  
+            f.close();
+        }
+
+        template<typename out_type>
+        void read_mol(std::filesystem::path dir, out_type out) {
+
+            std::stringstream out_string ;
+            out_string << out ;
+            
+            std::ifstream f(dir / ("mol_" + out_string.str() + ".dat"), std::ios::binary);
+
+            int NR = _g.NR+2*_g.Nghost, NZ = _g.Nphi+2*_g.Nghost, nspec = _W.Nd;
+
+            f.read((char*) &NR, sizeof(int));
+            f.read((char*) &NZ, sizeof(int));
+            f.read((char*) &nspec, sizeof(int));
+
+            for (int i=0; i<_g.NR+2*_g.Nghost; i++) {
+                for (int j=0; j<_g.Nphi+2*_g.Nghost; j++) {
+                    
+                    f.read((char*) &_mol.vap(i,j), sizeof(double));
+                    double ice_tot = 0;
+                    for (int k=0; k<nspec; k++) {
+                        f.read((char*) &_mol.ice(i,j,k), sizeof(double));
+                        f.read((char*) &_sizes.ice(i,j,k).a, sizeof(double));
+                        f.read((char*) &_sizes.ice(i,j,k).rho, sizeof(double));
+                    }
+                }
+            }  
+            f.close();
+        }
+
+        double N_s;
+
+};
+
 void update_sizegrid(Grid& g, SizeGridIce& sizes, Field3D<Quants>& Qd, Field3D<Quants>& Qice);
 void update_sizegrid(Grid& g, SizeGridIce& sizes, Field3D<Prims>& Qd, Field3D<double>& Qice);
+void update_sizegrid(Grid& g, SizeGridIce& sizes, Field3D<Prims1D>& Qd, Field3D<Prims1D>& ice);
 
 #endif// _CUDISC_ICEVAPOUR_H
