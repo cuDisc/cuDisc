@@ -48,8 +48,8 @@ ChemRate R_d_jac(MoleculeRef mol, Field3DRef<double> ice_grain, double N_s, Fiel
         // double mass_per_layer = 4.*M_PI * a[k] * a[k] * N_s * W(i,j,k).rho / m[k] * mol.m_mol;
         double num_layers = ice_grain(i,j,k) / max(mass_per_layer,1e-100); 
 
-        Rd.rate = R * (1.-std::exp(-num_layers))/ max(num_layers,1e-100);//mass_per_layer * R / max(ice_grain(i,j,k),1e-100);// (1+num_layers);
-        // printf("%d %g\n", k, num_layers);
+        Rd.rate = R * (-expm1(-num_layers))/ max(num_layers,1e-100);//mass_per_layer * R / max(ice_grain(i,j,k),1e-100);// (1+num_layers);
+        // if (i==50 && j==170 && k<10) {printf("%d %g %g\n", k, num_layers, (1.-std::exp(-num_layers))/ max(num_layers,1e-100));}
         Rd.jac = -R * num_layers / ((1+num_layers)*(1+num_layers));
     }
 
@@ -102,11 +102,12 @@ ChemRate R_a_jac(MoleculeRef mol, FieldConstRef<double> T, Field3DRef<Prims>& W,
 }
 
 __host__ __device__
-ChemRate R_a_jac(GridRef g, MoleculeRef mol, FieldConstRef<double> T, Field3DRef<Prims1D>& W, Field3DRef<Ice>& ice, const RealType* m, const RealType* a, double mu, double GMstar, int i, int j, int k) {
+ChemRate R_a_jac(GridRef g, MoleculeRef mol, FieldConstRef<double> T, Field3DRef<Prims1D>& W, FieldRef<Prims1D>& W_g, Field3DRef<Ice>& ice, const RealType* m, const RealType* a, double mu, double alpha, double GMstar, int i, int j, int k) {
     
     double v_th = std::sqrt(8.*k_B*T(i,j)/(M_PI*mol.m_mol));
 
-    double H = std::sqrt(k_B*T(i,j)*g.Rc(i)*g.Rc(i)*g.Rc(i)/(mu*m_H*GMstar));
+    // double St = M_PI/2. * ice(i,j,k).a*ice(i,j,k).rho / W_g(i,j).Sig;
+    double H = std::sqrt(k_B*T(i,j)*g.Rc(i)*g.Rc(i)*g.Rc(i)/(mu*m_H*GMstar));//*min(1.,sqrt(alpha/(min(St,0.5)*(1.+St*St))));
     double R = M_PI * ice(i,j,k).a * ice(i,j,k).a * v_th * W(i,j,k)[0] / m[k] / (std::sqrt(2.*M_PI)*H);
 
     ChemRate Ra;
@@ -224,7 +225,7 @@ __global__ void _implicit_update(GridRef g, Field3DRef<Prims> W, FieldRef<Prims>
 }
 
 __global__ void _implicit_update(GridRef g, Field3DRef<Prims1D> W, FieldRef<Prims1D> Wg, FieldConstRef<double> T, Field3DRef<Ice> ice, const RealType* a, 
-                                    const RealType* m, double N_s, MoleculeRef mol, Field3DRef<double> rhos, Field3DRef<double> rhos_0, double mu, double GMstar, double dt) {
+                                    const RealType* m, double N_s, MoleculeRef mol, Field3DRef<double> rhos, Field3DRef<double> rhos_0, double mu, double alpha, double GMstar, double dt) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -239,7 +240,7 @@ __global__ void _implicit_update(GridRef g, Field3DRef<Prims1D> W, FieldRef<Prim
 
             for (int k=0; k < ndust; k++) {
                 
-                ChemRate R_a = R_a_jac(g, mol, T, W, ice, m, a, mu, GMstar, i,j,k);
+                ChemRate R_a = R_a_jac(g, mol, T, W, Wg, ice, m, a, mu, alpha, GMstar, i,j,k);
                 ChemRate R_d = R_d_jac(mol, rhos, N_s, T, ice, W, a, m, i,j,k);
                 // ChemRate R_phd = R_ph_jac(mol, rhos, N_s, J, Wg, W, m, ice, Jbin_idx, lam_bins, i,j,k);
                 A += (R_d.rate) * dt * rhos_0(i,j,k) / (1. + (R_d.rate) * dt);
@@ -250,7 +251,7 @@ __global__ void _implicit_update(GridRef g, Field3DRef<Prims1D> W, FieldRef<Prim
 
             for (int k=0; k < ndust; k++) {
 
-                ChemRate R_a = R_a_jac(g, mol, T, W, ice, m, a, mu, GMstar, i,j,k);
+                ChemRate R_a = R_a_jac(g, mol, T, W, Wg, ice, m, a, mu, alpha, GMstar, i,j,k);
                 ChemRate R_d = R_d_jac(mol, rhos, N_s, T, ice, W, a, m, i,j,k);
                 // ChemRate R_phd = R_ph_jac(mol, rhos, N_s, J, Wg, W, m, ice, Jbin_idx, lam_bins, i,j,k);
 
@@ -427,7 +428,7 @@ void IceVapChem1D::imp_update(double dt) {
 
         _copy_rhos<<<blocks2,threads2>>>(_g, Sigs, Sigs_1);
 
-        _implicit_update<<<blocks,threads>>>(_g, Field3DRef<Prims1D>(W_nofloor), _Wg, _T, _sizes.ice, _sizes.grain_sizes(), _sizes.grain_masses(), N_s, _mol, Sigs, Sigs_0, _mu, _GMstar, dt);
+        _implicit_update<<<blocks,threads>>>(_g, Field3DRef<Prims1D>(W_nofloor), _Wg, _T, _sizes.ice, _sizes.grain_sizes(), _sizes.grain_masses(), N_s, _mol, Sigs, Sigs_0, _mu, _alpha, _GMstar, dt);
 
         get_tol<<<blocks2,threads2>>>(Sigs, Sigs_1, _g, _W.Nd, err.get());
 
