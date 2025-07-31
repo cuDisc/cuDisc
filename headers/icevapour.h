@@ -159,6 +159,7 @@ class IceVapChem1D {
         SizeGridIce& _sizes;
         MoleculeRef _mol;
         double _mu;
+        double _alpha;
         double _GMstar;
         double _floor;
         // WavelengthBinner& _bins;
@@ -168,8 +169,8 @@ class IceVapChem1D {
     public:
 
         IceVapChem1D(const Grid& g, const Field<double>& T, Field3D<Prims1D>& W_dust, Field<Prims1D>& W_gas, SizeGridIce& sizes, 
-                        Molecule& mol, double mu, double GMstar, double floor = 1.e-100, double N_s = 1.5e15) :
-                        _g(g), _T(T), _W(W_dust),  _Wg(W_gas), _sizes(sizes), _mol(mol), _mu(mu), _GMstar(GMstar), _floor(floor), N_s(N_s)
+                        Molecule& mol, double mu, double alpha, double GMstar, double floor = 1.e-100, double N_s = 1.5e15) :
+                        _g(g), _T(T), _W(W_dust),  _Wg(W_gas), _sizes(sizes), _mol(mol), _mu(mu), _alpha(alpha), _GMstar(GMstar), _floor(floor), N_s(N_s)
                         {
                            
                         } ; 
