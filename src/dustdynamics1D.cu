@@ -543,8 +543,8 @@ __global__ void _update_tracer_vap(GridRef g, Field3DRef<Prims1D> w_trac, FieldC
     int istride = gridDim.x * blockDim.x ;
     int jstride = gridDim.y * blockDim.y ;
 
-    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
-        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
             double f = w_trac(i,j,0)[0] / (floor * w_gas(i,j)[0]) ;
             if (f < 1.1) {
                 mol.vap(i,j) = w_gas(i,j)[0] * floor;
@@ -579,7 +579,7 @@ __global__ void _copy_dust_vels(GridRef g, Field3DRef<Prims1D> wd, Field3DRef<Pr
 
 
 template<bool use_full_stokes>
-void DustDyn1D<use_full_stokes>::operator() (Grid& g, Field3D<Prims1D>& W_d, Field<Prims1D>& W_g, Molecule& mol, double dt, SizeGridIce& sizes) {
+void DustDyn1D<use_full_stokes>::operator() (Grid& g, Field3D<Prims1D>& W_d, Field<Prims1D>& W_g, Molecule& mol, Field3D<double>& D_vap, double dt, SizeGridIce& sizes) {
 
     dim3 threads(32,1,16) ;
     dim3 blocks((g.NR + 2*g.Nghost+31)/32,1,(W_d.Nd+15)/16) ;
@@ -674,7 +674,7 @@ void DustDyn1D<use_full_stokes>::operator() (Grid& g, Field3D<Prims1D>& W_d, Fie
 
     // Calc donor cell flux
 
-    _calc_diff_flux<<<blocks_vap,threads_vap>>>(g, W_trac_vap, W_g, flux_tracvap, _D, _gas_floor, _boundary);
+    _calc_diff_flux<<<blocks_vap,threads_vap>>>(g, W_trac_vap, W_g, flux_tracvap, D_vap, _gas_floor, _boundary);
     check_CUDA_errors("_set_bounds_d");
 
     // Update quantities a half time step
@@ -687,7 +687,7 @@ void DustDyn1D<use_full_stokes>::operator() (Grid& g, Field3D<Prims1D>& W_d, Fie
 
     // Compute fluxes with Van Leer
 
-    _calc_diff_flux_vl<<<blocks_vap,threads_vap>>>(g, W_trac_vap_mid, W_g, flux_tracvap, _D, _gas_floor, _boundary);
+    _calc_diff_flux_vl<<<blocks_vap,threads_vap>>>(g, W_trac_vap_mid, W_g, flux_tracvap, D_vap, _gas_floor, _boundary);
     check_CUDA_errors("_calc_diff_flux_vl");
 
     _set_boundary_flux<<<blocks_vap,threads_vap>>>(g, _boundary, flux_tracvap);
