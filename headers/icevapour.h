@@ -55,7 +55,7 @@ class IceVapChem {
 
     private:
 
-        GridRef _g;
+        const Grid& _g;
         FieldConstRef<double> _T;
         Field3DConstRef<double> _J;
         Field3DRef<Prims> _W;
@@ -151,7 +151,7 @@ class IceVapChem1D {
 
     private:
 
-        GridRef _g;
+        const Grid& _g;
         FieldConstRef<double> _T;
         // Field3DConstRef<double> _J;
         Field3DRef<Prims1D> _W;

@@ -5,6 +5,7 @@
 #include "icevapour.h"
 #include "dustdynamics.h"
 #include "constants.h"
+#include "reductions.h"
 
 struct ChemRate {
     double rate;
@@ -63,8 +64,9 @@ ChemRate R_ph_jac(MoleculeRef mol, Field3DRef<double> ice_grain, double N_s, Fie
     double gamma_UV = 0.;
     
     for (int l=0; l<Jbin_idx; l++) {
-        double E_phot = 6.6260755e-27*(lam_bins[l]*1.e4)/c_light;
-        gamma_UV += max(J(i,j,l)/(4.*M_PI*E_phot), 0.);
+        double nu = c_light/(lam_bins[l]/1.e4);
+        double E_phot = 6.6260755e-27 * nu;
+        gamma_UV += max(J(i,j,l)/(E_phot), 0.);
     }
 
     double eta_CR = 1.e-17, Y = 2.7e-3;
@@ -86,6 +88,7 @@ ChemRate R_ph_jac(MoleculeRef mol, Field3DRef<double> ice_grain, double N_s, Fie
 
     return Rd;
 }
+
 
 __host__ __device__
 ChemRate R_a_jac(MoleculeRef mol, FieldConstRef<double> T, Field3DRef<Prims>& W, Field3DRef<Ice>& ice, const RealType* m, const RealType* a, int i, int j, int k) {
@@ -332,23 +335,35 @@ __global__ void copy_final_values(GridRef g, Field3DRef<double> rhos, MoleculeRe
 
 }
 
-__global__ void get_tol(Field3DRef<double> rhos, Field3DRef<double> rhos_0, GridRef g, int ngrains, double* err) {
+__global__ void get_tol(Field3DRef<double> rhos, Field3DRef<double> rhos_0, GridRef g, int ngrains, FieldRef<double> err) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int istride = gridDim.x * blockDim.x ;
     int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
 
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
-            for (int k=kidx; k<ngrains+1; k+=kstride) {
-                atomicAdd(&err[0], abs(rhos(i,j,k) - rhos_0(i,j,k)) / (rhos_0(i,j,k) + 1e-100) / ((ngrains + 1) * g.NR * g.Nphi));
+            for (int k=0; k<ngrains+1; k++) {
+                err(i,j) += abs(rhos(i,j,k) - rhos_0(i,j,k)) / (rhos_0(i,j,k) + 1e-100) / ((ngrains + 1) * g.NR * g.Nphi);
             }
         }
     }
 }
+__global__ void set_tol(GridRef g, int ngrains, FieldRef<double> err) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
+            err(i,j) = 0.;
+        }
+    }
+}
+
 
 void IceVapChem::imp_update(double dt) {
 
@@ -370,32 +385,27 @@ void IceVapChem::imp_update(double dt) {
     _copy_rhos<<<blocks2,threads2>>>(_g, rhos, rhos_0);
 
     int it = 0;
-    CudaArray<double> err = make_CudaArray<double>(1);
-    err[0]= 1;
+    Field<double> err = Field<double>(_g.NR + 2*_g.Nghost, _g.Nphi + 2*_g.Nghost);
+    double err_tot= 1;
 
-    while (err[0] > 1e-5) {
-        err[0] = 0;
+    while (err_tot > 1e-5) {
+
+        set_tol<<<blocks,threads>>>(_g, _W.Nd, err);
 
         _copy_rhos<<<blocks2,threads2>>>(_g, rhos, rhos_1);
 
         _implicit_update<<<blocks,threads>>>(_g, Field3DRef<Prims>(W_nofloor), _Wg, _T, _J, _sizes.ice, _sizes.grain_sizes(), _sizes.grain_masses(), N_s, _mol, rhos, rhos_0, _Jbin_idx, _bins.bands.get(), dt);
 
-        get_tol<<<blocks2,threads2>>>(rhos, rhos_1, _g, _W.Nd, err.get());
-        // err[0] = 0;
+        get_tol<<<blocks,threads>>>(rhos, rhos_1, _g, _W.Nd, err);
+        Reduction::scan_R_sum(_g,err);
+        Reduction::scan_Z_sum(_g,err);
+        cudaDeviceSynchronize();
+        err_tot = err(_g.NR + 2*_g.Nghost-1,_g.Nphi + 2*_g.Nghost-1);
+        
         it++;
         _update_sizegrid<<<blocks3,threads3>>>(_g, _sizes.ice, _W, rhos, _sizes.grain_masses(), _sizes.solid_density(), _sizes.ice_density());
-        cudaDeviceSynchronize();
     }
     // std::cout << "Ice-vap iterations: " << it << "\n";
-    // std::string fname = "/mnt/data_disk/ar1121/cuDisc_ar/cuDisc_new/cuDiscnew2/cuDisc/codes/outputs/icevap_simple/coag_icevapup/des_rates_1507.txt";
-    // std::ofstream f(fname);
-
-    // for (int k=0; k<rhos.Nd; k++) {
-    //     double rate = (rhos(2,2,k)-rhos_0(2,2,k))/dt;
-    //     // f.write((char*) &rate, sizeof(double));
-    //     f << rate << "\n";
-    // }
-    // f.close();  
 
     copy_final_values<<<blocks,threads>>>(_g, rhos, _mol, _floor, _Wg);
 }
@@ -420,17 +430,22 @@ void IceVapChem1D::imp_update(double dt) {
     _copy_rhos<<<blocks2,threads2>>>(_g, Sigs, Sigs_0);
 
     int it = 0;
-    CudaArray<double> err = make_CudaArray<double>(1);
-    err[0]= 1;
+    Field<double> err = Field<double>(_g.NR + 2*_g.Nghost, _g.Nphi + 2*_g.Nghost);
+    double err_tot= 1;
 
-    while (err[0] > 1e-3) {
-        err[0] = 0;
+    while (err_tot > 1e-5) {
+
+        set_tol<<<blocks,threads>>>(_g, _W.Nd, err);
 
         _copy_rhos<<<blocks2,threads2>>>(_g, Sigs, Sigs_1);
 
         _implicit_update<<<blocks,threads>>>(_g, Field3DRef<Prims1D>(W_nofloor), _Wg, _T, _sizes.ice, _sizes.grain_sizes(), _sizes.grain_masses(), N_s, _mol, Sigs, Sigs_0, _mu, _alpha, _GMstar, dt);
 
-        get_tol<<<blocks2,threads2>>>(Sigs, Sigs_1, _g, _W.Nd, err.get());
+        get_tol<<<blocks2,threads2>>>(Sigs, Sigs_1, _g, _W.Nd, err);
+        Reduction::scan_R_sum(_g,err);
+        Reduction::scan_Z_sum(_g,err);
+        cudaDeviceSynchronize();
+        err_tot = err(_g.NR + 2*_g.Nghost-1,_g.Nphi + 2*_g.Nghost-1);
 
         it++;
         _update_sizegrid<<<blocks3,threads3>>>(_g, _sizes.ice, _W, Sigs, _sizes.grain_masses(), _sizes.solid_density(), _sizes.ice_density());
