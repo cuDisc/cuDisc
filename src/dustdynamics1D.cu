@@ -480,7 +480,7 @@ void DustDyn1D<use_full_stokes>::operator() (Grid& g, Field3D<Prims1D>& W_d, Fie
     }
 }
 
-__global__ void _init_tracer_prims(GridRef g, Field3DRef<Prims1D> w, FieldConstRef<Prims1D> wg, Field3DRef<Prims1D> w_trac, Field3DRef<Prims1D> w_trac_vap, Field3DRef<double> tracers, MoleculeRef mol) {
+__global__ void _init_tracer_prims(GridRef g, Field3DRef<Prims1D> w, FieldConstRef<Prims1D> wg, Field3DRef<Prims1D> w_trac, Field3DRef<Prims1D> w_trac_vap, Field3DRef<Prims1D> w_trac_vap_mid, Field3DRef<double> tracers, MoleculeRef mol) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -491,9 +491,11 @@ __global__ void _init_tracer_prims(GridRef g, Field3DRef<Prims1D> w, FieldConstR
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
 
             w_trac_vap(i,j,0)[0] = mol.vap(i,j);
+            w_trac_vap_mid(i,j,0)[0] = mol.vap(i,j);
 
             for (int l=1; l<4; l++) {
                 w_trac_vap(i,j,0)[l] = wg(i,j)[l];
+                w_trac_vap_mid(i,j,0)[l] = wg(i,j)[l];
             }
 
             for (int k=0; k<w.Nd; k++) {
@@ -592,7 +594,7 @@ void DustDyn1D<use_full_stokes>::operator() (Grid& g, Field3D<Prims1D>& W_d, Fie
     Field3D<Prims1D> W_trac = create_field3D<Prims1D>(g, W_d.Nd);
     Field3D<Prims1D> W_trac_vap = create_field3D<Prims1D>(g, 1);
     Field3D<Prims1D> W_trac_vap_mid = create_field3D<Prims1D>(g, 1);
-    _init_tracer_prims<<<blocks,threads>>>(g, W_d, W_g, W_trac, W_trac_vap, mol.ice, mol);
+    _init_tracer_prims<<<blocks,threads>>>(g, W_d, W_g, W_trac, W_trac_vap, W_trac_vap_mid, mol.ice, mol);
 
     if (_boundary & BoundaryFlags::set_ext_R_inner || _boundary & BoundaryFlags::set_ext_R_outer) {
         copy_boundaries<<<blocks,threads>>>(g, W_d, W_d_mid, _boundary);
