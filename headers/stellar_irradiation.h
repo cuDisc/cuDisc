@@ -49,5 +49,10 @@ void add_viscous_heating(const Star& star, const Grid &grid,
 void add_viscous_heating(const Star& star, const Grid &grid, 
                          const CudaArray<double>& Sig, const CudaArray<double>& nu, 
                          Field<double>& heating) ;
+void compute_stellar_UV_field(const Star& star, const Grid& g, 
+                            const Field3D<double>& rhok_abs,
+                            const Field3D<double>& rhok_sca, 
+                            Field<double>& F_UV) ;
+
 
 #endif//_CUDISC_HEADERS_STELLAR_IRRADIATION_H_

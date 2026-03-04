@@ -137,6 +137,34 @@ __global__ void _volumetric_heating_with_scattering(GridRef g,
     }
 } 
 
+__global__ void _UV_field_with_scattering(GridRef g, int num_wavelengths, const double* lam, const double* Lband,
+                                                    Field3DConstRef<double> tau,
+                                                    Field3DConstRef<double> kappa_abs,
+                                                    Field3DConstRef<double> kappa_sca,
+                                                    FieldRef<double> F_UV) {
+
+    int j = threadIdx.x + blockIdx.x*blockDim.x ;
+    int i = threadIdx.y + blockIdx.y*blockDim.y ;
+
+    if (i < g.NR + 2*g.Nghost && j < g.Nphi + 2*g.Nghost) {
+        
+        F_UV(i,j) = 0.;
+        double tau0 = 0., E_phot, albedo;
+        double inv_area = 1. / (4 * M_PI * g.rc(i,j)*g.rc(i,j)) ;
+        for (int k=0; k < num_wavelengths; k++) {
+            if (lam[k] < 0.2) {
+                if (i > 0) tau0 = tau(i-1,j,k) ;
+
+                albedo = kappa_sca(i,j,k) + kappa_abs(i,j,k) ;
+                if (albedo > 0) albedo = kappa_sca(i,j,k) / albedo ;
+
+                E_phot = 6.6260755e-27 * c_light/(lam[k]/1.e4);
+                F_UV(i,j) += (inv_area * Lband[k] * exp(-(tau0)) * (1.-albedo)) / E_phot;
+            }
+        }
+    }
+} 
+
 __global__ void _pressure_force_with_scattering(GridRef g, 
                                                     int num_wavelengths, const double* Lband,
                                                     Field3DConstRef<double> tau,
@@ -212,6 +240,21 @@ void _compute_stellar_heating_with_scattering_from_tau(const Star& star, const G
 
     _volumetric_heating_with_scattering<<<blocks2, threads2>>>
         (g, star.num_wle, star.Lband.get(), tau, kappa_abs, kappa_sca, heating, scattering) ;
+    check_CUDA_errors("_volumetric_heating_with_scattering") ;
+}
+
+void _compute_stellar_UV_from_tau(const Star& star, const Grid& g, 
+                                                       const Field3D<double>& tau, 
+                                                       const Field3D<double>& kappa_abs,
+                                                       const Field3D<double>& kappa_sca,
+                                                       Field<double>& F_UV) {
+
+    // Step 3: Compute volumetric heating rates
+    dim3 threads2(32, 32) ;
+    dim3 blocks2((g.Nphi + 2*g.Nghost + 31)/32, (g.NR + 2*g.Nghost+31)/32) ;
+
+    _UV_field_with_scattering<<<blocks2, threads2>>>
+        (g, star.num_wle, star.wle.get(), star.Lband.get(), tau, kappa_abs, kappa_sca, F_UV) ;
     check_CUDA_errors("_volumetric_heating_with_scattering") ;
 }
 
@@ -599,4 +642,36 @@ void add_viscous_heating(const Star& star, const Grid &grid,
 
     add_viscous_heating_device<<<1, 1024>>>(star.GM, grid, Sig.get(), nu.get(), heating) ;
     check_CUDA_errors("add_viscous_heating_device") ;
+}
+
+void compute_stellar_UV_field(const Star& star, const Grid& g, 
+    const Field3D<double>& rhok_abs,
+    const Field3D<double>& rhok_sca, 
+    Field<double>& F_UV) {
+
+    CodeTiming::BlockTimer timing_block = 
+    timer->StartNewTimer("compute_stellar_UV_field") ;
+
+    // Step 0: Decomposition for gpu
+    int nk = 1 ;
+    while (nk < star.num_wle && nk < 32)
+    nk *= 2 ;
+    int nj = 1024 / nk ;
+
+    dim3 threads(nk, nj, 1) ;
+    dim3 blocks((star.num_wle +  nk-1)/nk, 
+    (g.Nphi +  2*g.Nghost + nj-1)/nj, 
+    g.NR +  2*g.Nghost) ;
+
+
+    // Step 1: compute optical depths                                
+    Field3D<double> tau = create_field3D<double>(g, star.num_wle) ;
+    _cell_optical_depth_tab_with_scattering<<<blocks,threads>>>
+    (g, star.num_wle, rhok_abs, rhok_sca, tau) ;
+
+    check_CUDA_errors("_cell_optical_depth") ;
+    Reduction::scan_R_sum(g, tau) ;
+
+    // Step 2: compute heating using optical depths
+    _compute_stellar_UV_from_tau(star, g, tau, rhok_abs, rhok_sca, F_UV) ;
 }
