@@ -62,6 +62,8 @@ class IceVapChem {
         FieldRef<Prims> _Wg;
         SizeGridIce& _sizes;
         MoleculeRef _mol;
+        CudaArray<double>& _h_phdiss;
+        FieldRef<double> _F_UV;
         double _floor;
         WavelengthBinner& _bins;
         int _Jbin_idx;
@@ -70,8 +72,8 @@ class IceVapChem {
     public:
 
         IceVapChem(const Grid& g, const Field<double>& T, WavelengthBinner& bins, const Field3D<double>& J, Field3D<Prims>& W_dust, Field<Prims>& W_gas, SizeGridIce& sizes, 
-                        Molecule& mol, double floor = 1.e-100, double N_s = 1.5e15) :
-                        _g(g), _T(T), _J(J), _W(W_dust),  _Wg(W_gas), _sizes(sizes), _mol(mol), _floor(floor), _bins(bins), N_s(N_s)
+                        Molecule& mol, CudaArray<double>& h_phdiss, Field<double>& F_UV, double floor = 1.e-100, double N_s = 1.5e15) :
+                        _g(g), _T(T), _J(J), _W(W_dust),  _Wg(W_gas), _sizes(sizes), _mol(mol), _h_phdiss(h_phdiss), _F_UV(F_UV), _floor(floor), _bins(bins), N_s(N_s)
                         {
                             for (int i=0; i<bins.num_bands; i++) {
                                 if (bins.bands[i] < 0.2) {
@@ -80,7 +82,7 @@ class IceVapChem {
                             }
                         } ; 
 
-        void imp_update(double dt);
+        void imp_update(double dt, double& dt_chem);
 
         void change_molecule(Molecule& mol) {
             _mol = mol;
@@ -175,7 +177,7 @@ class IceVapChem1D {
                            
                         } ; 
 
-        void imp_update(double dt);
+        void imp_update(double dt, double& dt_chem);
 
         void change_molecule(Molecule& mol) {
             _mol = mol;
