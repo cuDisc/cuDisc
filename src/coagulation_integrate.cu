@@ -615,6 +615,91 @@ void BS32Integration<Rate>::do_step(double dt, Grid& g, const Field3D<double>& y
 
 // Ice tracer coagulation
 
+template<typename T>
+__global__ void _copy_rho_forwards(GridRef g, Field3DRef<T> ws, FieldRef<T> wg, Field3DRef<double> rhos, Field3DRef<double> rhos_tr, Field3DRef<double> rho_ice, double floor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
+            for (int k=kidx; k<ws.Nd; k+=kstride) { 
+                rhos(i,j,k) = max(ws(i,j,k)[0]-floor*wg(i,j)[0], 0.);
+                rhos_tr(i,j,k) = max(rho_ice(i,j,k)-1e-100*floor*wg(i,j)[0], 0.);
+                if (rhos(i,j,k) < floor*wg(i,j)[0]) {
+                    rhos_tr(i,j,k) = 0.;
+                }
+            }
+        }
+    }
+}
+
+template<typename T>
+__global__ void _copy_rho_backwards(GridRef g, Field3DRef<T> ws, FieldRef<T> wg, Field3DRef<double> rhos, Field3DRef<double> rhos_tr, Field3DRef<double> rho_ice, double floor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
+            for (int k=kidx; k<ws.Nd; k+=kstride) { 
+                ws(i,j,k)[0] = rhos(i,j,k) + floor*wg(i,j)[0]; 
+                rho_ice(i,j,k) = rhos_tr(i,j,k) + 1e-100*floor*wg(i,j)[0]; 
+            }
+        }
+    }
+}
+
+// Specialisations for type double
+
+__global__ void _copy_rho_forwards(GridRef g, Field3DRef<double> ws, FieldRef<double> wg, Field3DRef<double> rhos, Field3DRef<double> rhos_tr, Field3DRef<double> rho_ice, double floor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
+            for (int k=kidx; k<ws.Nd; k+=kstride) { 
+                rhos(i,j,k) = max(ws(i,j,k)-floor*wg(i,j), 0.);
+                rhos_tr(i,j,k) = max(rho_ice(i,j,k)-1e-100*floor*wg(i,j), 0.);
+                if (rhos(i,j,k) < floor*wg(i,j)) {
+                    rhos_tr(i,j,k) = 0.;
+                }
+            }
+        }
+    }
+}
+
+__global__ void _copy_rho_backwards(GridRef g, Field3DRef<double> ws, FieldRef<double> wg, Field3DRef<double> rhos, Field3DRef<double> rhos_tr, Field3DRef<double> rho_ice, double floor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
+            for (int k=kidx; k<ws.Nd; k+=kstride) { 
+                ws(i,j,k) = rhos(i,j,k) + floor*wg(i,j); 
+                rho_ice(i,j,k) = rhos_tr(i,j,k) + 1e-100*floor*wg(i,j); 
+            }
+        }
+    }
+}
 
 __global__
 void _combine_rho_tr(GridRef g, Field3DRef<double> rhos, Field3DRef<double> tr, Field3DRef<double> rho_tr) {
@@ -816,42 +901,43 @@ void TimeIntegration::integrate_tracers(Grid& g, Field3D<T>& ws, Field<T>& wg, M
     double t = 0 ;
 
     Field3D<double> rhos = create_field3D<double>(g, ws.Nd);
+    Field3D<double> rhos_tr = create_field3D<double>(g, ws.Nd);
     set_all(g, rhos, 0.);
 
     dim3 threads(16,8,8);
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (ws.Nd+7)/8) ;
 
-    _copy_rho_forwards<<<blocks,threads>>>(g, Field3DRef<T>(ws), FieldRef<T>(wg), rhos, floor);
+    _copy_rho_forwards<<<blocks,threads>>>(g, Field3DRef<T>(ws), FieldRef<T>(wg), rhos, rhos_tr, mol.ice, floor);
     cudaDeviceSynchronize();
-    _remove_tr_floor<<<blocks,threads>>>(g, FieldRef<T>(wg), rhos, mol.ice, floor);
-    cudaDeviceSynchronize();
+    
     int count = 0;
     int idxs[2] = {0,0};
-    // for (int i=0; i<rhos.Nd; i++) {
-    //     printf("%g,",rhos(251,119,i));
-    // }
-    // std::cout << "\n";
-    // std::cout << "\n";
-    // for (int i=0; i<rhos.Nd; i++) {
-    //     printf("%g,",mol.ice(251,119,i));
-    // }
 
     while (t < tmax) {
-        // printf("%1.12g %1.12g %g\n", calc_mass(g,tracers), calc_mass_cell(g,tracers), dt);
         dt = std::min(dt, tmax-t) ;
-        t += take_step_tracers(g, rhos, wg, dt, mol.ice, idxs) ;
+        t += take_step_tracers(g, rhos, wg, dt, rhos_tr, idxs) ;
+        if (dt < tmax/10000.) {
+            dt = -1.;
+            break;
+        }
         count += 1;
-        if (_verbose && (count%100) == 0) {
+        if (_verbose && (count%10) == 0) {
             std::cout << "Coagulation Steps = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
+            std::cout << "i index = " << idxs[0] << ", j index = " << idxs[1] << "\n";
         }
     }
-    if (_verbose) 
-        std::cout << "Coagulation Steps = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
     
-    dt_coag = dt;
+    if (dt > 0.) {
+        dt_coag = dt;
+        if (_verbose) 
+            std::cout << "Coagulation Steps = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
 
-    _copy_rho_backwards<<<blocks,threads>>>(g, Field3DRef<T>(ws), FieldRef<T>(wg), rhos, floor);
-    _add_tr_floor<<<blocks,threads>>>(g, FieldRef<T>(wg), mol.ice, floor);
+        _copy_rho_backwards<<<blocks,threads>>>(g, Field3DRef<T>(ws), FieldRef<T>(wg), rhos, rhos_tr, mol.ice, floor);
+    }
+    else {
+        std::cout << "Coag. failed (dt = " << t/year <<", i index = " << idxs[0] << ", j index = " << idxs[1] << ") - try again next step\n";
+        dt_coag = dt;
+    }
 }
 
 
