@@ -1484,6 +1484,49 @@ void calc_wind_surface(Grid& g, const Field<Prims>& wg, CudaArray<double>& h_w, 
 
 }
 
+// Calculate photodissociation surface
+
+__global__ void _calc_nH2(GridRef g, FieldConstRef<Prims> wg, FieldRef<double> nH2) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
+
+            nH2(i,g.Nphi+2*g.Nghost-j) = wg(i,j).rho/(2.4*m_H) * g.dZe(i,j);
+
+        }
+    }
+}
+
+void calc_photodiss_surface(Grid& g, const Field<Prims>& wg, CudaArray<double>& h_phdiss, double col) {
+
+    Field<double> nH2 = create_field<double>(g);
+    set_all(g, nH2, 0.);
+
+    dim3 threads(32,32) ;
+    dim3 blocks((g.NR + 2*g.Nghost+31)/32,(g.Nphi + 2*g.Nghost+31)/32) ;
+
+    _calc_nH2<<<blocks,threads>>>(g, wg, nH2);
+
+    Reduction::scan_Z_sum(g, nH2);
+    cudaDeviceSynchronize();
+
+    for (int i=0; i<g.NR+2*g.Nghost; i++) {
+        h_phdiss[i] = g.Zc(i,g.Nghost);
+        for (int j=g.Nghost; j<g.Nphi+g.Nghost; j++) {
+            if (nH2(i,j) > col) {
+                h_phdiss[i] = g.Zc(i,g.Nphi+2*g.Nghost-j); 
+                break;
+            }
+        }
+    }
+
+}
+
 // Gas updates for Prims1D object
 
 void update_gas_sigma(Grid& g, Field<Prims1D>& W_g, double dt, const CudaArray<double>& nu, int bound, double floor) {

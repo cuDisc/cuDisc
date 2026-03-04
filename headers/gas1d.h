@@ -26,6 +26,8 @@ double calc_dt(Grid& g, const Field<double>& nu);
 
 void calc_wind_surface(Grid& g, const Field<Prims>& wg, CudaArray<double>& h_w, double col);
 
+void calc_photodiss_surface(Grid& g, const Field<Prims>& wg, CudaArray<double>& h_phdiss, double col);
+
 void calculate_ubar(Grid& g, CudaArray<double>& sig, CudaArray<double>& sig_g, 
                     CudaArray<double>& ubar, CudaArray<double>& u_gas,
                     double t, double u_f, double rho_s, double alpha, double a0, Star& star, int, int);
