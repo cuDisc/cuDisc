@@ -75,7 +75,7 @@ __global__ void _compute_error_norm(GridRef g,
     //   1. Reduce over y
     int size = blockDim.x / 2 ;
     while (size > 0) {
-        if (threadIdx.x < size && (i < g.NR + 2*g.Nghost && j + size < g.Nphi + 2*g.Nghost))
+        if (int(threadIdx.x) < size && (i < g.NR + 2*g.Nghost && j + size < g.Nphi + 2*g.Nghost))
             errtot(i,j) = max(errtot(i,j), errtot(i, j+size)) ;
         
         size /= 2 ;
@@ -84,9 +84,9 @@ __global__ void _compute_error_norm(GridRef g,
 
     //   2. Reduce over x
     size = blockDim.y / 2 ;
-    if (blockIdx.x * blockDim.x < g.Nphi + 2*g.Nghost) {        
+    if (int(blockIdx.x * blockDim.x) < g.Nphi + 2*g.Nghost) {        
         while (size > 0) {
-            if (threadIdx.x == 0 && threadIdx.y < size && i + size < g.NR + 2*g.Nghost)
+            if (int(threadIdx.x) == 0 && threadIdx.y < size && i + size < g.NR + 2*g.Nghost)
                 errtot(i,j) = max(errtot(i,j), errtot(i+size, j)) ;
 
             size /= 2 ;
@@ -120,7 +120,7 @@ __global__ void _compute_error_norm_debug(GridRef g,
     //   1. Reduce over y
     int size = blockDim.x / 2 ;
     while (size > 0) {
-        if (threadIdx.x < size && (i < g.NR + 2*g.Nghost && j + size < g.Nphi + 2*g.Nghost)) {
+        if (int(threadIdx.x) < size && (i < g.NR + 2*g.Nghost && j + size < g.Nphi + 2*g.Nghost)) {
             if ( errtot(i, j+size) > errtot(i,j)) {
                 errtot(i,j) = errtot(i, j+size);
                 idxs(i,j,0) = idxs(i,j+size, 0);
@@ -135,16 +135,16 @@ __global__ void _compute_error_norm_debug(GridRef g,
 
     //   2. Reduce over x
     size = blockDim.y / 2 ;
-    if (blockIdx.x * blockDim.x < g.Nphi + 2*g.Nghost) {        
+    if (int(blockIdx.x * blockDim.x) < g.Nphi + 2*g.Nghost) {        
         while (size > 0) {
-            if (threadIdx.x == 0 && threadIdx.y < size && i + size < g.NR + 2*g.Nghost) {
+            if (int(threadIdx.x) == 0 && threadIdx.y < size && i + size < g.NR + 2*g.Nghost) {
                 if ( errtot(i+size, j) > errtot(i,j)) {
                     errtot(i,j) = errtot(i+size, j);
                     idxs(i,j,0) = idxs(i+size, j, 0) ;
                     idxs(i,j,1) = idxs(i+size, j, 1) ;
                 } 
             }
-                 
+
 
             size /= 2 ;
             __syncthreads() ;
@@ -371,17 +371,6 @@ double calc_mass(Grid& g, Field3D<double>& q) {
 
     return mass;
 }
-double calc_mass_cell(Grid& g, Field3D<double>& q) {
-
-    double mass=0;
-
-    for (int k=0; k<q.Nd; k++) {
-        mass += q(52,2,k);
-    }
-
-
-    return mass;
-}
 
 template<typename T>
 int TimeIntegration::integrate(Grid& g, Field3D<T>& ws, Field<T>& wg, double tmax, double& dt_coag, double floor) const {
@@ -398,7 +387,7 @@ int TimeIntegration::integrate(Grid& g, Field3D<T>& ws, Field<T>& wg, double tma
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (ws.Nd+7)/8) ;
 
     _copy_rho_forwards<<<blocks,threads>>>(g, Field3DRef<T>(ws), FieldRef<T>(wg), rhos, floor);
-    cudaDeviceSynchronize();
+    (void) cudaDeviceSynchronize();
     int count = 0;
 
     while (t < tmax) {
@@ -433,7 +422,7 @@ int TimeIntegration::integrate_debug(Grid& g, Field3D<T>& ws, Field<T>& wg, doub
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (ws.Nd+7)/8) ;
 
     _copy_rho_forwards<<<blocks,threads>>>(g, Field3DRef<T>(ws), FieldRef<T>(wg), rhos, floor);
-    cudaDeviceSynchronize();
+    (void) cudaDeviceSynchronize();
     int count = 0;
     int idxs[2] = {0,0};
 

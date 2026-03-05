@@ -8,6 +8,13 @@
 #include "dustdynamics.h"
 #include "drag_const.h"
 
+// Handle atomics across CUDA & HIP
+#ifdef __HIP_PLATFORM_AMD__
+    #define ATOMIC_ADD_BLOCK atomicAdd
+#else
+    #define ATOMIC_ADD_BLOCK atomicAdd_block
+#endif
+
 // Ormel & Cuzzi Turbulent squared relative velocity.
 //   Scaled to the R.M.S. turbulent speed (\sqrt{alpha} c_s)
 //   Here St1 and St2 are the particle Stokes number and sqrtRe is
@@ -153,7 +160,7 @@ KernelResult BirnstielKernelVertInt<use_full_stokes>::operator()(int i, int j, i
     double h12 = Hp2 /(1 + a1/_alpha_t(i,j)); 
     double h22 = Hp2 /(1 + a2/_alpha_t(i,j));
 
-    tmp = pow(sqrt(h12)*min(a1,0.5) - sqrt(h22)*min(a2, 0.5), 2.)/(R*R) * _GMstar/(R);
+    tmp = pow(sqrt(h12)*fmin(a1,0.5) - sqrt(h22)*fmin(a2, 0.5), 2.)/(R*R) * _GMstar/(R);
     v_turb += tmp;
     v_turb = sqrt(v_turb) ;
 
@@ -267,13 +274,13 @@ __global__ void _compute_coagulation_rate(_CoagulationRateHelper<Kernel,Fragment
                 if (tot_rate == 0) 
                     continue ;
 
-                atomicAdd_block(&rate(iR, iZ, i), 
+                ATOMIC_ADD_BLOCK(&rate(iR, iZ, i), 
                                 -tot_rate * mi * (Kij.p_coag + Kij.p_frag)) ;
 
                 for (int t=1; t < num_tracers+1; t++) {
                     double tracer_rate = Kij.K * nj * 
                         dust_density(iR, iZ, i + t*coag.size) * (Kij.p_coag + Kij.p_frag) ;
-                    atomicAdd_block(&rate(iR, iZ, i + t*coag.size), -tracer_rate) ;
+                    ATOMIC_ADD_BLOCK(&rate(iR, iZ, i + t*coag.size), -tracer_rate) ;
                 }
 
                 // Kij.p_coag = 1.;
@@ -285,18 +292,18 @@ __global__ void _compute_coagulation_rate(_CoagulationRateHelper<Kernel,Fragment
                     double f = coag.cache.Cijk(i,j).coag ;
                 
                     if (k < coag.size)
-                        atomicAdd_block(&rate(iR,iZ,k), f * coag_rate) ;
+                        ATOMIC_ADD_BLOCK(&rate(iR,iZ,k), f * coag_rate) ;
                     if (k + 1 < coag.size) 
-                        atomicAdd_block(&rate(iR,iZ,k+1), (1 - f) * coag_rate) ;
+                        ATOMIC_ADD_BLOCK(&rate(iR,iZ,k+1), (1 - f) * coag_rate) ;
 
                     for (int t=1; t < num_tracers+1; t++) {
                         double tracer_rate = Kij.K * nj *
                             dust_density(iR, iZ, i + t*coag.size) * Kij.p_coag ;
 
                         if (k < coag.size)
-                            atomicAdd_block(&rate(iR, iZ, k + t*coag.size), f * tracer_rate) ;
+                            ATOMIC_ADD_BLOCK(&rate(iR, iZ, k + t*coag.size), f * tracer_rate) ;
                         if (k + 1 < coag.size) 
-                            atomicAdd_block(&rate(iR, iZ, k + 1 + t*coag.size), (1-f) * tracer_rate) ;
+                            ATOMIC_ADD_BLOCK(&rate(iR, iZ, k + 1 + t*coag.size), (1-f) * tracer_rate) ;
                     }
                 }
 
@@ -310,9 +317,9 @@ __global__ void _compute_coagulation_rate(_CoagulationRateHelper<Kernel,Fragment
                     double m_rem = coag.cache.Cijk(i,j).remnant ;
                     double eps = coag.cache.Cijk(i,j).eps;
 
-                    atomicAdd_block(&tmp[k],              frag_rate * ((mi - m_rem) + mj )) ;
-                    atomicAdd_block(&rate(iR,iZ,k_rem),   frag_rate * (          m_rem) * eps) ;
-                    atomicAdd_block(&rate(iR,iZ,k_rem+1), frag_rate * (          m_rem) * (1-eps)) ;
+                    ATOMIC_ADD_BLOCK(&tmp[k],              frag_rate * ((mi - m_rem) + mj )) ;
+                    ATOMIC_ADD_BLOCK(&rate(iR,iZ,k_rem),   frag_rate * (          m_rem) * eps) ;
+                    ATOMIC_ADD_BLOCK(&rate(iR,iZ,k_rem+1), frag_rate * (          m_rem) * (1-eps)) ;
 
                     double rho_tot = dust_density(iR, iZ, i) + dust_density(iR, iZ, j) ;
                     for (int t=1; t < num_tracers+1; t++) {
@@ -320,9 +327,9 @@ __global__ void _compute_coagulation_rate(_CoagulationRateHelper<Kernel,Fragment
                             (dust_density(iR, iZ, i + t*coag.size) + dust_density(iR, iZ, j + t*coag.size)) ;
                         tracer_rate /= rho_tot ;
                         
-                        atomicAdd_block(&rate(iR,iZ,k_rem + t*coag.size),     tracer_rate * (          m_rem) * eps) ;
-                        atomicAdd_block(&rate(iR,iZ,k_rem + 1 + t*coag.size), tracer_rate * (          m_rem) * (1-eps)) ;
-                        atomicAdd_block(&tmp[k + t*coag.size],                tracer_rate * ((mi - m_rem)+ mj)) ;
+                        ATOMIC_ADD_BLOCK(&rate(iR,iZ,k_rem + t*coag.size),     tracer_rate * (          m_rem) * eps) ;
+                        ATOMIC_ADD_BLOCK(&rate(iR,iZ,k_rem + 1 + t*coag.size), tracer_rate * (          m_rem) * (1-eps)) ;
+                        ATOMIC_ADD_BLOCK(&tmp[k + t*coag.size],                tracer_rate * ((mi - m_rem)+ mj)) ;
                     }
                 }
             }
