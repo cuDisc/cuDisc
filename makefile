@@ -38,13 +38,12 @@ GPU_LIBS = $(HIP_LIBS)
 # =========================
 COAG_HEADERS := coagulation.h kernels.h fragments.h size_grid.h integration.h
 COAG_HEADERS := $(addprefix coagulation/, $(COAG_HEADERS))
-OLD_HEADERS := grid.h field.h cuda_array.h reductions.h utils.h matrix_types.h scan.h \
+HEADERS := grid.h field.h cuda_array.h reductions.h utils.h matrix_types.h scan.h \
    stellar_irradiation.h planck.h opacity.h constants.h FLD.h FLD_device.h \
    pcg_solver.h radmc3d_utils.h star.h timing.h bins.h advection.h \
    diffusion_device.h sources.h gas1d.h DSHARP_opacs.h file_io.h errorfuncs.h \
    dustdynamics.h dustdynamics1D.h van_leer.h drag_const.h $(COAG_HEADERS)
 
-HEADERS := grid.h field.h cuda_array.h utils.h sources.h file_io.h dustdynamics.h constants.h scan.h reductions.h bins.h DSHARP_opacs.h $(COAG_HEADERS)
 HEADERS := $(addprefix $(HEADER_DIR)/, $(HEADERS))
 
 OLD_OBJ := grid.o integrate_z.o scan.o scan3d.o zero_bounds.o copy.o \
@@ -96,19 +95,20 @@ $(LIBRARY): $(OBJ)
 # =========================
 
 $(HEADER_DIR)/%.h: headers/%.h
-	mkdir -p $(DIRECTORIES)
+	@mkdir -p $(DIRECTORIES)
 	hipify-perl $< > $@
 $(SRC_DIR)/%.cu: src/%.cu
-	mkdir -p $(DIRECTORIES)
+	@mkdir -p $(DIRECTORIES)
 	hipify-perl $< > $@
 $(SRC_DIR)/%.cpp: src/%.cpp
-	mkdir -p $(DIRECTORIES)
+	@mkdir -p $(DIRECTORIES)
 	hipify-perl $< > $@
 
 # Host C++ sources (always from src/, same in CUDA and HIP builds)
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp $(HEADERS) makefile
 	@mkdir -p $(BUILD_DIR)
 	$(CPP) $(CFLAGS) -I./$(HEADER_DIR) -c $< -o $@
+
 # GPU sources: .cu – from src/ in CUDA mode, from hip_src/ in HIP mode
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cu $(HEADERS) makefile
 	@mkdir -p $(BUILD_DIR)
@@ -119,7 +119,8 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cu $(HEADERS) makefile
 # CPU-only tests (.cpp)
 test_%: $(PWD)/tests/codes/test_%.cpp $(LIBRARY) $(HEADERS) makefile
 	$(CPP) $(CFLAGS) -I./$(HEADER_DIR) $< -o $@ $(LIBRARY) $(GPU_LIBS)
-	# GPU tests (.cu) – from tests/codes in CUDA, from hip_tests in HIP
+
+# GPU tests (.cu) – from tests/codes in CUDA, from hip_tests in HIP
 test_%: $(PWD)/$(TEST_GPU_DIR)/test_%.cu $(LIBRARY) $(HEADERS) makefile
 	$(GPU_COMPILER) $(GPU_FLAGS) $(GPU_INCLUDE) $< -o $@ $(LIBRARY) $(GPU_LIBS)
 
