@@ -86,7 +86,7 @@ __global__ void _compute_error_norm(GridRef g,
     size = blockDim.y / 2 ;
     if (int(blockIdx.x * blockDim.x) < g.Nphi + 2*g.Nghost) {        
         while (size > 0) {
-            if (int(threadIdx.x) == 0 && threadIdx.y < size && i + size < g.NR + 2*g.Nghost)
+            if (int(threadIdx.x) == 0 && int(threadIdx.y) < size && i + size < g.NR + 2*g.Nghost)
                 errtot(i,j) = max(errtot(i,j), errtot(i+size, j)) ;
 
             size /= 2 ;
@@ -137,7 +137,7 @@ __global__ void _compute_error_norm_debug(GridRef g,
     size = blockDim.y / 2 ;
     if (int(blockIdx.x * blockDim.x) < g.Nphi + 2*g.Nghost) {        
         while (size > 0) {
-            if (int(threadIdx.x) == 0 && threadIdx.y < size && i + size < g.NR + 2*g.Nghost) {
+            if (int(threadIdx.x) == 0 && int(threadIdx.y) < size && i + size < g.NR + 2*g.Nghost) {
                 if ( errtot(i+size, j) > errtot(i,j)) {
                     errtot(i,j) = errtot(i+size, j);
                     idxs(i,j,0) = idxs(i+size, j, 0) ;
