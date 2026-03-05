@@ -482,8 +482,6 @@ void _copy_to_subgrid(GridRef g_sub, int idx_in, int /*idx_out*/, Field3DConstRe
     int istride = gridDim.x * blockDim.x ;
     int jstride = gridDim.y * blockDim.y ;
 
-    // printf("%d\n",g_sub.NR);
-
     for (int i=iidx; i<g_sub.NR+2*g_sub.Nghost; i+=istride) {
         for (int j=jidx; j<g_sub.Nphi+2*g_sub.Nghost; j+=jstride) { 
             for (int k=0; k<F_main.Nd; k++) { 

@@ -12,9 +12,8 @@ HIP_HOME = /opt/rocm
 HIPCC= hipcc
 
 # MI300A is usually gfx942 – verify with `rocminfo`
-# AMDGPU_TARGET = gfx942
-HIPFLAGS  = -O3 -g -std=c++17 -Wall -Wextra 
-# --amdgpu-target=$(AMDGPU_TARGET)
+AMDGPU_TARGET = gfx942
+HIPFLAGS  = -O3 -g -std=c++17 -Wall -Wextra --offload-arch=$(AMDGPU_TARGET)
 # hipBLAS/hipSPARSE wrappers over rocBLAS/rocSPARSE
 
 HIP_LIBS  = -L$(HIP_HOME)/lib -lamdhip64 -lhipblas -lhipsparse
@@ -53,7 +52,8 @@ OLD_OBJ := grid.o integrate_z.o scan.o scan3d.o zero_bounds.o copy.o \
    coagulation.o coagulation_init.o coagulation_integrate.o super_stepping.o \
    sources.o gas1d.o DSHARP_opacs.o dustdynamics.o dustdynamics1D.o
 
-OBJ := grid.o sources.o dustdynamics.o scan3d.o scan.o zero_bounds.o bins.o DSHARP_opacs.o
+OBJ := grid.o sources.o dustdynamics.o scan3d.o scan.o zero_bounds.o bins.o DSHARP_opacs.o \
+	coagulation.o coagulation_init.o coagulation_integrate.o 
 
 
 OBJ := $(addprefix $(BUILD_DIR)/, $(OBJ))

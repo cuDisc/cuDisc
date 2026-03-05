@@ -358,7 +358,7 @@ void CoagulationRate<Kernel,Fragments>::operator()(const Field3D<double>& dust_d
 
     int num_tracers =  dust_density.Nd / _grain_sizes.size() - 1 ; 
 
-    if (dust_density.Nd > 49152/sizeof(double))
+    if (dust_density.Nd > 49152/int(sizeof(double)))
         throw std::invalid_argument("CoagulationRate only supports < 6144 densities.");
 
     _CoagulationRateHelper<Kernel,Fragments> helper(
@@ -368,12 +368,12 @@ void CoagulationRate<Kernel,Fragments>::operator()(const Field3D<double>& dust_d
     // Setup Blocks / threads
     //   Make sure we fit at least 1 block into the shared memory - max. shared mem per thread block is 48kB
     dim3 threads(32, 16, 1) ;
-    while (threads.y*dust_density.Nd > 49152/sizeof(double)) {
+    while (threads.y*dust_density.Nd > 49152/int(sizeof(double))) {
         threads.x *= 2 ;
         threads.y /= 2 ;
     }
     // If we can fit 2 blocks, make it so. - assuming 64kB per multiprocessor
-    if (threads.y > 1 and threads.y*dust_density.Nd> 32768/sizeof(double)) {
+    if (threads.y > 1 and threads.y*dust_density.Nd> 32768/int(sizeof(double))) {
         threads.x *= 2 ;
         threads.y /= 2 ;
     }

@@ -231,7 +231,6 @@ __global__ void set_all_device(GridRef g,
 void set_all(const Grid& g, Field<double>& f, double val) {
 
     int blocks = ((g.NR + 2*g.Nghost)*f.stride + 1023) / 1024 ;
-    std::cout << g.NR << " " << g.Nghost << " " << f.stride << " " << blocks << std::endl;
 
     set_all_device<<<blocks, 1024>>>(g, f, val) ;
     check_CUDA_errors("set_all_device") ;
