@@ -197,11 +197,6 @@ void zero_midplane_boundary(const Grid& g, Field3D<double>& f) {
 }
 
 
-void set_all(Grid&g, Field<double>& f, double val) {
-
-}
-
-
 
 __global__ void set_all_device(GridRef g, 
                                FieldRef<double> f, double val) {
@@ -231,9 +226,12 @@ __global__ void set_all_device(GridRef g,
     }
 }
 
+#include <iostream>
+
 void set_all(const Grid& g, Field<double>& f, double val) {
 
     int blocks = ((g.NR + 2*g.Nghost)*f.stride + 1023) / 1024 ;
+    std::cout << g.NR << " " << g.Nghost << " " << f.stride << " " << blocks << std::endl;
 
     set_all_device<<<blocks, 1024>>>(g, f, val) ;
     check_CUDA_errors("set_all_device") ;

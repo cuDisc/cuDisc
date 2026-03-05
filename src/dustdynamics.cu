@@ -19,7 +19,7 @@
 
 
 __global__
-void _set_boundaries(GridRef g, Field3DRef<Prims> w, int bound, double floor) {
+void _set_boundaries(GridRef g, Field3DRef<Prims> w, int bound, double /*floor*/) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -283,7 +283,7 @@ Quants construct_fluxes(double v_l, double v_r, double v_av, double w_l[4], doub
             return {m_r, w_r[1] * m_r, w_r[2] * m_r, w_r[3] * m_r} ;
         }
 
-        else if (v_av == 0.) {
+        else {  //if (v_av == 0.) {
             double m_l = w_l[0] * v_l ;
             double m_r = w_r[0] * v_r ;
             return {0.5*(       m_l +        m_r), 0.5*(w_l[1]*m_l + w_r[1]*m_r), 

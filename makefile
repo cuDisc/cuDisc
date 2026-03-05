@@ -71,7 +71,7 @@ UNIT_TESTS = $(patsubst unit_tests/%.cpp,%,$(UNITS))
 LIBRARY= lib/libcudisc.a
 
 .PHONY: tests clean bintidy lib run_units cuda_build hip_build all
-.SECONDARY: $(HEADERS) $(DIRECTORIES)
+.SECONDARY: $(HEADERS) $(DIRECTORIES) $(OBJ)
 
 all: cuda_build
 

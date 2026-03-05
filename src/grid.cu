@@ -475,7 +475,7 @@ Grid GridManager::add_1Dsubgrid(double R_in, double R_out) {
 
 template<typename T>
 __global__
-void _copy_to_subgrid(GridRef g_sub, int idx_in, int idx_out, Field3DConstRef<T> F_main, Field3DRef<T> F_sub) {
+void _copy_to_subgrid(GridRef g_sub, int idx_in, int /*idx_out*/, Field3DConstRef<T> F_main, Field3DRef<T> F_sub) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
