@@ -53,7 +53,7 @@ OLD_OBJ := grid.o integrate_z.o scan.o scan3d.o zero_bounds.o copy.o \
    sources.o gas1d.o DSHARP_opacs.o dustdynamics.o dustdynamics1D.o
 
 OBJ := grid.o sources.o dustdynamics.o scan3d.o scan.o zero_bounds.o bins.o DSHARP_opacs.o \
-	coagulation.o coagulation_init.o coagulation_integrate.o 
+	coagulation.o coagulation_init.o coagulation_integrate.o timing.o copy.o
 
 
 OBJ := $(addprefix $(BUILD_DIR)/, $(OBJ))
