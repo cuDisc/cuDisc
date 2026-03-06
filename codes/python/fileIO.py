@@ -272,12 +272,12 @@ class CuDiscModel:
         NR, Ndust = np.fromfile(snap_file, dtype=np.intc, count=2)
         data = np.fromfile(snap_file, dtype=np.double, offset=2*np.dtype(np.intc).itemsize)
 
-        data = data.reshape(NR, 2*(Ndust+1))
+        data = data.reshape(NR, 4*(Ndust+1))
 
         gas = FieldData1D(data[:,0], data[:,1])
 
-        data = data[:,2:]
-        data = data.reshape(NR, Ndust, 2)
+        data = data[:,4:]
+        data = data.reshape(NR, Ndust, 4)
 
         dust = FieldData1D(data[:,:,0],data[:,:,1])
 
