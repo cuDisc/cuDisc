@@ -39,7 +39,7 @@ COAG_HEADERS := coagulation.h kernels.h fragments.h size_grid.h integration.h
 COAG_HEADERS := $(addprefix coagulation/, $(COAG_HEADERS))
 HEADERS := grid.h field.h cuda_array.h reductions.h utils.h matrix_types.h scan.h \
    stellar_irradiation.h planck.h opacity.h constants.h FLD.h FLD_device.h \
-   pcg_solver.h radmc3d_utils.h star.h timing.h bins.h advection.h \
+   pcg_solver.h radmc3d_utils.h star.h timing.h bins.h advection.h hydrostatic.h \
    diffusion_device.h sources.h gas1d.h DSHARP_opacs.h file_io.h errorfuncs.h \
    dustdynamics.h dustdynamics1D.h van_leer.h drag_const.h interpolate.h flags.h $(COAG_HEADERS)
 
@@ -53,7 +53,8 @@ OLD_OBJ := grid.o integrate_z.o scan.o scan3d.o zero_bounds.o copy.o \
    sources.o gas1d.o DSHARP_opacs.o dustdynamics.o dustdynamics1D.o
 
 OBJ := grid.o sources.o dustdynamics.o scan3d.o scan.o zero_bounds.o bins.o DSHARP_opacs.o \
-	coagulation.o coagulation_init.o coagulation_integrate.o timing.o copy.o
+	coagulation.o coagulation_init.o coagulation_integrate.o timing.o copy.o gas1d.o hydrostatic.o \
+	scan.o scan3d.o integrate_z.o dustdynamics1D.o
 
 
 OBJ := $(addprefix $(BUILD_DIR)/, $(OBJ))
