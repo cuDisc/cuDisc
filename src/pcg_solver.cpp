@@ -42,21 +42,21 @@ bool PCG_Solver::operator()(const CSR_SpMatrix& mat, const DnVec& rhs, DnVec& x,
     // Check storage again
     size_t buffer_size ;
     cusparseSpMV_bufferSize(
-        _handle_cusparse, CUSPARSE_OPERATION_NON_TRANSPOSE,
+        CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
         &minus_one, mat.descr, x.descr, &zero, r.descr, 
         CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, &buffer_size) ;
 
     CudaArray<char> buffer = make_CudaArray<char>(buffer_size) ;
 
-    cusparseSpMV(_handle_cusparse, CUSPARSE_OPERATION_NON_TRANSPOSE,
+    cusparseSpMV(CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
                   &minus_one, mat.descr, x.descr, &zero, r.descr, 
                   CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, buffer.get()) ;
 
-    cublasDaxpy(_handle_cublas, mat.rows, &one, rhs.get(), 1, r.get(), 1) ;
+    cublasDaxpy(CublasHandle::get(), mat.rows, &one, rhs.get(), 1, r.get(), 1) ;
 
     double normrhs, normr ;
-    cublasDdot(_handle_cublas, r.rows, r.get(), 1, r.get(), 1, &normr);
-    cublasDdot(_handle_cublas, rhs.rows, rhs.get(), 1, rhs.get(), 1, &normrhs);
+    cublasDdot(CublasHandle::get(), r.rows, r.get(), 1, r.get(), 1, &normr);
+    cublasDdot(CublasHandle::get(), rhs.rows, rhs.get(), 1, rhs.get(), 1, &normrhs);
 
     //std::cout << "iteration: 0, norm:" << std::sqrt(normr/normrhs) << "\n" ;
 
@@ -69,22 +69,22 @@ bool PCG_Solver::operator()(const CSR_SpMatrix& mat, const DnVec& rhs, DnVec& x,
         // Step 2 : Compute correction direction 
         // rho = r^T z
         double rho0 = rho;
-        cublasDdot(_handle_cublas, r.rows, r.get(), 1, z.get(), 1, &rho);
+        cublasDdot(CublasHandle::get(), r.rows, r.get(), 1, z.get(), 1, &rho);
         if (iter == 0){
             // p = z
-            cublasDcopy(_handle_cublas, z.rows, z.get(), 1, p.get(), 1);
+            cublasDcopy(CublasHandle::get(), z.rows, z.get(), 1, p.get(), 1);
         }
         else{
             // \beta = rho_{i} / \rho_{i-1}
             double beta= rho/rho0;
             // p = z = \beta p + z
-            cublasDaxpy(_handle_cublas, p.rows, &beta, p.get(), 1, z.get(), 1) ;
-            cublasDcopy(_handle_cublas, z.rows, z.get(), 1, p.get(), 1);
+            cublasDaxpy(CublasHandle::get(), p.rows, &beta, p.get(), 1, z.get(), 1) ;
+            cublasDcopy(CublasHandle::get(), z.rows, z.get(), 1, p.get(), 1);
         }
 
         // Step 3 : Compute q = A p (sparse matrix-vector multiplication)
         status = cusparseSpMV(
-                    _handle_cusparse, CUSPARSE_OPERATION_NON_TRANSPOSE,
+                    CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
                     &one, mat.descr, p.descr, &zero, q.descr, 
                     CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, buffer.get()) ;
         if (status != CUSPARSE_STATUS_SUCCESS)
@@ -95,17 +95,17 @@ bool PCG_Solver::operator()(const CSR_SpMatrix& mat, const DnVec& rhs, DnVec& x,
         //  x = x + \alpha p
         //  r = r - \alpha q
         double temp; 
-        cublasDdot(_handle_cublas, r.rows, p.get(), 1, q.get(), 1, &temp);
+        cublasDdot(CublasHandle::get(), r.rows, p.get(), 1, q.get(), 1, &temp);
 
         double alpha = rho/temp ; 
-        cublasDaxpy(_handle_cublas, p.rows, &alpha, p.get(), 1, x.get(), 1) ;
+        cublasDaxpy(CublasHandle::get(), p.rows, &alpha, p.get(), 1, x.get(), 1) ;
         double minus_alpha = -1*alpha ;
-        cublasDaxpy(_handle_cublas, q.rows, &minus_alpha, q.get(), 1, r.get(), 1) ;
+        cublasDaxpy(CublasHandle::get(), q.rows, &minus_alpha, q.get(), 1, r.get(), 1) ;
         
 
         //check for convergence		      
-        cublasDdot(_handle_cublas, r.rows, r.get(), 1, r.get(), 1, &normr);
-        //cublasDdot(_handle_cublas, q.rows, q.get(), 1, q.get(), 1, &normr);
+        cublasDdot(CublasHandle::get(), r.rows, r.get(), 1, r.get(), 1, &normr);
+        //cublasDdot(CublasHandle::get(), q.rows, q.get(), 1, q.get(), 1, &normr);
         if ((*_check_convergence)(x, r, rhs) && normr < 1e-8*normrhs){
             std::cout << "CG iteration converged. Iterations=" << iter+1 
                       << ", norm=" <<std::sqrt(normr/normrhs) << "\n" ;
@@ -151,25 +151,25 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
     // Check storage again
     size_t buffer_size ;
     cusparseSpMV_bufferSize(
-        _handle_cusparse, CUSPARSE_OPERATION_NON_TRANSPOSE,
+        CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
         &minus_one, mat.descr, x.descr, &zero, r.descr, 
         CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, &buffer_size) ;
 
     CudaArray<char> buffer = make_CudaArray<char>(buffer_size) ;
 
-    cusparseSpMV(_handle_cusparse, CUSPARSE_OPERATION_NON_TRANSPOSE,
+    cusparseSpMV(CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
                   &minus_one, mat.descr, x.descr, &zero, r.descr, 
                   CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, buffer.get()) ;
 
-    cublasDaxpy(_handle_cublas, mat.rows, &one, rhs.get(), 1, r.get(), 1) ;
+    cublasDaxpy(CublasHandle::get(), mat.rows, &one, rhs.get(), 1, r.get(), 1) ;
 
     // Step 0.5: Set p = r, rp = r, and compute norms
-    cublasDcopy(_handle_cublas, r.rows, r.get(), 1, rt.get(), 1);
-    cublasDcopy(_handle_cublas, r.rows, r.get(), 1, p.get(), 1);
+    cublasDcopy(CublasHandle::get(), r.rows, r.get(), 1, rt.get(), 1);
+    cublasDcopy(CublasHandle::get(), r.rows, r.get(), 1, p.get(), 1);
 
     double normrhs, normr ;
-    cublasDdot(_handle_cublas, r.rows, r.get(), 1, r.get(), 1, &normr);
-    cublasDdot(_handle_cublas, rhs.rows, rhs.get(), 1, rhs.get(), 1, &normrhs);
+    cublasDdot(CublasHandle::get(), r.rows, r.get(), 1, r.get(), 1, &normr);
+    cublasDdot(CublasHandle::get(), rhs.rows, rhs.get(), 1, rhs.get(), 1, &normrhs);
 
 
     //std::cout << "iteration: 0, norm:" << std::sqrt(normr/normrhs) << "\n" ;
@@ -184,7 +184,7 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
 
         // Step 1: Compute rho = rt^T * r
         rhop = rho;
-        cublasDdot(_handle_cublas, r.rows, r.get(), 1, rt.get(), 1, &rho);
+        cublasDdot(CublasHandle::get(), r.rows, r.get(), 1, rt.get(), 1, &rho);
 
         if (rho == 0) {
             std::cout << "BiCGStab failed (rho=0). Iterations=" << iter << "\n";
@@ -192,18 +192,18 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
             std::cout << "Restarting.." << std::endl ;
                 //break;
 
-            cusparseSpMV(_handle_cusparse, CUSPARSE_OPERATION_NON_TRANSPOSE,
+            cusparseSpMV(CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
                           &minus_one, mat.descr, x.descr, &zero, r.descr, 
                           CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, buffer.get()) ;
 
-            cublasDaxpy(_handle_cublas, mat.rows, &one, rhs.get(), 1, r.get(), 1) ;
+            cublasDaxpy(CublasHandle::get(), mat.rows, &one, rhs.get(), 1, r.get(), 1) ;
 
             // Step 0.5: Set p = r, rp = r, and compute norms
-            cublasDcopy(_handle_cublas, r.rows, r.get(), 1, rt.get(), 1);
-            cublasDcopy(_handle_cublas, r.rows, r.get(), 1, p.get(), 1);
+            cublasDcopy(CublasHandle::get(), r.rows, r.get(), 1, rt.get(), 1);
+            cublasDcopy(CublasHandle::get(), r.rows, r.get(), 1, p.get(), 1);
             
             // Recompute rho
-            cublasDdot(_handle_cublas, r.rows, r.get(), 1, rt.get(), 1, &rho);
+            cublasDdot(CublasHandle::get(), r.rows, r.get(), 1, rt.get(), 1, &rho);
         }
         //std::cout << "rho: " << rho << "\n" ;
 
@@ -214,9 +214,9 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
             // p = r + \beta (p - \omega v)
             double minus_omega = -omega ;
             double one = 1 ;
-            cublasDaxpy(_handle_cublas, p.rows, &minus_omega, q.get(), 1, p.get(), 1) ;
-            cublasDscal(_handle_cublas, p.rows, &beta, p.get(), 1);
-            cublasDaxpy(_handle_cublas, p.rows, &one, r.get(), 1, p.get(), 1) ;
+            cublasDaxpy(CublasHandle::get(), p.rows, &minus_omega, q.get(), 1, p.get(), 1) ;
+            cublasDscal(CublasHandle::get(), p.rows, &beta, p.get(), 1);
+            cublasDaxpy(CublasHandle::get(), p.rows, &one, r.get(), 1, p.get(), 1) ;
         }
         restart = 0 ;
 
@@ -229,7 +229,7 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
 
         // Step 3 : Compute q = A y (sparse matrix-vector multiplication)
         status = cusparseSpMV(
-                    _handle_cusparse, CUSPARSE_OPERATION_NON_TRANSPOSE,
+                    CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
                     &one, mat.descr, y.descr, &zero, q.descr, 
                     CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, buffer.get()) ;
         if (status != CUSPARSE_STATUS_SUCCESS)
@@ -242,18 +242,18 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
         //    x = x + \alpha y
         //    r = r - \alpha q
         double temp ;
-        cublasDdot(_handle_cublas, rt.rows, rt.get(), 1, q.get(), 1, &temp);
+        cublasDdot(CublasHandle::get(), rt.rows, rt.get(), 1, q.get(), 1, &temp);
 
         //std::cout << "alpha: " << rho << "/" << temp ;
         alpha = rho/temp;       
         //std::cout << "=" << alpha << "\n" ;
-        cublasDaxpy(_handle_cublas, y.rows, &alpha, y.get(), 1, x.get(), 1) ;
+        cublasDaxpy(CublasHandle::get(), y.rows, &alpha, y.get(), 1, x.get(), 1) ;
         double minus_alpha = -1*alpha ;
-        cublasDaxpy(_handle_cublas, q.rows, &minus_alpha, q.get(), 1, r.get(), 1) ; 
+        cublasDaxpy(CublasHandle::get(), q.rows, &minus_alpha, q.get(), 1, r.get(), 1) ; 
 
 
         //check for convergence		      
-        cublasDdot(_handle_cublas, r.rows, r.get(), 1, r.get(), 1, &normr);
+        cublasDdot(CublasHandle::get(), r.rows, r.get(), 1, r.get(), 1, &normr);
         
         
         // converged = normr <= _tol*_tol*normrhs ;
@@ -275,7 +275,7 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
 
         // Step 6 : Compute t = A z (sparse matrix-vector multiplication)
         status = cusparseSpMV(
-                    _handle_cusparse, CUSPARSE_OPERATION_NON_TRANSPOSE,
+                    CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
                     &one, mat.descr, z.descr, &zero, t.descr, 
                     CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, buffer.get()) ;
         if (status != CUSPARSE_STATUS_SUCCESS)
@@ -287,8 +287,8 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
         //    \omega = (t^{T} r) / (t^{T} t)
         //    x = x + \omega z
         //    r = s - \omega t
-        cublasDdot(_handle_cublas, t.rows, t.get(), 1, r.get(), 1, &omega);
-        cublasDdot(_handle_cublas, t.rows, t.get(), 1, t.get(), 1, &temp);
+        cublasDdot(CublasHandle::get(), t.rows, t.get(), 1, r.get(), 1, &omega);
+        cublasDdot(CublasHandle::get(), t.rows, t.get(), 1, t.get(), 1, &temp);
 
         if (omega == 0 || temp == 0) {
             std::cout << "BiCGStab Failed. Omega=" << omega << "/" << temp
@@ -299,13 +299,13 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
         omega /= temp ;
         //std::cout << "=" << omega << "\n" ;
 
-        cublasDaxpy(_handle_cublas, z.rows, &omega, z.get(), 1, x.get(), 1) ;
+        cublasDaxpy(CublasHandle::get(), z.rows, &omega, z.get(), 1, x.get(), 1) ;
         double minus_omega = -1*omega ;
-        cublasDaxpy(_handle_cublas, t.rows, &minus_omega, t.get(), 1, r.get(), 1) ; 
+        cublasDaxpy(CublasHandle::get(), t.rows, &minus_omega, t.get(), 1, r.get(), 1) ; 
 
 
         //check for convergence		      
-        cublasDdot(_handle_cublas, r.rows, r.get(), 1, r.get(), 1, &normr);
+        cublasDdot(CublasHandle::get(), r.rows, r.get(), 1, r.get(), 1, &normr);
 
         //converged = normr <= _tol*_tol*normrhs ;
         converged = (*_check_convergence)(x, r, rhs) && normr < 1e-8*normrhs;
