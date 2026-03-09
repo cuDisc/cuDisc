@@ -8,19 +8,9 @@
 #include "pcg_solver.h"
 #include "timing.h"
 
-NoPrecond::NoPrecond() {
-    cublasStatus_t status_cub = 
-        cublasCreate(&_handle_cublas) ;
-    if (status_cub != CUBLAS_STATUS_SUCCESS)
-        throw std::runtime_error("Failed to initialize CUBLAS") ;
-}
-NoPrecond::~NoPrecond() {
-    cublasDestroy(_handle_cublas) ;
-}
 
 void NoPrecond::solve(const DnVec& rhs, DnVec& x) {
-    cublasDcopy(_handle_cublas, rhs.rows, rhs.get(), 1,  x.get(), 1) ;
-
+    cublasDcopy(CublasHandle::get(), rhs.rows, rhs.get(), 1,  x.get(), 1) ;
 } 
 
 ILU_precond::ILU_precond(const CSR_SpMatrix& mat, int k) 
@@ -32,11 +22,6 @@ ILU_precond::ILU_precond(const CSR_SpMatrix& mat, int k)
 
     cusparseStatus_t status ;
 
-    status = cusparseCreate(&_handle_cusparse) ;
-    if (status != CUSPARSE_STATUS_SUCCESS)
-        throw std::runtime_error("ILU_precond:Failed to initialize CUSPARSE") ;
-
-    cublasCreate(&_handle_cublas) ;
 
     // Step 0: Setup info obejcts and policy for choleksy
     LUFacInfo infoFac ;
@@ -49,7 +34,7 @@ ILU_precond::ILU_precond(const CSR_SpMatrix& mat, int k)
 
    // Step 1: Create the max buffer size needed.
    int buffer_size1 ;
-   cusparseDcsrilu02_bufferSize(_handle_cusparse,
+   cusparseDcsrilu02_bufferSize(CusparseHandle::get(),
                                 LUref.rows, LUref.non_zeros, LUref.descr,
                                 LUref.data, LUref.csr_offset, LUref.col_index,
                                 infoFac, &buffer_size1) ;
@@ -58,7 +43,7 @@ ILU_precond::ILU_precond(const CSR_SpMatrix& mat, int k)
 
 
    // Init Step 2a: Perform analysis of LU factorization
-   status = cusparseDcsrilu02_analysis(_handle_cusparse,
+   status = cusparseDcsrilu02_analysis(CusparseHandle::get(),
                                        LUref.rows, LUref.non_zeros, LUref.descr,
                                        LUref.data, LUref.csr_offset, LUref.col_index,
                                        infoFac, policyFac,
@@ -68,7 +53,7 @@ ILU_precond::ILU_precond(const CSR_SpMatrix& mat, int k)
        throw std::runtime_error("LU factorization analysis failed") ;
 
    int structural_zero ;
-   status = cusparseXcsrilu02_zeroPivot(_handle_cusparse, infoFac, &structural_zero);
+   status = cusparseXcsrilu02_zeroPivot(CusparseHandle::get(), infoFac, &structural_zero);
    
    if (status == CUSPARSE_STATUS_ZERO_PIVOT) {
        std::stringstream msg ;
@@ -80,7 +65,7 @@ ILU_precond::ILU_precond(const CSR_SpMatrix& mat, int k)
 
 
    // Init Step 3: Perform incomplete-LU factorization
-   status = cusparseDcsrilu02(_handle_cusparse,
+   status = cusparseDcsrilu02(CusparseHandle::get(),
                              LUref.rows, LUref.non_zeros, LUref.descr,
                              LUref.data, LUref.csr_offset, LUref.col_index,
                              infoFac, policyFac, buffer.get());
@@ -89,7 +74,7 @@ ILU_precond::ILU_precond(const CSR_SpMatrix& mat, int k)
        throw std::runtime_error("LU factorization failed") ;
 
    int numerical_zero ;
-   status = cusparseXcsrilu02_zeroPivot(_handle_cusparse, infoFac, &numerical_zero);
+   status = cusparseXcsrilu02_zeroPivot(CusparseHandle::get(), infoFac, &numerical_zero);
    if (status == CUSPARSE_STATUS_ZERO_PIVOT){
        std::stringstream msg ;
        msg << "Zero at A(" << numerical_zero << "," << numerical_zero << ")"
@@ -115,28 +100,28 @@ void ILU_precond::setup(const DnVec& rhs, DnVec& result) {
     size_t buffersize ;
     double one = 1 ;
     cusparseSpSV_bufferSize(
-            _handle_cusparse, CUSPARSE_OPERATION_NON_TRANSPOSE,
+            CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
             &one, LUfac.matL, rhs, tmp, CUDA_R_64F,
             CUSPARSE_SPSV_ALG_DEFAULT, solveL, &buffersize) ;
     bufferL = make_CudaArray<char>(buffersize) ;
 
     //  Do pre-analysis for the transform      
     cusparseSpSV_analysis(
-            _handle_cusparse, CUSPARSE_OPERATION_NON_TRANSPOSE,
+            CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
             &one, LUfac.matL, rhs, tmp, CUDA_R_64F,
             CUSPARSE_SPSV_ALG_DEFAULT, solveL, bufferL.get()) ;
 
     // Upper triangular matric
     //  allocate an external buffer for analysis
     cusparseSpSV_bufferSize(
-            _handle_cusparse, CUSPARSE_OPERATION_NON_TRANSPOSE,
+            CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
             &one, LUfac.matU, tmp, result, CUDA_R_64F,
             CUSPARSE_SPSV_ALG_DEFAULT, solveU, &buffersize) ;
     bufferU = make_CudaArray<char>(buffersize) ;
 
     //  Do pre-analysis for the transform      
     cusparseSpSV_analysis(
-            _handle_cusparse, CUSPARSE_OPERATION_NON_TRANSPOSE,
+            CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
             &one, LUfac.matU, tmp, result, CUDA_R_64F,
             CUSPARSE_SPSV_ALG_DEFAULT, solveU, bufferU.get()) ;
 }
@@ -151,7 +136,7 @@ void ILU_precond::solve(const DnVec& rhs, DnVec& result) {
 
     // execute SpSV
     status =  cusparseSpSV_solve(
-            _handle_cusparse, CUSPARSE_OPERATION_NON_TRANSPOSE,
+            CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
             &one, LUfac.matL, rhs, tmp, CUDA_R_64F,
             CUSPARSE_SPSV_ALG_DEFAULT, solveL) ;
 
@@ -159,7 +144,7 @@ void ILU_precond::solve(const DnVec& rhs, DnVec& result) {
         throw std::runtime_error("BiCGStab: Preconditioning step 1 failed") ;
 
     status =  cusparseSpSV_solve(
-            _handle_cusparse, CUSPARSE_OPERATION_NON_TRANSPOSE,
+            CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
             &one, LUfac.matU, tmp, result, CUDA_R_64F,
             CUSPARSE_SPSV_ALG_DEFAULT, solveU) ;
 
@@ -182,7 +167,7 @@ CSR_SpMatrix ILU_precond::get_ILUk_shape(const CSR_SpMatrix& mat, int k) {
 
     double alpha = 1, beta = 0 ;
     
-    cusparseSetPointerMode(_handle_cusparse, CUSPARSE_POINTER_MODE_HOST);
+    cusparseSetPointerMode(CusparseHandle::get(), CUSPARSE_POINTER_MODE_HOST);
     SpGEMMDescr spgemmDesc ;
 
     size_t bufferSize1 = 0 ;
@@ -196,7 +181,7 @@ CSR_SpMatrix ILU_precond::get_ILUk_shape(const CSR_SpMatrix& mat, int k) {
         // Get the buffer size
         size_t bufferSize_new ;
         cusparseStatus_t status = 
-            cusparseSpGEMM_workEstimation(_handle_cusparse,
+            cusparseSpGEMM_workEstimation(CusparseHandle::get(),
                 CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
                 &alpha, matA, matI, &beta, matC,
                 CUDA_R_64F, CUSPARSE_SPGEMM_DEFAULT,
@@ -213,7 +198,7 @@ CSR_SpMatrix ILU_precond::get_ILUk_shape(const CSR_SpMatrix& mat, int k) {
         // inspect the matrices A and B to understand the memory requirement for
         // the next step
         status =
-            cusparseSpGEMM_workEstimation(_handle_cusparse,
+            cusparseSpGEMM_workEstimation(CusparseHandle::get(),
                 CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
                 &alpha, matA, matI, &beta, matC,
                 CUDA_R_64F, CUSPARSE_SPGEMM_DEFAULT,
@@ -224,7 +209,7 @@ CSR_SpMatrix ILU_precond::get_ILUk_shape(const CSR_SpMatrix& mat, int k) {
 
         // ask bufferSize_new bytes for external memory
         status = 
-            cusparseSpGEMM_compute(_handle_cusparse,
+            cusparseSpGEMM_compute(CusparseHandle::get(),
                 CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
                 &alpha, matA, matI, &beta, matC,
                 CUDA_R_64F, CUSPARSE_SPGEMM_DEFAULT,
@@ -240,7 +225,7 @@ CSR_SpMatrix ILU_precond::get_ILUk_shape(const CSR_SpMatrix& mat, int k) {
 
         // compute the intermediate product of A * B
         status = 
-            cusparseSpGEMM_compute(_handle_cusparse,
+            cusparseSpGEMM_compute(CusparseHandle::get(),
                 CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
                 &alpha, matA, matI, &beta, matC,
                 CUDA_R_64F, CUSPARSE_SPGEMM_DEFAULT,
@@ -254,7 +239,7 @@ CSR_SpMatrix ILU_precond::get_ILUk_shape(const CSR_SpMatrix& mat, int k) {
 
 
         // copy the final products to the matrix C
-        status = cusparseSpGEMM_copy(_handle_cusparse,
+        status = cusparseSpGEMM_copy(CusparseHandle::get(),
                     CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
                     &alpha, matA, matI, &beta, matC,
                     CUDA_R_64F, CUSPARSE_SPGEMM_DEFAULT,

@@ -11,17 +11,7 @@
 
 BlockJacobi_precond::BlockJacobi_precond(const CSR_SpMatrix& mat, int block_size) 
     : A(mat), tmp(mat.rows), _block_size(block_size)
-{
-    cublasStatus_t status_cub = 
-        cublasCreate(&_handle_cublas) ;
-    if (status_cub != CUBLAS_STATUS_SUCCESS)
-        throw std::runtime_error("Failed to initialize CUBLAS") ;
-
-    cusparseStatus_t status_cus =
-        cusparseCreate(&_handle_cusparse) ;
-     if (status_cus != CUSPARSE_STATUS_SUCCESS)
-        throw std::runtime_error("Failed to initialize CUSPARSE") ;
-}
+{ } ;
 
 /* _block_jacobi_solve
  *
