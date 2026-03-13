@@ -17,7 +17,7 @@ DIRECTORIES = $(HEADER_DIR) $(HEADER_DIR)/coagulation $(SRC_DIR)
 CPP    = g++
 CFLAGS = -O3 -g -std=c++17 -Wall -Wextra -march=native 
 
-HIP_MODE=0
+HIP_MODE = 0
 
 ifeq ($(HIP_MODE),1)
 	HIP_HOME = /opt/rocm
@@ -32,9 +32,8 @@ ifeq ($(HIP_MODE),1)
 	GPU_INCLUDE = -I./$(HEADER_DIR) $(HIP_ARGS) $(HIP_INCLUDE)
 	GPU_LIBS    = $(HIP_LIBS)
 	CFLAGS := $(CFLAGS) $(HIP_ARGS) $(HIP_INCLUDE)
-
-else
-	CUDA_HOME  =  /usr/local/cuda-12.0
+else	
+    CUDA_HOME = /usr/local/cuda-12.0
     GPU_COMPILER = nvcc
 
 	ARCH = --generate-code arch=compute_60,code=sm_60 \
