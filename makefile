@@ -101,6 +101,7 @@ $(LIBRARY): $(OBJ)
 # Compilation rules
 # =========================
 
+# Copy files to buld directory, and hipify if needed.
 $(HEADER_DIR)/%.h: headers/%.h
 	@mkdir -p $(DIRECTORIES)
 	@if [ $(HIP_MODE) -eq 1 ]; then \
