@@ -5,21 +5,7 @@ HEADER_DIR = build/headers
 SRC_DIR= build/src
 BUILD_DIR  = build
 
-# =========================
-# HIP / ROCm toolchain (AMD)
-# =========================
-HIP_HOME = /opt/rocm
-HIPCC= hipcc
 
-# MI300A is usually gfx942 – verify with `rocminfo`
-AMDGPU_TARGET = gfx942
-HIPFLAGS  = -O3 -g -std=c++17 -Wall -Wextra --offload-arch=$(AMDGPU_TARGET)
-# hipBLAS/hipSPARSE wrappers over rocBLAS/rocSPARSE
-
-HIP_LIBS  = -L$(HIP_HOME)/lib -lamdhip64 -lhipblas -lhipsparse
-HIP_ARGS = $(shell /opt/rocm/bin/hipconfig --cpp_config)
-CPP= g++
-CFLAGS = -O3 -g -std=c++17 -Wall -Wextra -march=native $(HIP_ARGS)
 DIRECTORIES = $(HEADER_DIR) $(HEADER_DIR)/coagulation $(SRC_DIR)
 
 # =========================
@@ -27,10 +13,38 @@ DIRECTORIES = $(HEADER_DIR) $(HEADER_DIR)/coagulation $(SRC_DIR)
 #   HIP_MODE=1  → HIP/ROCm
 #   default → CUDA
 # =========================
-GPU_COMPILER = $(HIPCC)
-GPU_FLAGS= $(HIPFLAGS)
-GPU_INCLUDE  = -I./$(HEADER_DIR) $(HIP_ARGS)
-GPU_LIBS = $(HIP_LIBS)
+
+CPP    = g++
+CFLAGS = -O3 -g -std=c++17 -Wall -Wextra -march=native
+
+HIP_MODE=0
+
+ifeq ($(HIP_MODE),1)
+	HIP_HOME = /opt/rocm
+    GPU_COMPILER = hipcc
+	AMDGPU_TARGET = gfx942
+	GPU_FLAGS= -O3 -g -std=c++17 -Wall -Wextra --offload-arch=$(AMDGPU_TARGET)
+	HIP_INCLUDE = -I$(HIP_HOME)/include -I$(HIP_HOME)/include/hipblas -I$(HIP_HOME)/include/hipsparse
+	HIP_LIBS  = -L$(HIP_HOME)/lib -lamdhip64 -lhipblas -lhipsparse
+	HIP_ARGS = $(shell /opt/rocm/bin/hipconfig --cpp_config)
+	CFLAGS := $(CFLAGS) $(HIP_ARGS) $(HIP_INCLUDE)
+	GPU_INCLUDE  = -I./$(HEADER_DIR) $(HIP_ARGS) $(HIP_INCLUDE)
+	GPU_LIBS = $(HIP_LIBS)
+else
+	CUDA_HOME  = /usr/local/cuda-12.0
+	ARCH = --generate-code arch=compute_60,code=sm_60 \
+       --generate-code arch=compute_61,code=sm_61 \
+       --generate-code arch=compute_62,code=sm_62 \
+       --generate-code arch=compute_70,code=sm_70 \
+       --generate-code arch=compute_72,code=sm_72 \
+       --generate-code arch=compute_75,code=sm_75 \
+       --generate-code arch=compute_80,code=sm_80 \
+       --generate-code arch=compute_86,code=sm_86
+    GPU_COMPILER = nvcc
+    GPU_FLAGS    = -O3 -g --std=c++17 -Wno-deprecated-gpu-targets $(ARCH)
+    GPU_INCLUDE  = -I./$(HEADER_DIR) -I$(CUDA_HOME)/include
+    GPU_LIBS     = -L$(CUDA_HOME)/lib64 -lcudart -lcublas -lcusparse
+endif
 
 # =========================
 # Headers and objects
@@ -38,23 +52,20 @@ GPU_LIBS = $(HIP_LIBS)
 COAG_HEADERS := coagulation.h kernels.h fragments.h size_grid.h integration.h
 COAG_HEADERS := $(addprefix coagulation/, $(COAG_HEADERS))
 HEADERS := grid.h field.h cuda_array.h reductions.h utils.h matrix_types.h scan.h \
-   stellar_irradiation.h planck.h opacity.h constants.h FLD.h FLD_device.h \
-   pcg_solver.h radmc3d_utils.h star.h timing.h bins.h advection.h hydrostatic.h \
-   diffusion_device.h sources.h gas1d.h DSHARP_opacs.h file_io.h errorfuncs.h \
-   dustdynamics.h dustdynamics1D.h van_leer.h drag_const.h interpolate.h flags.h $(COAG_HEADERS)
+           stellar_irradiation.h planck.h opacity.h constants.h FLD.h FLD_device.h \
+           pcg_solver.h radmc3d_utils.h star.h timing.h bins.h advection.h \
+           diffusion_device.h sources.h gas1d.h DSHARP_opacs.h file_io.h errorfuncs.h \
+           dustdynamics.h dustdynamics1D.h van_leer.h drag_const.h \
+		   interpolate.h flags.h matrix_utils.h super_stepping.h hydrostatic.h $(COAG_HEADERS)
 
 HEADERS := $(addprefix $(HEADER_DIR)/, $(HEADERS))
 
-OLD_OBJ := grid.o integrate_z.o scan.o scan3d.o zero_bounds.o copy.o \
-   hydrostatic.o pcg_solver.o stellar_irradiation.o FLD_mono.o FLD_multi.o \
-   jacobi.o ILU_precond.o gmres.o block_jacobi.o sparse_utils.o \
-   radmc3d_utils.o timing.o star.o bins.o check_tol.o advection.o diffusion.o \
-   coagulation.o coagulation_init.o coagulation_integrate.o super_stepping.o \
-   sources.o gas1d.o DSHARP_opacs.o dustdynamics.o dustdynamics1D.o
-
-OBJ := grid.o sources.o dustdynamics.o scan3d.o scan.o zero_bounds.o bins.o DSHARP_opacs.o \
-	coagulation.o coagulation_init.o coagulation_integrate.o timing.o copy.o gas1d.o hydrostatic.o \
-	scan.o scan3d.o integrate_z.o dustdynamics1D.o
+OBJ := grid.o integrate_z.o scan.o scan3d.o zero_bounds.o copy.o \
+       hydrostatic.o pcg_solver.o stellar_irradiation.o FLD_mono.o FLD_multi.o \
+       jacobi.o ILU_precond.o gmres.o block_jacobi.o sparse_utils.o \
+       radmc3d_utils.o timing.o star.o bins.o check_tol.o advection.o diffusion.o \
+       coagulation.o coagulation_init.o coagulation_integrate.o super_stepping.o \
+       sources.o gas1d.o DSHARP_opacs.o dustdynamics.o dustdynamics1D.o
 
 
 OBJ := $(addprefix $(BUILD_DIR)/, $(OBJ))
@@ -74,16 +85,6 @@ LIBRARY= lib/libcudisc.a
 .PHONY: tests clean bintidy lib run_units cuda_build hip_build all
 .SECONDARY: $(HEADERS) $(DIRECTORIES) $(OBJ)
 
-all: cuda_build
-
-# High-level targets
-
-cuda_build: HIP_MODE=
-cuda_build: $(LIBRARY)
-
-hip_build: HIP_MODE=1
-hip_build: $(LIBRARY)
-
 tests: $(TEST_OBJ)
 lib: $(LIBRARY)
 
@@ -97,13 +98,31 @@ $(LIBRARY): $(OBJ)
 
 $(HEADER_DIR)/%.h: headers/%.h
 	@mkdir -p $(DIRECTORIES)
-	hipify-perl $< > $@
+	@if [ $(HIP_MODE) -eq 1 ]; then \
+		echo "hipify-perl $< > $@"; \
+		hipify-perl $< > $@; \
+	else \
+		echo "cp $< $@"; \
+		cp $< $@; \
+	fi
 $(SRC_DIR)/%.cu: src/%.cu
 	@mkdir -p $(DIRECTORIES)
-	hipify-perl $< > $@
+	@if [ $(HIP_MODE) -eq 1 ]; then \
+		echo "hipify-perl $< > $@"; \
+		hipify-perl $< > $@; \
+	else \
+		echo "cp $< $@"; \
+		cp $< $@; \
+	fi
 $(SRC_DIR)/%.cpp: src/%.cpp
 	@mkdir -p $(DIRECTORIES)
-	hipify-perl $< > $@
+	@if [ $(HIP_MODE) -eq 1 ]; then \
+		echo "hipify-perl $< > $@"; \
+		hipify-perl $< > $@; \
+	else \
+		echo "cp $< $@"; \
+		cp $< $@; \
+	fi
 
 # Host C++ sources (always from src/, same in CUDA and HIP builds)
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp $(HEADERS) makefile
@@ -140,8 +159,9 @@ run_units: $(UNIT_TESTS)
 		wait; \
 		fi; \
 	done
-	clean:
-	rm -rf build/*.o $(TEST_OBJ) $(LIBRARY)
+
+clean:
+	rm -rf build/*.o $(TEST_OBJ) $(LIBRARY) $(HEADER_DIR)/*.h $(SRC_DIR)/*.cu $(SRC_DIR)/*.cpp $(HEADER_DIR)/coagulation/*.h
 
 bintidy:
 	rm -f ./test_* unit_adv_diff unit_coag unit_temp
