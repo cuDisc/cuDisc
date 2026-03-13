@@ -15,23 +15,28 @@ DIRECTORIES = $(HEADER_DIR) $(HEADER_DIR)/coagulation $(SRC_DIR)
 # =========================
 
 CPP    = g++
-CFLAGS = -O3 -g -std=c++17 -Wall -Wextra -march=native
+CFLAGS = -O3 -g -std=c++17 -Wall -Wextra -march=native 
 
 HIP_MODE=0
 
 ifeq ($(HIP_MODE),1)
 	HIP_HOME = /opt/rocm
-    GPU_COMPILER = hipcc
-	AMDGPU_TARGET = gfx942
-	GPU_FLAGS= -O3 -g -std=c++17 -Wall -Wextra --offload-arch=$(AMDGPU_TARGET)
+    GPU_COMPILER  = hipcc
+
+	AMDGPU_TARGET = gfx942 
+	GPU_FLAGS   = -O3 -g -std=c++17 -Wall -Wextra --offload-arch=$(AMDGPU_TARGET)
 	HIP_INCLUDE = -I$(HIP_HOME)/include -I$(HIP_HOME)/include/hipblas -I$(HIP_HOME)/include/hipsparse
-	HIP_LIBS  = -L$(HIP_HOME)/lib -lamdhip64 -lhipblas -lhipsparse
-	HIP_ARGS = $(shell /opt/rocm/bin/hipconfig --cpp_config)
+	HIP_LIBS    = -L$(HIP_HOME)/lib -lamdhip64 -lhipblas -lhipsparse
+	HIP_ARGS     = $(shell /opt/rocm/bin/hipconfig --cpp_config)
+	
+	GPU_INCLUDE = -I./$(HEADER_DIR) $(HIP_ARGS) $(HIP_INCLUDE)
+	GPU_LIBS    = $(HIP_LIBS)
 	CFLAGS := $(CFLAGS) $(HIP_ARGS) $(HIP_INCLUDE)
-	GPU_INCLUDE  = -I./$(HEADER_DIR) $(HIP_ARGS) $(HIP_INCLUDE)
-	GPU_LIBS = $(HIP_LIBS)
+
 else
-	CUDA_HOME  = /usr/local/cuda-12.0
+	CUDA_HOME  =  /usr/local/cuda-12.0
+    GPU_COMPILER = nvcc
+
 	ARCH = --generate-code arch=compute_60,code=sm_60 \
        --generate-code arch=compute_61,code=sm_61 \
        --generate-code arch=compute_62,code=sm_62 \
@@ -40,10 +45,11 @@ else
        --generate-code arch=compute_75,code=sm_75 \
        --generate-code arch=compute_80,code=sm_80 \
        --generate-code arch=compute_86,code=sm_86
-    GPU_COMPILER = nvcc
+
     GPU_FLAGS    = -O3 -g --std=c++17 -Wno-deprecated-gpu-targets $(ARCH)
     GPU_INCLUDE  = -I./$(HEADER_DIR) -I$(CUDA_HOME)/include
     GPU_LIBS     = -L$(CUDA_HOME)/lib64 -lcudart -lcublas -lcusparse
+	CFLAGS := $(CFLAGS) -I$(CUDA_HOME)/include 
 endif
 
 # =========================
