@@ -12,13 +12,15 @@ void update_gas_sigma(Grid& g, CudaArray<double>& Sig_g, double dt, const Field<
 
 void update_gas_vel(Grid& g, CudaArray<double>& Sig_g, CudaArray<double>& u_gas, double alpha, Star& star);
 
+void calc_gas_velocities_from_nu(Grid& g, CudaArray<double>& Sig_g, Field<Prims>& wg, Field<double>& cs2, CudaArray<double>& nu, double alpha, Star& star, int bound, double floor, double cav=0.) ;
+void calc_gas_velocities_from_nu(Grid& g, CudaArray<double>& Sig_g, Field<Prims>& wg, Field<double>& cs2, CudaArray<double>& nu, CudaArray<double>& alpha, Star& star, int bound, double floor, double cav=0.);
 void calc_gas_velocities(Grid& g, CudaArray<double>& Sig_g, Field<Prims>& wg, Field<double>& cs2, CudaArray<double>& nu, double alpha, Star& star, int bound, double floor, double cav=0.) ;
 void calc_gas_velocities_full(Grid& g, CudaArray<double>& Sig_g, Field<Prims>& wg, Field<double>& cs2, CudaArray<double>& nu, double alpha, Star& star, int bound, double floor, double cav=0.) ;
 
 void calc_gas_velocities_wind(Grid& g, Field<Prims>& wg, CudaArray<double>& Sig_g, Field<double>& cs2, CudaArray<double>& nu, CudaArray<double>& Sig_dot_w,
                             double alpha, Star& star, int bound, double floor, double cav) ;
 
-void update_gas_sources(Grid& g, CudaArray<double>& Sig_g, CudaArray<double>& Sigdot, double dt, int bound, double gfloor);
+void update_gas_sources(Grid& g, CudaArray<double>& Sig_g, CudaArray<double>& Sigdot, CudaArray<double>& nu, double dt, int bound, double gfloor);
 
 double calc_dt(Grid& g, const CudaArray<double>& nu);
 double calc_dt(Grid& g, const Field<double>& nu);
