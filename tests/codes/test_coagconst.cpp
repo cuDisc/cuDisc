@@ -80,6 +80,9 @@ int main() {
     Field3D<double> rho = create_field3D<double>(g, 150) ;
     setup_IC(g, sizes, rho) ;
 
+    Field<double> rho_g = create_field<double>(g) ;
+    set_all(g,rho_g,1);
+
     // Create the kernel/rates
     BS32Integration<CoagulationRate<ConstantKernel, SimpleErosion>>
         coagulation_integrate(
@@ -91,9 +94,10 @@ int main() {
     std::vector<double> t_out = {0., 1., 10., 100., 1000.} ;
     double t = 0;
     int Nout = 0 ;
+    double dt = 0;
     for (auto ti : t_out) {
         if (ti > t) 
-            coagulation_integrate.integrate(g, rho, ti-t) ;
+            coagulation_integrate.integrate(g, rho, rho_g, ti-t, dt) ;
         t = ti ;
 
         // Save to file:
