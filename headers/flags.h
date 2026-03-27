@@ -14,6 +14,8 @@ enum BoundaryFlags {
     set_ext_Z_inner = 1 << 6,
     set_ext_Z_outer = 1 << 7,
 
+    const_Mdot_R_inner = 1 << 8,
+    const_Mdot_R_outer = 1 << 9
 
     // INFLOW BOUNDARIES NEED ADDING
 
