@@ -922,7 +922,10 @@ void calc_gas_velocities_from_nu(Grid& g, CudaArray<double>& Sig_g, Field<Prims>
 /**
  * Calculates the gas radial velocity using a temperature profile derived from the inputted viscosity, nu.
  * This T is used to calculate the 2D gas density from Sig_g via hydrostatic equilibrium.
- * The final radial velocities are adjusted so that the radial Mdot is correct given the actual 2D gas density.
+ * The final radial velocities are adjusted so that the radial Mdot is correct given the actual 2D gas density:
+ *  
+ *  vR = vR_param * rho_g_param / rho_g_actual
+ * 
  * The azimuthal velocity is still calculated from the full temperature profile.
  */
 void calc_gas_velocities_from_nu(Grid& g, CudaArray<double>& Sig_g, Field<Prims>& wg, Field<double>& cs2, CudaArray<double>& nu, CudaArray<double>& alpha, Star& star, int bound, double floor, double cav) {
