@@ -578,7 +578,7 @@ __global__ void _calc_vphi(GridRef g, FieldConstRef<double> p, FieldRef<double> 
                 continue;
             }
 
-            double dpdZ = exp(p(i,j))*vl_Z2D(g, p, i ,j);
+            double dpdZ = exp(p(i,j))*slope2OZ(g, p, i ,j);
 
             double dpdr = exp(p(i,j))*slope4Or(g, p, i, j);
 
@@ -629,7 +629,7 @@ __global__ void _calc_T(GridRef g, FieldRef<double> Trphi, FieldRef<double> TZph
     for (int i=iidx+g.Nghost+nbuffer; i<g.NR+g.Nghost-nbuffer; i+=istride) {
         for (int j=jidx+g.Nghost-1; j<g.Nphi+g.Nghost-nbuffer; j+=jstride) {
 
-            dvphidZ(i,j) = vl_Z2D(g, vphig, i, j);
+            dvphidZ(i,j) = slope2OZ(g, vphig, i, j);
 
             dvphidr(i,j) = slope4Or(g, vphig, i, j); 
 
@@ -661,7 +661,7 @@ __global__ void _calc_vr(GridRef g, FieldConstRef<double> Trphi, FieldConstRef<d
                 continue;
             }
             
-            double dTZphidZ = vl_Z2D(g, TZphi, i, j);
+            double dTZphidZ = slope2OZ(g, TZphi, i, j);
 
             double dTrphidr = slope4Or(g, Trphi, i, j);
 
