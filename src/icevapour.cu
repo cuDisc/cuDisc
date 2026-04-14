@@ -412,6 +412,20 @@ __global__ void set_tol(GridRef g, FieldRef<double> err) {
     }
 }
 
+__global__ void _calc_drhovdt(GridRef g, FieldRef<double> drhovdt, Field3DRef<double> rhos, Field3DRef<double> rhos_0, double dt) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
+            drhovdt(i,j) = (rhos(i,j,rhos.Nd-1)-rhos_0(i,j,rhos.Nd-1))/dt;
+        }
+    }
+}
+
 __global__ void _floor_above_phdiss(GridRef g, FieldRef<Prims> wg, MoleculeRef mol, double* h, double _floor) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
@@ -477,6 +491,8 @@ void IceVapChem::imp_update(double dt, double& dt_chem) {
     Reduction::scan_Z_sum(_g,err);
     cudaDeviceSynchronize();
     dt_chem = dt * 0.01/err(_g.NR + 2*_g.Nghost-1,_g.Nphi + 2*_g.Nghost-1);
+
+    _calc_drhovdt<<<blocks,threads>>>(_g, _drhovdt, rhos, rhos_0, dt);
 
     copy_final_values<<<blocks,threads>>>(_g, rhos, _mol, _floor, _Wg);
 }
@@ -557,6 +573,34 @@ void update_sizegrid(Grid& g, SizeGridIce& sizes, Field3D<Prims1D>& Qd, Field3D<
 
     _update_sizegrid<<<blocks3,threads3>>>(g, sizes.ice, Field3DRef<Prims1D>(Qd), Field3DRef<Prims1D>(ice), sizes.grain_masses(), sizes.solid_density(), sizes.ice_density());
     cudaDeviceSynchronize();
+}
+
+
+// Latent heat calculation
+
+__global__ void add_latent_heating_device(GridRef g, double L_latent, FieldRef<double> drhovdt, FieldRef<double> heating) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ; 
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {  
+            heating(i,j) -= drhovdt(i,j) * L_latent;
+        }
+    }
+}
+
+/**
+ * Latent heating calculation following https://arxiv.org/pdf/2502.08936
+ */
+void IceVapChem::add_latent_heating(double L_latent, Field<double>& heating) {
+
+    dim3 threads(32,16,1) ;
+    dim3 blocks((_g.NR + 2*_g.Nghost+31)/32,(_g.Nphi + 2*_g.Nghost+15)/16,1) ;
+
+    add_latent_heating_device<<<blocks, threads>>>(_g, L_latent, _drhovdt, heating) ;
 }
 
 

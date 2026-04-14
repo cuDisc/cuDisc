@@ -67,6 +67,7 @@ class IceVapChem {
         double _floor;
         WavelengthBinner& _bins;
         int _Jbin_idx;
+        Field<double> _drhovdt = create_field<double>(_g);
 
 
     public:
@@ -83,6 +84,8 @@ class IceVapChem {
                         } ; 
 
         void imp_update(double dt, double& dt_chem);
+
+        void add_latent_heating(double L_latent, Field<double>& heating);
 
         void change_molecule(Molecule& mol) {
             _mol = mol;
@@ -134,7 +137,6 @@ class IceVapChem {
                 for (int j=0; j<_g.Nphi+2*_g.Nghost; j++) {
                     
                     f.read((char*) &_mol.vap(i,j), sizeof(double));
-                    double ice_tot = 0;
                     for (int k=0; k<nspec; k++) {
                         f.read((char*) &_mol.ice(i,j,k), sizeof(double));
                         f.read((char*) &_sizes.ice(i,j,k).a, sizeof(double));
