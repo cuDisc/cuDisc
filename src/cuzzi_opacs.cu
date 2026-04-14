@@ -259,10 +259,10 @@ CuzziComp::CuzziComp(int n_lam, double* lam) {
 
 DSHARPComp::DSHARPComp(int n_lam, double* lam) {
     std::cout << "Loading DSHARP composition\n";
-    ice.dens = 0.92, ice.mf = 0.2, ice.opt = load_warren(n_lam, lam);
-    sil.dens = 3.3, sil.mf = 0.329, sil.opt = load_draine(n_lam, lam, "astrosilicates");
-    FeS.dens = 4.83, FeS.mf = 0.074336, FeS.opt = load_henning(n_lam, lam, "troilitek");
-    org.dens = 1.5, org.mf = 0.396648, org.opt = load_henning(n_lam, lam, "organicsk");
+    ice.dens = 0.92, ice.mf = 0., ice.opt = load_warren(n_lam, lam);
+    sil.dens = 3.3, sil.mf = 0.41125, sil.opt = load_draine(n_lam, lam, "astrosilicates");
+    FeS.dens = 4.83, FeS.mf = 0.09292, FeS.opt = load_henning(n_lam, lam, "troilitek");
+    org.dens = 1.5, org.mf = 0.49581, org.opt = load_henning(n_lam, lam, "organicsk");
 }
 
 DSHARPwCOComp::DSHARPwCOComp(int n_lam, double* lam) {
@@ -367,15 +367,17 @@ void CuzziOpacs<CompMix>::calc_opacs(SizeGrid& sizes, double por) {
 
             Q_s = std::min(Q_s*(1.-g),1.);
 
-            k_abs_ptr[k*n_lam + i] = M_PI*sizes.centre_size(k)*sizes.centre_size(k)*Q_a/sizes.centre_mass(k);
-            k_sca_ptr[k*n_lam + i] = M_PI*sizes.centre_size(k)*sizes.centre_size(k)*Q_s/sizes.centre_mass(k);
+            x = 0.75/(sizes.centre_size(k)*rho_av);
+
+            k_abs_ptr[k*n_lam + i] = x*Q_a;
+            k_sca_ptr[k*n_lam + i] = x*Q_s;
         }
     }
 }
 
-// template<typename CompMix>
+template<typename CompRef>
 __global__ void _calc_rho_kappa_vol(GridRef g, Field3DConstRef<Prims> qd, FieldConstRef<Prims> wg, SizeGridIceRef sizes, double por,
-                                DSHARPwCOCompRef comps, int n_comp, double* lam, int n_lam, Field3DRef<double> rhokabs, Field3DRef<double> rhoksca, MoleculeRef mol) {
+                                CompRef comps, int n_comp, double* lam, int n_lam, Field3DRef<double> rhokabs, Field3DRef<double> rhoksca, MoleculeRef mol) {
 
     int k = threadIdx.x + blockIdx.x*blockDim.x ;
     int j = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -489,9 +491,11 @@ __global__ void _calc_rho_kappa_vol(GridRef g, Field3DConstRef<Prims> qd, FieldC
         rhokabs(i,j,k) = wg(i,j).rho*k_abs_g + rhok_dust_abs;
         rhoksca(i,j,k) = wg(i,j).rho*k_sca_g + rhok_dust_sca;
     }
-} 
+}
+
+template<typename CompRef>
 __global__ void _calc_rho_kappa_vol(GridRef g, GridRef g_in, Field3DConstRef<double> rho_d, FieldConstRef<Prims> wg, SizeGridIceRef sizes, double por, double* k_abs, double* k_sca,
-                                DSHARPwCOCompRef comps, int n_comp, double* lam, int n_lam, Field3DRef<double> rhokabs, Field3DRef<double> rhoksca, MoleculeRef mol) {
+                                CompRef comps, int n_comp, double* lam, int n_lam, Field3DRef<double> rhokabs, Field3DRef<double> rhoksca, MoleculeRef mol) {
 
     int k = threadIdx.x + blockIdx.x*blockDim.x ;
     int j = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -643,7 +647,6 @@ __global__ void _calc_rho_tot_vol(GridRef g, Field3DConstRef<Prims> wd, FieldCon
     }
 } 
 
-// template<typename T>
 void calculate_total_rhokappa(Grid& g, SizeGridIce& sizes, Field3D<Prims>& qd, Field<Prims>& wg, Field<double>& rho_tot, CuzziOpacs<DSHARPwCOComp>& opacs,
                                     Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca, Molecule& mol) {
 
@@ -659,15 +662,31 @@ void calculate_total_rhokappa(Grid& g, SizeGridIce& sizes, Field3D<Prims>& qd, F
 
     dim3 threads2D(1,32,32);
     dim3 blocks2D(1,(g.Nphi+ 2*g.Nghost +31)/32, (g.NR+2*g.Nghost+31)/32);
+    
+    _calc_rho_kappa_vol<<<blocks,threads>>>(g, qd, wg, sizes, opacs.por, DSHARPwCOCompRef(opacs.comp), opacs.comp.n_comp, opacs.lam(), opacs.n_lam, rhokappa_abs, rhokappa_sca, mol);
+    check_CUDA_errors("_calc_rho_kappa_vol") ;
 
-    // CudaArray<Comp> comps = make_CudaArray<Comp>(opacs.comp.n_comp);
-    // for (int i=0; i<opacs.comp.n_comp; i++) {
-    //     comps[i].dens = opacs.comp[i].dens;
-    //     comps[i].mf = opacs.comp[i].mf;
-    //     comps[i].opt = opacs.comp[i].opt;
-    // }
+    _calc_rho_tot_vol<<<blocks2D,threads2D>>>(g, qd, wg, mol, rho_tot);
+    check_CUDA_errors("_calc_rho_tot_vol") ;
+}
 
-    _calc_rho_kappa_vol<<<blocks,threads>>>(g, qd, wg, sizes, opacs.por, opacs.comp, opacs.comp.n_comp, opacs.lam(), opacs.n_lam, rhokappa_abs, rhokappa_sca, mol);
+void calculate_total_rhokappa(Grid& g, SizeGridIce& sizes, Field3D<Prims>& qd, Field<Prims>& wg, Field<double>& rho_tot, CuzziOpacs<DSHARPComp>& opacs,
+                                    Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca, Molecule& mol) {
+
+    int nk = 1 ;
+    while (nk < opacs.n_lam && nk < 32)
+        nk *= 2 ;
+    int nj = 512 / nk ;
+
+    dim3 threads(nk, nj, 1) ;
+    dim3 blocks((opacs.n_lam +  nk-1)/nk, 
+                (g.Nphi +  2*g.Nghost + nj-1)/nj, 
+                 g.NR +  2*g.Nghost) ;
+
+    dim3 threads2D(1,32,32);
+    dim3 blocks2D(1,(g.Nphi+ 2*g.Nghost +31)/32, (g.NR+2*g.Nghost+31)/32);
+    
+    _calc_rho_kappa_vol<<<blocks,threads>>>(g, qd, wg, sizes, opacs.por, DSHARPCompRef(opacs.comp), opacs.comp.n_comp, opacs.lam(), opacs.n_lam, rhokappa_abs, rhokappa_sca, mol);
     check_CUDA_errors("_calc_rho_kappa_vol") ;
 
     _calc_rho_tot_vol<<<blocks2D,threads2D>>>(g, qd, wg, mol, rho_tot);
@@ -687,176 +706,28 @@ void calculate_total_rhokappa(Grid& g, Grid& g_in, SizeGridIce& sizes, Field3D<d
                 (g.Nphi +  2*g.Nghost + nj-1)/nj, 
                  g.NR +  2*g.Nghost) ;
 
-    _calc_rho_kappa_vol<<<blocks,threads>>>(g, g_in, rho_d, wg, sizes, opacs.por, opacs.k_abs(), opacs.k_sca(), opacs.comp, opacs.comp.n_comp, opacs.lam(), opacs.n_lam, rhokappa_abs, rhokappa_sca, mol);
+    _calc_rho_kappa_vol<<<blocks,threads>>>(g, g_in, rho_d, wg, sizes, opacs.por, opacs.k_abs(), opacs.k_sca(), DSHARPwCOCompRef(opacs.comp), opacs.comp.n_comp, opacs.lam(), opacs.n_lam, rhokappa_abs, rhokappa_sca, mol);
     check_CUDA_errors("_calc_rho_kappa_vol") ;
 
 }
 
+void calculate_total_rhokappa(Grid& g, Grid& g_in, SizeGridIce& sizes, Field3D<double>& rho_d, Field<Prims>& wg, Field<double>& rho_tot, CuzziOpacs<DSHARPComp>& opacs,
+                                    Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca, Molecule& mol) {
 
+    int nk = 1 ;
+    while (nk < opacs.n_lam && nk < 32)
+        nk *= 2 ;
+    int nj = 512 / nk ;
 
+    dim3 threads(nk, nj, 1) ;
+    dim3 blocks((opacs.n_lam +  nk-1)/nk, 
+                (g.Nphi +  2*g.Nghost + nj-1)/nj, 
+                 g.NR +  2*g.Nghost) ;
 
+    _calc_rho_kappa_vol<<<blocks,threads>>>(g, g_in, rho_d, wg, sizes, opacs.por, opacs.k_abs(), opacs.k_sca(), DSHARPCompRef(opacs.comp), opacs.comp.n_comp, opacs.lam(), opacs.n_lam, rhokappa_abs, rhokappa_sca, mol);
+    check_CUDA_errors("_calc_rho_kappa_vol") ;
 
-
-
-
-
-
-// template<typename CompMixRef>
-// __global__
-// void _calc_opacs(GridRef g, CompMixRef comp, int n_lam, double* lam, Field3DRef<double> vfs, int n_spec, 
-//                     double* a_c, double* m_c, double* k_abs_ptr, double* k_sca_ptr) {
- 
-//     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
-//     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-//     int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-//     int istride = gridDim.x * blockDim.x ;
-//     int jstride = gridDim.y * blockDim.y ;
-//     int kstride = gridDim.z * blockDim.z ;
-
-//     for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
-//         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {   
-//             for (int k=kidx; k<n_lam; k+=kstride) {
-
-//                 CudaArray<double> sigs = make_CudaArray<double>(comp.n_comp);
-//                 CudaArray<double> gams = make_CudaArray<double>(comp.n_comp);
-//                 RefIndx eps, n;
-//                 double vfsig=0, vf2sig2gam2=0, vfgam=0;
-
-//                 for (int l=0; l<comp.n_comp; l++) {
-//                     double nr2 = comp[l].opt[k].n*comp[l].opt[k].n;
-//                     double ni2 = comp[l].opt[k].k*comp[l].opt[k].k;
-//                     sigs[l] = ((nr2-ni2-1.)*(nr2-ni2+2.)+4.*nr2*ni2)/((nr2-ni2+2.)*(nr2-ni2+2.)+4.*nr2*ni2);
-//                     gams[l] = 2.*comp[l].opt[k].n*comp[l].opt[k].k/((nr2-ni2+2.)*(nr2-ni2+2.)+4.*nr2*ni2);
-
-//                     vfsig += vfs(i,j,l)*sigs[l];
-//                     vfgam += vfs(i,j,l)*gams[l];
-//                 }
-
-//                 for (int l=0; l<comp.n_comp; l++) {
-//                     for (int m=0; m<comp.n_comp; m++) {
-//                         vf2sig2gam2 += vfs(i,j,l)*vfs(i,j,m)*(sigs[l]*sigs[m]+9.*gams[l]*gams[m]);
-//                     }
-//                 }
-//                 double D = 1.-2.*vfsig+vf2sig2gam2;
-//                 eps.n = (1.+vfsig-2.*vf2sig2gam2)/D;
-//                 eps.k = 9.*vfgam/D;
-
-//                 double eps_quad = std::sqrt(eps.n*eps.n+eps.k*eps.k)/2.;
-//                 n.n = std::sqrt(eps_quad+eps.n/2.);
-//                 n.k = std::sqrt(eps_quad-eps.n/2.);
-
-//                 for (int n=0; n<n_spec; n++) {
-//                     double x = 2.*M_PI*a_c[n]/(lam[k]/1.e4);
-
-//                     double Q_a = std::min(1.,12.*x*eps.k/((eps.n+2.)*(eps.n+2.)+eps.k*eps.k));
-//                     double Q_s, g_asym;
-                    
-//                     if (x < 1.3) {
-//                         Q_s = 8./3.*std::pow(x,4.)*((eps.n-1.)*(eps.n-1.)+eps.k*eps.k)/((eps.n+2.)*(eps.n+2.)+eps.k*eps.k);
-//                     }
-//                     else {
-//                         Q_s = 2.*x*x*(n.n-1.)*(n.n-1.)*(1.+(n.k/(n.n-1.))*(n.k/(n.n-1.)));
-//                     }
-
-//                     if (n.k < 1.) {
-//                         if (x < 3.) { g_asym = 0.7*(x/3.)*(x/3.); }
-//                         else { g_asym = 0.7; }
-//                     }
-//                     else {
-//                         if (x < 3.) { g_asym = -0.2; }
-//                         else { g_asym = 0.5; } 
-//                     }
-
-//                     Q_s = std::min(Q_s*(1.-g_asym),1.);
-
-//                     k_abs_ptr[n*n_lam + k] = M_PI*a_c[n]*a_c[n]*Q_a/m_c[n];
-//                     k_sca_ptr[n*n_lam + k] = M_PI*a_c[n]*a_c[n]*Q_s/m_c[n];
-//                 }
-
-//             }
-//         }
-//     }
-// }
-
-// template<class CompMix>
-// void CuzziOpacs<CompMix>::calc_opacs_vol(Grid& g, Molecule& mol, SizeGrid& sizes, double por) {
-
-//     dim3 threads(16,8,4) ;
-//     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (q.Nd+3)/4) ;
-
-//     CudaArray<double> vfs = make_CudaArray<double>(comp.n_comp);
-
-//     // Calc optical constants via Garnett EMT
-
-//     double rho_1 = 0;
-//     for (int i=0; i<comp.n_comp; i++) {rho_1 += comp[i].mf/comp[i].dens;}
-//     double rho_av = 1./rho_1;
-//     std::cout << "Bulk density: " << rho_av << " gcm-3";
-
-//     for (int i=0; i<comp.n_comp; i++) {
-//         vfs[i] = (1.-por)*rho_av*comp[i].mf/comp[i].dens;
-//     }
-
-//     for (int i=0; i<n_lam; i++) {
-//         CudaArray<double> sigs = make_CudaArray<double>(comp.n_comp);
-//         CudaArray<double> gams = make_CudaArray<double>(comp.n_comp);
-//         RefIndx eps, n;
-//         double vfsig=0, vf2sig2gam2=0, vfgam=0;
-
-//         for (int j=0; j<comp.n_comp; j++) {
-//             double nr2 = comp[j].opt[i].n*comp[j].opt[i].n;
-//             double ni2 = comp[j].opt[i].k*comp[j].opt[i].k;
-//             sigs[j] = ((nr2-ni2-1.)*(nr2-ni2+2.)+4.*nr2*ni2)/((nr2-ni2+2.)*(nr2-ni2+2.)+4.*nr2*ni2);
-//             gams[j] = 2.*comp[j].opt[i].n*comp[j].opt[i].k/((nr2-ni2+2.)*(nr2-ni2+2.)+4.*nr2*ni2);
-
-//             vfsig += vfs[j]*sigs[j];
-//             vfgam += vfs[j]*gams[j];
-//         }
-
-//         for (int j=0; j<comp.n_comp; j++) {
-//             for (int k=0; k<comp.n_comp; k++) {
-//                 vf2sig2gam2 += vfs[j]*vfs[k]*(sigs[j]*sigs[k]+9.*gams[j]*gams[k]);
-//             }
-//         }
-//         double D = 1.-2.*vfsig+vf2sig2gam2;
-//         eps.n = (1.+vfsig-2.*vf2sig2gam2)/D;
-//         eps.k = 9.*vfgam/D;
-
-//         double eps_quad = std::sqrt(eps.n*eps.n+eps.k*eps.k)/2.;
-//         n.n = std::sqrt(eps_quad+eps.n/2.);
-//         n.k = std::sqrt(eps_quad-eps.n/2.);
-
-//         // std::cout << n.n << ", ";
-
-//         for (int k=0; k<sizes.size(); k++) {
-//             double x = 2.*M_PI*sizes.centre_size(k)/(lam(i)/1.e4);
-
-//             double Q_a = std::min(1.,12.*x*eps.k/((eps.n+2.)*(eps.n+2.)+eps.k*eps.k));
-//             double Q_s, g;
-            
-//             if (x < 1.3) {
-//                 Q_s = 8./3.*std::pow(x,4.)*((eps.n-1.)*(eps.n-1.)+eps.k*eps.k)/((eps.n+2.)*(eps.n+2.)+eps.k*eps.k);
-//             }
-//             else {
-//                 Q_s = 2.*x*x*(n.n-1.)*(n.n-1.)*(1.+(n.k/(n.n-1.))*(n.k/(n.n-1.)));
-//             }
-
-//             if (n.k < 1.) {
-//                 if (x < 3.) { g = 0.7*(x/3.)*(x/3.); }
-//                 else { g = 0.7; }
-//             }
-//             else {
-//                 if (x < 3.) { g = -0.2; }
-//                 else { g = 0.5; } 
-//             }
-
-//             Q_s = std::min(Q_s*(1.-g),1.);
-
-//             k_abs_ptr[k*n_lam + i] = M_PI*sizes.centre_size(k)*sizes.centre_size(k)*Q_a/sizes.centre_mass(k);
-//             k_sca_ptr[k*n_lam + i] = M_PI*sizes.centre_size(k)*sizes.centre_size(k)*Q_s/sizes.centre_mass(k);
-//         }
-//     }
-// }
+}
 
 template<class CompMix>
 void CuzziOpacs<CompMix>::write_interp(std::filesystem::path folder) const {
@@ -886,6 +757,3 @@ template class CuzziOpacs<DSHARPwCOComp>;
 //                                     Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca, Molecule& mol) ;
 // template void calculate_total_rhokappa(Grid& g, SizeGrid& sizes, Field3D<Prims>& qd, Field<Prims>& wg, Field<double>& rho_tot, CuzziOpacs<DSHARPwCOComp>& opacs,
 //                                     Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca, Molecule& mol) ;
-
-// template __global__ void _calc_rho_kappa_vol(GridRef g, Field3DConstRef<Prims> qd, FieldConstRef<Prims> wg, RealType* a_c, RealType* m_c,
-//                                 CuzziOpacsRef<T> opacs, Field3DRef<double> rhokabs, Field3DRef<double> rhoksca, MoleculeRef mol)

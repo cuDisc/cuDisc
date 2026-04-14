@@ -30,6 +30,15 @@ struct CompRef {
     CompRef(Comp& comp) : dens(comp.dens), mf(comp.mf), opt(comp.opt.get()) {}
 };
 
+// class GrainComp {
+
+//     public:
+//         int n_comp; 
+
+//         GrainComp(int n_comp, )
+
+// }
+
 class CuzziComp {
     public:
         Comp ice, sil, FeS, Fe, org;
@@ -58,10 +67,25 @@ class DSHARPComp {
         DSHARPComp(int n_lam, double* lam);
 
         inline __host__ __device__ Comp& operator[](int i) {
-            if (i==0) { return ice; } 
+            if (i==0) { return org; } 
             if (i==1) { return sil; }
             if (i==2) { return FeS; }
-            return org;
+            return ice;
+        } ;
+};
+
+class DSHARPCompRef {
+    public:
+        CompRef ice, sil, FeS, org;
+        int n_comp = 4;
+        
+        DSHARPCompRef(DSHARPComp& comp) : ice(comp.ice), sil(comp.sil), FeS(comp.FeS), org(comp.org) {};
+
+        inline __host__ __device__ CompRef& operator[](int i) {
+            if (i==0) { return org; } 
+            if (i==1) { return sil; }
+            if (i==2) { return FeS; }
+            return ice;
         } ;
 };
 
@@ -255,7 +279,11 @@ class CuzziOpacs {
 // template<typename T>
 void calculate_total_rhokappa(Grid& g, SizeGridIce& sizes, Field3D<Prims>& qd, Field<Prims>& wg, Field<double>& rho_tot, CuzziOpacs<DSHARPwCOComp>& opacs,
                                     Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca, Molecule& mol);
+void calculate_total_rhokappa(Grid& g, SizeGridIce& sizes, Field3D<Prims>& qd, Field<Prims>& wg, Field<double>& rho_tot, CuzziOpacs<DSHARPComp>& opacs,
+                                    Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca, Molecule& mol);
 void calculate_total_rhokappa(Grid& g, Grid& g_in, SizeGridIce& sizes, Field3D<double>& rho_d, Field<Prims>& wg, Field<double>& rho_tot, CuzziOpacs<DSHARPwCOComp>& opacs,
+                                    Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca, Molecule& mol);
+void calculate_total_rhokappa(Grid& g, Grid& g_in, SizeGridIce& sizes, Field3D<double>& rho_d, Field<Prims>& wg, Field<double>& rho_tot, CuzziOpacs<DSHARPComp>& opacs,
                                     Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca, Molecule& mol);
 
 // class CuzziOpacs<DSHARPComp>;
