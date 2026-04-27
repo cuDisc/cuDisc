@@ -11,8 +11,10 @@
 // Handle atomics across CUDA & HIP
 #ifdef __HIP_PLATFORM_AMD__
     #define ATOMIC_ADD_BLOCK atomicAdd
+    #define MIN fmin
 #else
     #define ATOMIC_ADD_BLOCK atomicAdd_block
+    #define MIN min
 #endif
 
 // Ormel & Cuzzi Turbulent squared relative velocity.
@@ -160,7 +162,7 @@ KernelResult BirnstielKernelVertInt<use_full_stokes>::operator()(int i, int j, i
     double h12 = Hp2 /(1 + a1/_alpha_t(i,j)); 
     double h22 = Hp2 /(1 + a2/_alpha_t(i,j));
 
-    tmp = pow(sqrt(h12)*fmin(a1,0.5) - sqrt(h22)*fmin(a2, 0.5), 2.)/(R*R) * _GMstar/(R);
+    tmp = pow(sqrt(h12)*MIN(a1,0.5) - sqrt(h22)*MIN(a2, 0.5), 2.)/(R*R) * _GMstar/(R);
     v_turb += tmp;
     v_turb = sqrt(v_turb) ;
 
