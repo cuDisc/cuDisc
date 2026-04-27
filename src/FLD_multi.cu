@@ -539,6 +539,13 @@ void FLD_Solver::solve_multi_band(const Grid& g, double dt, double Cv,
                                  const CudaArray<double>& wle,
                                  Field<double>& T, Field3D<double>& J) {
 
+    if (_boundary & BoundaryFlags::const_Mdot_R_inner || _boundary & BoundaryFlags::const_Mdot_R_outer) {
+        throw std::runtime_error("Const Mdot BC not implemented for FLD, please change") ;
+    } 
+    if (_boundary & BoundaryFlags::set_ext_R_inner || _boundary & BoundaryFlags::set_ext_R_outer || _boundary & BoundaryFlags::set_ext_Z_inner || _boundary & BoundaryFlags::set_ext_Z_outer) {
+        throw std::runtime_error("Externally-set BC not implemented for FLD, please change") ;
+    } 
+
     CodeTiming::BlockTimer timing_block = 
         timer->StartNewTimer("FLD_Solver::solve_multi_band") ;
     CodeTiming::BlockTimer timing_subblock = 

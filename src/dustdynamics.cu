@@ -626,6 +626,10 @@ __global__ void set_flux_to_zero(GridRef g, Field3DRef<Quants> flux) {
 
 void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas, double dt) {
 
+    if (_boundary & BoundaryFlags::const_Mdot_R_inner || _boundary & BoundaryFlags::const_Mdot_R_outer) {
+        throw std::runtime_error("Const Mdot BC not implemented for 2D dust, please change") ;
+    } 
+
     if (g.Nghost < 2)
         throw std::invalid_argument("Dust dynamics requires at least 2 ghost cells") ;
 

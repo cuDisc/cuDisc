@@ -390,6 +390,10 @@ void DustDyn1D<use_full_stokes>::operator() (Grid& g, Field3D<Prims1D>& W_d, Fie
 
     Field3D<Prims1D> W_d_mid = Field3D<Prims1D>(g.NR+2*g.Nghost,1+2*g.Nghost,W_d.Nd);
 
+    if (_boundary & BoundaryFlags::const_Mdot_R_inner || _boundary & BoundaryFlags::const_Mdot_R_outer) {
+        throw std::runtime_error("Const Mdot BC not implemented for 1D dust, please change") ;
+    } 
+
     if (_boundary & BoundaryFlags::set_ext_R_inner || _boundary & BoundaryFlags::set_ext_R_outer) {
         copy_boundaries<<<blocks,threads>>>(g, W_d, W_d_mid, _boundary);
     }
@@ -447,6 +451,10 @@ void DustDyn1D<use_full_stokes>::operator() (Grid& g, Grid& g2D, Field3D<Prims1D
     // calculate advection-diffusion
 
     Field3D<Prims1D> W_d_mid = Field3D<Prims1D>(g.NR+2*g.Nghost,1+2*g.Nghost,W_d.Nd);
+
+    if (_boundary & BoundaryFlags::const_Mdot_R_inner || _boundary & BoundaryFlags::const_Mdot_R_outer) {
+        throw std::runtime_error("Const Mdot BC not implemented for 1D dust, please change") ;
+    } 
 
     if (_boundary & BoundaryFlags::set_ext_R_inner || _boundary & BoundaryFlags::set_ext_R_outer) {
         copy_boundaries<<<blocks,threads>>>(g, W_d, W_d_mid, _boundary);

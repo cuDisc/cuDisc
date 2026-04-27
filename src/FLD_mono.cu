@@ -330,6 +330,13 @@ void FLD_Solver::operator()(const Grid& g, double dt, double Cv,
     CodeTiming::BlockTimer timing_subblock = 
         timer->StartNewTimer("FLD_Solver::operator()::create_system") ;   
 
+    if (_boundary & BoundaryFlags::const_Mdot_R_inner || _boundary & BoundaryFlags::const_Mdot_R_outer) {
+        throw std::runtime_error("Const Mdot BC not implemented for FLD, please change") ;
+    } 
+    if (_boundary & BoundaryFlags::set_ext_R_inner || _boundary & BoundaryFlags::set_ext_R_outer || _boundary & BoundaryFlags::set_ext_Z_inner || _boundary & BoundaryFlags::set_ext_Z_outer) {
+        throw std::runtime_error("Externally-set BC not implemented for FLD, please change") ;
+    } 
+
     dim3 threads(32,32,1) ;
     dim3 blocks((g.Nphi + 2*g.Nghost+31)/32,(g.NR + 2*g.Nghost+31)/32,1) ;                 
 
