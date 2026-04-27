@@ -202,7 +202,7 @@ int main(int argc, char* argv[]) {
 
     double rho_p = 1.6;
     double a0 = 1e-5 ; // Grain size lower bound in cm
-    double a1 = 10.   ;  // Grain size upper bound in cm
+    double a1 = 100.   ;  // Grain size upper bound in cm
     int n_spec = 7.*3.*std::log10(a1/a0) + 1;
 
     std::cout << "Number of dust species: "<< n_spec << "\n";
@@ -319,10 +319,6 @@ int main(int argc, char* argv[]) {
     double t = 0, dt;
     const int ntimes = 9;  
     double ts[ntimes] = {10*year, 100*year, 1000*year, 2e3*year, 3e3*year, 4e3*year, 5e3*year, 1e4*year, 1.5e4*year};
-    
-    // for (int i=0; i<ntimes; i++) {
-    //     ts[i] = year * pow(1.195,i);
-    // }
 
     std::ofstream f_times((dir / "2Dtimes.txt"));
     f_times << 0. << "\n";
