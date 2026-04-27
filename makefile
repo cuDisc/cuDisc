@@ -24,14 +24,14 @@ ifeq ($(HIP_MODE),1)
     GPU_COMPILER  = hipcc
 
 	AMDGPU_TARGET = gfx942 
-	GPU_FLAGS   = -O3 -g -std=c++17 -Wall -Wextra --offload-arch=$(AMDGPU_TARGET)
+	GPU_FLAGS   = -O3 -g -std=c++17 -Wall -Wextra --offload-arch=$(AMDGPU_TARGET) -DHIP_MODE=$(HIP_MODE)
 	HIP_INCLUDE = -I$(HIP_HOME)/include -I$(HIP_HOME)/include/hipblas -I$(HIP_HOME)/include/hipsparse
 	HIP_LIBS    = -L$(HIP_HOME)/lib -lamdhip64 -lhipblas -lhipsparse
 	HIP_ARGS     = $(shell /opt/rocm/bin/hipconfig --cpp_config)
 	
 	GPU_INCLUDE = -I./$(HEADER_DIR) $(HIP_ARGS) $(HIP_INCLUDE)
 	GPU_LIBS    = $(HIP_LIBS)
-	CFLAGS := $(CFLAGS) $(HIP_ARGS) $(HIP_INCLUDE)
+	CFLAGS := $(CFLAGS) $(HIP_ARGS) $(HIP_INCLUDE) -DHIP_MODE=$(HIP_MODE)
 else	
     CUDA_HOME = /usr/local/cuda-12.0
     GPU_COMPILER = nvcc
@@ -45,10 +45,10 @@ else
        --generate-code arch=compute_80,code=sm_80 \
        --generate-code arch=compute_86,code=sm_86
 
-    GPU_FLAGS    = -O3 -g --std=c++17 -Wno-deprecated-gpu-targets $(ARCH)
+    GPU_FLAGS    = -O3 -g --std=c++17 -Wno-deprecated-gpu-targets $(ARCH) -DHIP_MODE=$(HIP_MODE)
     GPU_INCLUDE  = -I./$(HEADER_DIR) -I$(CUDA_HOME)/include
     GPU_LIBS     = -L$(CUDA_HOME)/lib64 -lcudart -lcublas -lcusparse
-	CFLAGS := $(CFLAGS) -I$(CUDA_HOME)/include 
+	CFLAGS := $(CFLAGS) -I$(CUDA_HOME)/include -DHIP_MODE=$(HIP_MODE)
 endif
 
 # =========================

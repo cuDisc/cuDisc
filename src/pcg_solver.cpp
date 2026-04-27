@@ -167,10 +167,13 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
         spmv_buffer = buffer.get();
     }
 
-    cusparseSpMV_preprocess(
-        CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
-        &minus_one, mat.descr, x.descr, &zero, r.descr, 
-        CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, spmv_buffer) ;
+    
+    #if HIP_MODE
+        hipsparseSpMV_preprocess(
+            CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
+            &minus_one, mat.descr, x.descr, &zero, r.descr,
+            CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, spmv_buffer);
+    #endif
 
 
     cusparseSpMV(CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
@@ -198,12 +201,12 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
         spmv_buffer = buffer.get();
     }
 
-    cusparseSpMV_preprocess(
-        CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
-        &one, mat.descr, y.descr, &zero, q.descr, 
-        CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, spmv_buffer) ;
-
-
+    #if HIP_MODE
+        hipsparseSpMV_preprocess(
+            CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
+            &minus_one, mat.descr, x.descr, &zero, r.descr,
+            CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, spmv_buffer);
+    #endif
     //std::cout << "iteration: 0, norm:" << std::sqrt(normr/normrhs) << "\n" ;
 
     // BiCGStab Loop: 
@@ -237,10 +240,12 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
                 spmv_buffer = buffer.get();
             }
 
-            cusparseSpMV_preprocess(
+            #if HIP_MODE
+                hipsparseSpMV_preprocess(
                     CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
-                    &minus_one, mat.descr, x.descr, &zero, r.descr, 
-                    CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, spmv_buffer) ;
+                    &minus_one, mat.descr, x.descr, &zero, r.descr,
+                    CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, spmv_buffer);
+            #endif
 
             cusparseSpMV(CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
                           &minus_one, mat.descr, x.descr, &zero, r.descr, 
