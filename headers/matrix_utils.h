@@ -7,6 +7,72 @@
 #include <cusparse.h>
 #include <cublas_v2.h>
 
+/* Singleton Wrapper for cublasHandle_t
+ *
+ * Get the handle using the get method. Creates the handle when first needed.
+ * Note: the memory will not be cleared up until the program terminates. 
+ */
+class CublasHandle
+{
+  public:
+    static cublasHandle_t get() {
+        static CublasHandle instance; // Guaranteed to be destroyed.
+                                      // Instantiated on first use.
+        return instance._handle;
+    }
+  private:
+    CublasHandle() {
+        cublasStatus_t status_cub = cublasCreate(&_handle) ;
+        if (status_cub != CUBLAS_STATUS_SUCCESS)
+            throw std::runtime_error("Failed to initialize CUBLAS") ;
+    }
+
+public:
+    CublasHandle(CublasHandle const&)   = delete;
+    void operator=(CublasHandle const&) = delete;
+
+    ~CublasHandle(){
+        cublasDestroy(_handle) ;
+    }
+
+  private:
+    cublasHandle_t _handle ;
+};
+
+
+/* Singleton Wrapper for cusparseHandle_t
+ * 
+ * Get the handle using the get method. Creates the handle when first needed.
+ * Note: the memory will not be cleared up until the program terminates.
+ */
+class CusparseHandle
+{
+  public:
+    static cusparseHandle_t get() {
+        static CusparseHandle instance; // Guaranteed to be destroyed.
+                                        // Instantiated on first use.
+        return instance._handle;
+    }
+  private:
+    CusparseHandle() {
+        cusparseStatus_t status_cus = cusparseCreate(&_handle) ;
+        if (status_cus != CUSPARSE_STATUS_SUCCESS)
+            throw std::runtime_error("Failed to initialize CUSPARSE") ;
+    }
+
+
+public:
+    CusparseHandle(CusparseHandle const&) = delete;
+    void operator=(CusparseHandle const&) = delete;
+    
+    ~CusparseHandle(){
+        cusparseDestroy(_handle) ;
+    }
+
+  private:
+    cusparseHandle_t _handle ;
+};
+
 /* class CholFacInfo
  *
  * RAII wrapper for cusparse info object

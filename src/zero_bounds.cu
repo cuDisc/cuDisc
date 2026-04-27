@@ -197,11 +197,6 @@ void zero_midplane_boundary(const Grid& g, Field3D<double>& f) {
 }
 
 
-void set_all(Grid&g, Field<double>& f, double val) {
-
-}
-
-
 
 __global__ void set_all_device(GridRef g, 
                                FieldRef<double> f, double val) {
@@ -230,6 +225,8 @@ __global__ void set_all_device(GridRef g,
         i += step ;
     }
 }
+
+#include <iostream>
 
 void set_all(const Grid& g, Field<double>& f, double val) {
 

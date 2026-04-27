@@ -17,7 +17,7 @@ __global__ void setup_hydrostatic_maxtrix_device(double GM, GridRef g,
     int j = threadIdx.x + blockIdx.x*blockDim.x ;
     int i = threadIdx.y + blockIdx.y*blockDim.y ;
 
-    double val ;
+    double val = 1 ;
     if (i < g.NR + 2*g.Nghost && j <  g.Nphi + 2*g.Nghost) {
         if (j > g.Nghost) {
             if (i < g.NR + 2*g.Nghost && j < g.Nphi + 2*g.Nghost) {
@@ -224,7 +224,7 @@ void compute_hydrostatic_equilibrium(const Star& star, const Grid& g, Field<Prim
 }
 
 void compute_hydrostatic_equilibrium(const Star& star, const Grid& g, Field<Prims>& w_g, 
-                                     const Field<double>& cs2, const CudaArray<double>& Sigma, Field3D<Prims>& q_d, double gasfloor) {
+                                     const Field<double>& cs2, const CudaArray<double>& Sigma, Field3D<Prims>& /*q_d*/, double gasfloor) {
     
     Field<double> rho = create_field<double>(g);
     

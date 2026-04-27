@@ -8,6 +8,7 @@
 #include <cmath>
 #include <vector>
 #include <array>
+#include <memory>
 #include "cuda_array.h"
 #include "interpolate.h"
 #include "constants.h"
@@ -86,7 +87,7 @@ class DSHARP_opacs_MRN {
         }
 
         double planck_mean(double T) {
-            double B[n];
+            std::unique_ptr<double[]> B(new double[n]);
             double int_1 = 0;
             double int_2 = 0;
 
@@ -106,8 +107,9 @@ class DSHARP_opacs_MRN {
 
         double rosseland_mean_iso(double T) {
             
-            double nu[n];
-            double dB_nu[n];
+            std::unique_ptr<double[]> nu(new double[n]);
+            std::unique_ptr<double[]> dB_nu(new double[n]);
+
             double int_1 = 0;
             double int_2 = 0;
 
