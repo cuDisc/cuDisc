@@ -168,7 +168,7 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
     }
 
     
-    #if __HIP_PLATFORM_AMD__
+    #ifdef __HIP_PLATFORM_AMD__
         hipsparseSpMV_preprocess(
             CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
             &minus_one, mat.descr, x.descr, &zero, r.descr,
@@ -201,7 +201,7 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
         spmv_buffer = buffer.get();
     }
 
-    #if __HIP_PLATFORM_AMD__
+    #ifdef __HIP_PLATFORM_AMD__
         hipsparseSpMV_preprocess(
             CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
             &minus_one, mat.descr, x.descr, &zero, r.descr,
@@ -240,7 +240,7 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
                 spmv_buffer = buffer.get();
             }
 
-            #if __HIP_PLATFORM_AMD__
+            #ifdef __HIP_PLATFORM_AMD__
                 hipsparseSpMV_preprocess(
                     CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
                     &minus_one, mat.descr, x.descr, &zero, r.descr,
