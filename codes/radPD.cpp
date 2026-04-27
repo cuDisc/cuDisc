@@ -210,7 +210,7 @@ int main(int argc, char* argv[]) {
 
     // Import opacity table
 
-    DSHARP_opacs opac_tab("./codes/opacities/dustkappa_DSHARP500_wg.txt");
+    DSHARP_opacs opac_tab(std::string(OPAC_DIR) + "/dustkappa_DSHARP500_wg.txt");
 
     // Interpolate opacities onto specified (grain size, wavelength) grid
 
