@@ -10,7 +10,7 @@
 #include "coagulation/integration.h"
 #include "file_io.h"
 
-void setup_IC(Grid &g, SizeGrid& sizes, Field3D<double>& rho) {
+void setup_IC(Grid &g, SizeGrid& sizes, Field3D<double>& rho, Field<double>& wg) {
     int N = sizes.size() ;
 
     // An exponential distribution in (N/m) (approx)
@@ -30,9 +30,11 @@ void setup_IC(Grid &g, SizeGrid& sizes, Field3D<double>& rho) {
 
     // Normalization
     for (int i=0; i < g.NR + 2*g.Nghost; i++)
-        for (int j=0; j < g.NR + 2*g.Nghost; j++) 
+        for (int j=0; j < g.NR + 2*g.Nghost; j++) {
+            wg(i,j) = 1. ;
             for (int k = 0; k < N; ++k)
                 rho(i,j,k) /= allm ;
+        }
 }
 
 void save_grid(Grid& g, Field3D<double>& rho, std::string filename) {
@@ -78,7 +80,8 @@ int main() {
 
     // Generate the initial conditions
     Field3D<double> rho = create_field3D<double>(g, 150) ;
-    setup_IC(g, sizes, rho) ;
+    Field<double> wg = create_field<double>(g) ;
+    setup_IC(g, sizes, rho, wg) ;
 
     // Create the kernel/rates
     BS32Integration<CoagulationRate<ConstantKernel, SimpleErosion>>
@@ -91,9 +94,10 @@ int main() {
     std::vector<double> t_out = {0., 1., 10., 100., 1000.} ;
     double t = 0;
     int Nout = 0 ;
+    double dt_coag = 0;
     for (auto ti : t_out) {
         if (ti > t) 
-            coagulation_integrate.integrate(g, rho, ti-t) ;
+            coagulation_integrate.integrate(g, rho, wg, ti-t, dt_coag) ;
         t = ti ;
 
         // Save to file:

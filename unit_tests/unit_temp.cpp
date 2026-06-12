@@ -197,7 +197,7 @@ int main() {
         Field<double> oldT = create_field<double>(g);
         copy_field(g, T, oldT); 
         
-        std::cout << "Iteration: " << n << "\n" ;  
+        std::cout << "Iteration: " << n << "\n"; 
 
         rho_kappa_abs_binned = bins.bin_planck(g, rho_kappa_abs, T);
         bin_central(g, rho_kappa_sca, rho_kappa_sca_binned, num_wavelengths, n_bands);

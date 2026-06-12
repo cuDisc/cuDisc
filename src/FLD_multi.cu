@@ -63,6 +63,186 @@ CSR_SpMatrix _create_FLD_multi_matrix(const Grid& g, int num_bands) {
 }
 
 
+__global__
+void __reduced_eqns_reduce_system(DnVecConstRef JT, DnVecRef Jreduced, int num_bands) {
+    int i = threadIdx.x + blockIdx.x*blockDim.x ;
+    int j = threadIdx.y + blockIdx.y*blockDim.y ;
+
+    int num_rows = Jreduced.rows / num_bands ;
+
+    if (i < num_rows && j < num_bands) {
+        Jreduced.data[i*num_bands + j] = JT.data[i*(1+num_bands) + 1 + j] ;
+    }
+}
+
+__global__
+void __reduced_eqns_expand_solution(DnVecRef JT, DnVecConstRef Jreduced, CSR_SpMatrixConstRef T_from_J, DnVecConstRef T_from_J_rhs, int num_bands) {
+    int i = threadIdx.x + blockIdx.x*blockDim.x ;
+    int j = threadIdx.y + blockIdx.y*blockDim.y ;
+
+    int num_rows = Jreduced.rows / num_bands ;
+
+    if (i < num_rows && j < num_bands) {
+        // Copy the energy
+        JT.data[i*(1+num_bands) + 1 + j] = Jreduced.data[i*num_bands + j] ;
+    }
+    if (j == 0) {
+        JT.data[i*(1+num_bands)] = T_from_J_rhs.data[i] ;
+        for (int b=0; b < num_bands; b++) {
+            JT.data[i*(1+num_bands)] += T_from_J.data[i*num_bands + b] * Jreduced.data[i*num_bands + b] ;
+        }
+    }
+    
+}
+
+
+class ReducedEquations {
+  public:
+    ReducedEquations(int num_bands_, CSR_SpMatrix&& mat_, DnVec&& rhs_, CSR_SpMatrix&& T_from_J_, DnVec&& T_from_J_rhs_) 
+        : _num_bands(num_bands_), mat(std::move(mat_)), rhs(std::move(rhs_)), 
+          _T_from_J(std::move(T_from_J_)), _T_from_J_rhs(std::move(T_from_J_rhs_)) {}
+    
+    ReducedEquations()
+        : _num_bands(0), mat(1,1,1), rhs(1), _T_from_J(1,1,1), _T_from_J_rhs(1) {}
+
+    DnVec reduce_system(const DnVec& JT) const {    
+        DnVec J(rhs.rows) ;
+
+        dim3 block_size(64, 16) ;
+        dim3 blocks((J.rows + block_size.x - 1)/block_size.x, (_num_bands + block_size.y - 1)/block_size.y) ;
+
+        __reduced_eqns_reduce_system<<<blocks, block_size>>>(JT, J, _num_bands) ;
+        check_CUDA_errors("__reduced_eqns_reduce_system") ;
+
+        return J;
+    }
+
+    DnVec expand_solution(const DnVec& J) const {
+        DnVec JT(_T_from_J.rows*(1+_num_bands)) ;
+
+        dim3 block_size(1024, 1) ;
+        dim3 blocks(((_T_from_J_rhs.rows + block_size.x - 1)/block_size.x), (_num_bands + block_size.y - 1)/block_size.y) ;
+
+        __reduced_eqns_expand_solution<<<blocks, block_size>>>(JT, J, _T_from_J, _T_from_J_rhs, _num_bands) ;
+        check_CUDA_errors("__reduced_eqns_expand_solution") ;
+
+        return JT;
+    }
+
+    CSR_SpMatrix mat ;
+    DnVec rhs ;
+ private:
+    int _num_bands ;
+    CSR_SpMatrix _T_from_J ;
+    DnVec _T_from_J_rhs ;
+} ;
+
+ReducedEquations create_reduced_system(const Grid& g, CSR_SpMatrix& mat, DnVec& rhs, int num_bands) {
+
+    // Reduce number of rows by eliminating the gas temperature equation. 
+    // Change non-zeros to make the diagonal blocks dense.
+    int nx = g.NR ;
+    int ny = g.Nphi ;
+
+    assert(nx > 1 && ny > 1) ;
+    int rows = num_bands*nx*ny ;
+    int non_zeros = nx*ny*num_bands*num_bands + // coupling
+        num_bands*(8*(nx-2)*(ny-2) + 5*2*(nx + ny - 4) + 3*4) ; // FLD
+
+    // Matrix for the reduced system. 
+    CSR_SpMatrix reduced_mat(rows, rows, non_zeros) ;
+    DnVec reduced_rhs(rows) ;
+
+    // Matrix to get the temperature from the radiation density:
+    CSR_SpMatrix T_from_J(nx*ny, num_bands*nx*ny, num_bands*nx*ny) ;
+    DnVec T_from_J_rhs(nx*ny) ;
+
+    reduced_mat.csr_offset[0] = 0 ;
+    T_from_J.csr_offset[0] = 0 ;
+    for(int i=0; i < nx; i++) 
+        for (int j=0; j < ny; j++) {
+            // Write the temperature equation in terms of the radiation density:
+            int k_cell = (i*ny + j);
+
+            int k_block_o = (1+num_bands)*k_cell;
+            int k_block_n = num_bands*k_cell;
+
+            int start_o = mat.csr_offset[k_block_o] ;
+            int start_n = k_block_n ;
+            
+            // Get the temperature row:
+            if (k_block_o != mat.col_index[start_o]) {
+                std::cerr << "k_block_o = " << k_block_o << ", mat.col_index[start_o] = " << mat.col_index[start_o] << "\n" ;
+                throw std::runtime_error("create_reduced_system: Temperature row has unexpected format") ;
+            }
+
+            double T0 = mat.data[start_o++];
+            T_from_J.csr_offset[k_cell+1] = T_from_J.csr_offset[k_cell] + num_bands ;
+            for (int b=0; b < num_bands; b++) {
+                T_from_J.col_index[start_n] = start_n;
+                if (mat.col_index[start_o] == k_block_o + b + 1)
+                    T_from_J.data[start_n++] = -mat.data[start_o++]/T0;
+                else
+                    T_from_J.data[start_n++] = 0 ;
+            }
+            T_from_J_rhs.data[k_cell] = rhs.data[k_block_o]/T0;
+
+            for (int b=0; b < num_bands; b++) {
+                // Copy diffusion terms:
+                int k_o = k_block_o + 1 + b ;
+                int k_n = k_block_n + b ;
+
+                start_o = mat.csr_offset[k_o] ;
+                start_n = reduced_mat.csr_offset[k_n] ;
+
+                reduced_rhs.data[k_n] = rhs.data[k_o] ;
+
+                // Copy the diffusion terms for cells before this one
+                while (mat.col_index[start_o] < k_block_o) {
+                    int col_cell = (mat.col_index[start_o] - 1) / (1 + num_bands) ;
+                    reduced_mat.col_index[start_n] = mat.col_index[start_o] - col_cell - 1;
+                    reduced_mat.data[start_n] = mat.data[start_o] ;
+                    start_n++ ;
+                    start_o++ ;
+                }
+
+                // Handle the coupling terms
+                double coupling = 0 ;
+                if (mat.col_index[start_o] == k_block_o) {
+                    coupling = mat.data[start_o++] ;
+                }
+                for (int k = k_block_n; k < k_block_n + num_bands; k++) {
+                    reduced_mat.col_index[start_n] = k ;
+                    if (k == k_n)
+                        reduced_mat.data[start_n] = mat.data[start_o++] ;
+                    else
+                        reduced_mat.data[start_n] = 0 ;
+
+                    reduced_mat.data[start_n] += coupling*T_from_J.data[k];
+                    start_n++ ;
+                }
+                reduced_rhs.data[k_n] -= coupling*T_from_J_rhs.data[k_cell];
+
+                
+                // Add the remaining diffusion terms
+                while (start_o < mat.csr_offset[k_o+1]) {
+                    int col_cell = (mat.col_index[start_o] - 1) / (1 + num_bands) ;
+                    reduced_mat.col_index[start_n] = mat.col_index[start_o] - col_cell - 1;
+                    reduced_mat.data[start_n] = mat.data[start_o] ;
+                    start_n++ ;
+                    start_o++ ;
+                }
+                reduced_mat.csr_offset[k_block_n+b+1] = start_n ;
+            }
+        }
+        
+    assert (reduced_mat.csr_offset[num_bands*nx*ny] == reduced_mat.csr_offset[0] + non_zeros) ;
+    assert (T_from_J.csr_offset[nx*ny] == T_from_J.csr_offset[0] + num_bands*nx*ny) ;
+
+    return ReducedEquations(num_bands, std::move(reduced_mat), std::move(reduced_rhs), std::move(T_from_J), std::move(T_from_J_rhs)) ;
+}
+
+
 __global__ void compute_diffusion_coeff(GridRef g, Field3DConstRef<double> J,
                                         Field3DConstRef<double> rhokabs,  
                                         Field3DConstRef<double> rhoksca,
@@ -537,7 +717,8 @@ void FLD_Solver::solve_multi_band(const Grid& g, double dt, double Cv,
                                  const Field<double>& heat, 
                                  const Field3D<double>& scattering,
                                  const CudaArray<double>& wle,
-                                 Field<double>& T, Field3D<double>& J) {
+                                 Field<double>& T, Field3D<double>& J,
+                                 bool use_reduced_system) {
 
     CodeTiming::BlockTimer timing_block = 
         timer->StartNewTimer("FLD_Solver::solve_multi_band") ;
@@ -549,7 +730,7 @@ void FLD_Solver::solve_multi_band(const Grid& g, double dt, double Cv,
           
     CSR_SpMatrix FLD_mat = _create_FLD_multi_matrix(g, J.Nd) ;
 
-    DnVec rhs(FLD_mat.rows) ;
+    DnVec rhs_eqn(FLD_mat.rows) ;
     DnVec sol(FLD_mat.rows) ;
     copy_initial_values<<<blocks, threads>>>(g, T, J, sol) ; 
 
@@ -565,13 +746,28 @@ void FLD_Solver::solve_multi_band(const Grid& g, double dt, double Cv,
     create_FLD_multi_system<<<blocks2, threads2>>>(g, dt, Cv, rho, rhokappa_abs, T, J, D, 
                                                    heat, scattering,
                                                    _T_ext, planck, wle.get(),  
-                                                   FLD_mat, rhs, _boundary) ;
+                                                   FLD_mat, rhs_eqn, _boundary) ;
     check_CUDA_errors("create_FLD_multi_system") ;    
 
     timing_subblock.StartNewBlock("FLD_Solver::solve_multi_band::solve") ;      
 
-    Jacobi_Precond jacobi(FLD_mat) ;
-    jacobi.transform(FLD_mat, sol, rhs) ;
+    CSR_SpMatrix* mat;
+    DnVec* rhs;
+    ReducedEquations reduced_eqns;
+
+    if (use_reduced_system) {
+        reduced_eqns = create_reduced_system(g, FLD_mat, rhs_eqn, J.Nd) ;
+        sol = reduced_eqns.reduce_system(sol) ;
+        mat = &reduced_eqns.mat ;
+        rhs = &reduced_eqns.rhs ;
+    }
+    else {
+        mat = &FLD_mat ;
+        rhs = &rhs_eqn ;
+    }
+
+    Jacobi_Precond jacobi(*mat) ;
+    jacobi.transform(*mat, sol, *rhs) ;
 
     /*
     std::ofstream m("FLD_multi_mat.mm") ;
@@ -590,24 +786,28 @@ void FLD_Solver::solve_multi_band(const Grid& g, double dt, double Cv,
         NoPrecond precond ;
         //BlockJacobi_precond precond(FLD_mat) ;
         bool success = 
-            pcg.solve_non_symmetric(FLD_mat, rhs, sol, precond) ;
+            pcg.solve_non_symmetric(*mat, *rhs, sol, precond) ;
         
         if (not success) {
             std::cout << "Non-preconditioned solve failed, falling back to ILU(0)." << std::endl;
             
             copy_initial_values<<<blocks, threads>>>(g, T, J, sol) ; 
+            if (use_reduced_system)
+                sol = reduced_eqns.reduce_system(sol) ;
+
             jacobi.transform_guess(sol) ;
 
-            ILU_precond precond(FLD_mat, 0) ;
-            pcg.solve_non_symmetric(FLD_mat, rhs, sol, precond) ;
+            ILU_precond precond(*mat, 0) ;
+            pcg.solve_non_symmetric(*mat, *rhs, sol, precond) ;
         }
     }
     else {
-        ILU_precond precond(FLD_mat, _ILU_order) ;
-        pcg.solve_non_symmetric(FLD_mat, rhs, sol, precond) ;
+        ILU_precond precond(*mat, _ILU_order) ;
+        pcg.solve_non_symmetric(*mat, *rhs, sol, precond) ;
     }
-
     jacobi.invert(sol) ;
+    if (use_reduced_system)
+        sol = reduced_eqns.expand_solution(sol) ;
 
     copy_final_values<<<blocks, threads>>>(g, T, J, sol) ; 
     check_CUDA_errors("copy_final_values") ;     
