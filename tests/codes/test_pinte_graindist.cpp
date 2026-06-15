@@ -282,7 +282,7 @@ int main() {
             double dt_inittemp = 0;
             if (n==0) { dt_inittemp = 0; }
 
-            FLD.solve_multi_band(g, dt_inittemp, Cv, rho_kappa_abs_binned, rho_kappa_sca_binned, rhotot, heating, binned_scattering, bins.edges, T, J);
+            FLD.solve_multi_band(g, dt_inittemp, Cv, rho_kappa_abs_binned, rho_kappa_sca_binned, rhotot, heating, binned_scattering, bins.edges, T, J, true);
 
             std::cout << "T:" << T(1,1) << " " << T(30, 2) 
                       << " "<< T(1, g.Nphi) << " " <<  T(g.NR, g.Nphi)
