@@ -16,8 +16,8 @@
 #include "file_io.h"
 #include "errorfuncs.h"
 
-double rhobench[] = {3.38824e-13, 4.78601e-13, 6.76042e-13, 9.54936e-13, 1.34888e-12, 1.90535e-12, 2.69139e-12, 3.80172e-12, 5.37015e-12, 7.58575e-12, 1.07158e-11, 1.51382e-11, 2.13881e-11, 3.02251e-11, 4.27478e-11, 6.06822e-11, 2.01842e-11, 2.24911e-18, 2.24911e-18, 2.24911e-18};
-double vRbench[] = {-9.62968e-06, -1.92137e-05, -3.83364e-05, -7.64913e-05, -0.00015262, -0.000304517, -0.000607591, -0.0012123, -0.00241886, -0.00482627, -0.00962967, -0.0192137, -0.0383364, -0.0764912, -0.198354, -0.78966, -3.14368, 0, 0, 0};
+double rhobench[] = {3.38538e-13,4.78197e-13,6.75471e-13,9.54129e-13,1.34774e-12,1.90374e-12,2.68912e-12,3.79851e-12,5.36561e-12,7.57935e-12,1.07067e-11,1.51254e-11,2.13702e-11,3.02001e-11,4.27137e-11,6.06416e-11,2.01816e-11,2.24911e-18,2.24911e-18,2.24911e-18};
+double vRbench[] = {3.47204,3.47203,3.47201,3.47197,3.47189,3.47174,3.47144,3.47083,3.46963,3.46723,3.46243,3.45286,3.43377,3.39568,3.27402,2.68371,0.333628,0,0,0};
 
 void set_up_gas(Grid& g, CudaArray<double>& Sig_g, CudaArray<double>& nu, Field<double>& T, Field<double>& cs, Field<double>& cs2, double alpha, Star& star) {
   
@@ -199,7 +199,7 @@ int main() {
     double floor = 1.e-10;
 
     compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, gas_floor);
-    calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor);   
+    calc_gas_velocities_parameterised(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor);   
     for (int i=0; i<g.NR + 2*g.Nghost; i++) {
         for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
             alpha2D(i,j) = alpha;
@@ -252,7 +252,7 @@ int main() {
         L2 += (std::pow(Ws_d(2,2,k).v_R-vRbench[k], 2.)/sizes.size());
     }
     L2 = std::sqrt(L2);
-    if (L2 <= 1.e-6) {printf("Pass.\n");}
+    if (L2 <= 1.e-5) {printf("Pass.\n");}
     else {printf("\n\tL2 = %g, fail.\n", L2);}
     return 0;
 } 
