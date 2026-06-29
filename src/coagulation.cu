@@ -183,11 +183,11 @@ KernelResult BirnstielKernelIce<use_full_stokes>::operator()(int i, int j, int k
     RealType rho = _wg(i,j).rho, cs = _cs(i,j), R = _g.Rc(i) ;
 
     RealType Omega = sqrt(_GMstar/R)/R;
-    RealType mfp = _mu * m_p / (rho * 2.e-15);
-    RealType tmp; 
+    RealType mfp = _mu(i,j) * m_p / (rho * 2.e-15);
+    RealType tmp;
     
-    a1 = calc_t_s<use_full_stokes>(_wd(i,j,k1), _wg(i,j), a1, ice1.rho, cs, _mu) * Omega;
-    a2 = calc_t_s<use_full_stokes>(_wd(i,j,k2), _wg(i,j), a2, ice2.rho, cs, _mu) * Omega;
+    a1 = calc_t_s<use_full_stokes>(_wd(i,j,k1), _wg(i,j), a1, ice1.rho, cs, _mu(i,j)) * Omega;
+    a2 = calc_t_s<use_full_stokes>(_wd(i,j,k2), _wg(i,j), a2, ice2.rho, cs, _mu(i,j)) * Omega;
 
     RealType sqrtRe = sqrt(_alpha_t(i,j) * cs / Omega / mfp);
 
@@ -202,7 +202,7 @@ KernelResult BirnstielKernelIce<use_full_stokes>::operator()(int i, int j, int k
     RealType m1 = 4.188790205f *  pow(ice1.a, 3.) * ice1.rho;
     RealType m2 = 4.188790205f *  pow(ice2.a, 3.) * ice2.rho;
 
-    tmp = 4.2592967532662155e-24 * (_mu * (m1 + m2) / (m1*m2)) * cs*cs; //4.261679179e-24f
+    tmp = 4.2592967532662155e-24 * (_mu(i,j) * (m1 + m2) / (m1*m2)) * cs*cs; //4.261679179e-24f
 
     v_turb += tmp;
     
