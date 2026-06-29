@@ -64,6 +64,8 @@ class IceVapChem {
         MoleculeRef _mol;
         CudaArray<double>& _h_phdiss;
         FieldRef<double> _F_UV;
+        FieldRef<double> _mu;
+        double _mu_HHe;
         double _floor;
         WavelengthBinner& _bins;
         int _Jbin_idx;
@@ -73,14 +75,15 @@ class IceVapChem {
     public:
 
         IceVapChem(const Grid& g, const Field<double>& T, WavelengthBinner& bins, const Field3D<double>& J, Field3D<Prims>& W_dust, Field<Prims>& W_gas, SizeGridIce& sizes, 
-                        Molecule& mol, CudaArray<double>& h_phdiss, Field<double>& F_UV, double floor = 1.e-100, double N_s = 1.5e15) :
-                        _g(g), _T(T), _J(J), _W(W_dust),  _Wg(W_gas), _sizes(sizes), _mol(mol), _h_phdiss(h_phdiss), _F_UV(F_UV), _floor(floor), _bins(bins), N_s(N_s)
+                        Molecule& mol, CudaArray<double>& h_phdiss, Field<double>& F_UV, Field<double>& mu, double mu_HHe, double floor = 1.e-100, double N_s = 1.5e15) :
+                        _g(g), _T(T), _J(J), _W(W_dust),  _Wg(W_gas), _sizes(sizes), _mol(mol), _h_phdiss(h_phdiss), _F_UV(F_UV), _mu(mu), _mu_HHe(mu_HHe), _floor(floor), _bins(bins), N_s(N_s)
                         {
                             for (int i=0; i<bins.num_bands; i++) {
                                 if (bins.bands[i] < 0.2) {
                                     _Jbin_idx = i+1;
                                 }
                             }
+                            set_all(_g, _drhovdt, 0.);
                         } ; 
 
         void imp_update(double dt, double& dt_chem);
@@ -146,6 +149,37 @@ class IceVapChem {
             }  
             f.close();
         }
+
+        void write_restart_file(std::filesystem::path dir, double t_chem, double dt_1percchem) {
+
+            std::ofstream f(dir / ("mol_restart_params.dat"), std::ios::binary);
+
+            f.write((char*) &t_chem, sizeof(double));
+            f.write((char*) &dt_1percchem, sizeof(double));
+            for (int i=0; i<_g.NR+2*_g.Nghost; i++) {
+                for (int j=0; j<_g.Nphi+2*_g.Nghost; j++) {
+                    f.write((char*) &_drhovdt(i,j), sizeof(double));
+                }
+            }
+
+            f.close();
+        }
+
+        void read_restart_file(std::filesystem::path dir, double& t_chem, double& dt_1percchem) {
+
+            std::ifstream f(dir / ("mol_restart_params.dat"), std::ios::binary);
+
+            f.read((char*) &t_chem, sizeof(double));
+            f.read((char*) &dt_1percchem, sizeof(double));
+            for (int i=0; i<_g.NR+2*_g.Nghost; i++) {
+                for (int j=0; j<_g.Nphi+2*_g.Nghost; j++) {
+                    f.read((char*) &_drhovdt(i,j), sizeof(double));
+                }
+            }
+
+            f.close();
+        }
+
 
         double N_s;
 

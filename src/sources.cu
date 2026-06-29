@@ -139,7 +139,7 @@ void _calc_t_s(GridRef g, Field3DConstRef<Prims> q, FieldConstRef<Prims> w_gas, 
 template<bool full_stokes>
 __global__
 void _calc_t_s(GridRef g, Field3DConstRef<Prims> q, FieldConstRef<Prims> w_gas, FieldConstRef<double> T, 
-                    Field3DRef<double> t_stop, Field3DConstRef<Ice> ice, double mu) {
+                    Field3DRef<double> t_stop, Field3DConstRef<Ice> ice, FieldConstRef<double> mu) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -151,8 +151,8 @@ void _calc_t_s(GridRef g, Field3DConstRef<Prims> q, FieldConstRef<Prims> w_gas, 
     for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
             for (int k=kidx; k<q.Nd; k+=kstride) {
-                double cs = sqrt(k_B*T(i,j)/(mu*m_H));
-                t_stop(i,j,k) = calc_t_s<full_stokes>(q(i,j,k), w_gas(i,j), ice(i,j,k).a, ice(i,j,k).rho, cs, mu);
+                double cs = sqrt(k_B*T(i,j)/(mu(i,j)*m_H));
+                t_stop(i,j,k) = calc_t_s<full_stokes>(q(i,j,k), w_gas(i,j), ice(i,j,k).a, ice(i,j,k).rho, cs, mu(i,j));
             }
         }
     }

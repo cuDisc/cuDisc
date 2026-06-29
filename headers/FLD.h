@@ -64,6 +64,15 @@ class FLD_Solver {
                           Field<double>& T, Field3D<double>& J,
                           bool use_reduced_system=false) ;
 
+    void solve_multi_band(const Grid& g, double dt, const Field<double>& Cv, 
+                                 const Field3D<double>& rhokappa_abs,
+                                 const Field3D<double>& rhokappa_sca,
+                                 const Field<double>& rho,
+                                 const Field<double>& heat, 
+                                 const Field3D<double>& scattering,
+                                 const CudaArray<double>& wle,
+                                 Field<double>& T, Field3D<double>& J) ;
+
   private:
     double _T_ext ;
     double _tol ;

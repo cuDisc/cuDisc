@@ -76,7 +76,7 @@ class SourcesIce : public SourcesBase {
 
     public:
 
-        SourcesIce(const Field<double>& T, const Field<Prims>& w_gas, const SizeGridIce& s, double floor, double Mstar=1., double mu=2.4) :
+        SourcesIce(const Field<double>& T, const Field<Prims>& w_gas, const SizeGridIce& s, double floor, double Mstar, const Field<double>& mu) :
             _Mstar(Mstar), _mu(mu), _sizes(s), _T(T), _w_gas(w_gas), _floor(floor){};
 
         void source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u, double dt);
@@ -85,7 +85,7 @@ class SourcesIce : public SourcesBase {
     private:
 
         double _Mstar;
-        double _mu; 
+        FieldConstRef<double> _mu; 
         const SizeGridIce& _sizes;
         FieldConstRef<double> _T;
         FieldConstRef<Prims> _w_gas;
