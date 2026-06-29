@@ -145,6 +145,37 @@ class Molecule:
     def __init__(self, vap, ice):
         self.vap = vap
         self.ice = ice
+        
+class Molecule1D:
+    def __init__(self, vap, ice):
+        self.vap = vap
+        self.ice = ice
+
+class BinnedData1D:
+    def __init__(self, Sig_d, Sig_i, m_bins, a_bins, a_e_bins, Sig_d_int, Sig_i_int, dens_binned):
+        self.Sig_d = Sig_d
+        self.Sig_i = Sig_i
+        self.m_bins = m_bins
+        self.a_bins = a_bins
+        self.a_e_bins = a_e_bins
+        self.Sig_d_int = Sig_d_int
+        self.Sig_i_int = Sig_i_int
+        self.rho_m = dens_binned
+
+class BinnedData:
+    def __init__(self, rho_d, rho_i, Sig_d, Sig_i, m, a, a_e, rho_d_int, rho_i_int, Sig_d_int, Sig_i_int, dens_binned):
+        self.rho_d = rho_d
+        self.rho_i = rho_i
+        self.Sig_d = Sig_d
+        self.Sig_i = Sig_i
+        self.m = m
+        self.a = a
+        self.a_e = a_e
+        self.rho_d_int = rho_d_int
+        self.rho_i_int = rho_i_int
+        self.Sig_d_int = Sig_d_int
+        self.Sig_i_int = Sig_i_int
+        self.rho_m = dens_binned
 
 class CuDiscModel:
     """Read the outputs from a cuDisc simulation
@@ -228,11 +259,15 @@ class CuDiscModel:
         return OpacData(None, sizes, data[:,:,0], data[:,:,1])
     
     def load_output_times(self):
-        try:
-            return np.genfromtxt(os.path.join(self.sim_dir, "2Dtimes.txt"))
-        except IOError:
-            raise AttributeError("Could not find the output times (2Dtimes.txt) "
-                                 "in the simulation directory")
+        for fname in ("2Dtimes.txt", "time_snapshots.txt"):
+            path = os.path.join(self.sim_dir, fname)
+            try:
+                return np.genfromtxt(path)
+            except IOError:
+                continue
+        raise AttributeError(
+            "Could not find '2Dtimes.txt' or 'time_snapshots.txt' in the simulation directory"
+        )
 
     def load_prims(self, snap_num):
 
@@ -426,6 +461,41 @@ class CuDiscModel:
             ice[snap] = data[:,:,1:].reshape(NR,NZ,Ndust,3)
         
         return Molecule(vap, ice)
+    
+    def load_mol_snap(self, snap_num):
+
+        snap_file = os.path.join(self.sim_dir, f'mol_{snap_num}.dat')
+
+        NR, NZ, Ndust = np.fromfile(snap_file, dtype=np.intc, count=3)        
+
+        data = np.fromfile(snap_file, dtype=np.double, offset=3*np.dtype(np.intc).itemsize)
+        data = data.reshape(NR, NZ, 3*Ndust+1)
+        vap = data[:,:,0]
+        ice = data[:,:,1:].reshape(NR,NZ,Ndust,3)
+        
+        return Molecule(vap, ice)
+    
+    def load_mol1D(self):
+        
+        num_snaps = self._get_num_snaps()
+
+        file = os.path.join(self.sim_dir, f'mol_0.dat')
+
+        NR, NZ, Ndust = np.fromfile(file, dtype=np.intc, count=3)
+
+        vap = np.zeros((num_snaps, NR))
+        ice = np.zeros((num_snaps, NR, Ndust,3))
+        
+        for snap in range(num_snaps):
+            file = os.path.join(self.sim_dir, f'mol_{snap}.dat')
+
+            NR, NZ, Ndust = np.fromfile(file, dtype=np.intc, count=3)
+            data = np.fromfile(file, dtype=np.double, offset=3*np.dtype(np.intc).itemsize)
+            data = data.reshape(NR, NZ, 3*Ndust+1)
+            vap[snap] = data[:,2,0]
+            ice[snap] = data[:,2,1:].reshape(NR,Ndust,3)
+        
+        return Molecule1D(vap, ice)
 
     def _get_prim_file_base(self):
         """Work out the file name used for the primitive quants"""
@@ -453,6 +523,8 @@ class CuDiscModel:
             
         if 'restart' in snap_nums:
             snap_nums.remove('restart')
+        if 'des' in snap_nums:
+            snap_nums.remove('des')
 
         if len(snap_nums) == 0:
             return 0
@@ -503,6 +575,158 @@ class CuDiscModel:
             return True
         except ValueError:
             return False
+        
+    def compute_1Dbinned_profiles(self, dust, mol, sizes, rho_mi, rho_ms):
+        """
+        Compute binned surface densities and related arrays.
+
+        Parameters
+        ----------
+        dust : object
+            Dust density object from the simulation (must have .Sigma).
+        mol : object
+            mol ice/molecule object from the simulation (must have .ice array).
+        sizes : object
+            Grain size information (must have .m_c array).
+        rho_mi : double
+            Ice internal density
+        rho_ms : double
+            Base dust internal density
+
+        Returns
+        -------
+        BinnedData1D object
+        """
+        # Calculate new mass array
+        m_new = (4. / 3.) * np.pi * mol.ice[:, :, :, 2] * mol.ice[:, :, :, 1]**3
+        m_bins = np.logspace(
+            np.log10(sizes.m_c[0]),
+            np.log10(sizes.m_c[-1]),
+            int(sizes.m_c.shape[0] * 0.54)
+        )
+
+        # Initialize binned arrays
+        shape = (*m_new.shape[:-1], m_bins.shape[0])  # Add bin dimension
+        Sig_binned = np.zeros(shape)
+        Sig_ice_binned = np.zeros(shape)
+
+        # Create an index grid for all dimensions except the last
+        grid_indices = np.indices(m_new.shape[:-1])
+
+        for i in range(m_new.shape[-1]):
+            # Find bin indices for current mass slice
+            ind = np.clip(m_bins.searchsorted(m_new[..., i]) - 1, 0, len(m_bins) - 2)
+
+            # Calculate interpolation weights
+            m_l, m_u = m_bins[ind], m_bins[ind + 1]
+            eps = (m_u - m_new[..., i]) / (m_u - m_l)
+
+            # Prepare indices for advanced indexing
+            coords = tuple(coord for coord in grid_indices)
+
+            # Accumulate values into binned arrays
+            Sig_binned[coords + (ind,)] += eps * dust.Sigma[..., i]
+            Sig_binned[coords + (ind + 1,)] += (1. - eps) * dust.Sigma[..., i]
+            Sig_ice_binned[coords + (ind,)] += eps * mol.ice[:, :, i, 0]
+            Sig_ice_binned[coords + (ind + 1,)] += (1. - eps) * mol.ice[:, :, i, 0]
+
+        rho_1 = np.maximum(1e-300, Sig_ice_binned) / (np.maximum(Sig_binned, 1e-300) * rho_mi) + 1. / rho_ms
+        dens_binned = np.maximum(Sig_ice_binned + Sig_binned, 1e-300) / (np.maximum(Sig_binned, 1e-300) * rho_1)
+        a_binned = ((3. * m_bins / (4. * np.pi * dens_binned)))**(1. / 3.)
+        x_interp = np.sqrt(a_binned[..., :-1] * a_binned[..., 1:])  
+
+        # Extrapolation using the geometric mean
+        x_left = a_binned[..., 0]**2. / x_interp[..., 0]  
+        x_right = a_binned[..., -1]**2. / x_interp[..., -1]  
+
+        # Stack the values efficiently along the last axis
+        a_bins_e_c = np.concatenate([x_left[..., np.newaxis], x_interp, x_right[..., np.newaxis]], axis=-1)
+
+        Sig_ind = Sig_binned / np.absolute(np.diff(np.log10(a_bins_e_c), axis=-1))
+        Sig_ice_ind = Sig_ice_binned / np.absolute(np.diff(np.log10(a_bins_e_c), axis=-1))
+
+        return BinnedData1D(Sig_ind, Sig_ice_ind, m_bins, a_binned, a_bins_e_c, Sig_binned, Sig_ice_binned, dens_binned)
+    
+    def compute_binned_profiles(self, g, dust, mol, sizes, rho_mi, rho_ms):
+        """
+        Compute binned surface densities and related arrays.
+
+        Parameters
+        ----------
+        dust : object
+            Dust density object from the simulation 
+        mol : object
+            mol ice/molecule object from the simulation (must have .ice array).
+        sizes : object
+            Grain size information (must have .m_c array).
+        rho_mi : double
+            Ice internal density
+        rho_ms : double
+            Base dust internal density
+
+        Returns
+        -------
+        BinnedData object
+        """
+        # Calculate new mass array
+        m_new = (4. / 3.) * np.pi * mol.ice[..., 2] * mol.ice[..., 1]**3
+        m_bins = np.logspace(
+            np.log10(sizes.m_c[0]),
+            np.log10(sizes.m_c[-1]),
+            int(sizes.m_c.shape[0] * 0.54)
+        )
+
+        # Initialize binned arrays
+        shape = (*m_new.shape[:-1], m_bins.shape[0])  # Add bin dimension
+        rho_binned = np.zeros(shape)
+        rho_ice_binned = np.zeros(shape)
+
+        # Create an index grid for all dimensions except the last
+        grid_indices = np.indices(m_new.shape[:-1])
+
+        for i in range(m_new.shape[-1]):
+            # Find bin indices for current mass slice
+            ind = np.clip(m_bins.searchsorted(m_new[..., i]) - 1, 0, len(m_bins) - 2)
+
+            # Calculate interpolation weights
+            m_l, m_u = m_bins[ind], m_bins[ind + 1]
+            eps = (m_u - m_new[..., i]) / (m_u - m_l)
+
+            # Prepare indices for advanced indexing
+            coords = tuple(coord for coord in grid_indices)
+
+            # Accumulate values into binned arrays
+            rho_binned[coords + (ind,)] += eps * dust.rho[..., i]
+            rho_binned[coords + (ind + 1,)] += (1. - eps) * dust.rho[..., i]
+            rho_ice_binned[coords + (ind,)] += eps * mol.ice[:, :, :, i, 0]
+            rho_ice_binned[coords + (ind + 1,)] += (1. - eps) * mol.ice[:, :, :, i, 0]
+
+        rho_1 = np.maximum(1e-300, rho_ice_binned) / (np.maximum(rho_binned, 1e-300) * rho_mi) + 1. / rho_ms
+        dens_binned = np.maximum(rho_ice_binned + rho_binned, 1e-300) / (np.maximum(rho_binned, 1e-300) * rho_1)
+        a_binned = ((3. * m_bins / (4. * np.pi * dens_binned)))**(1. / 3.)
+        x_interp = np.sqrt(a_binned[..., :-1] * a_binned[..., 1:])  
+
+        # Extrapolation using the geometric mean
+        x_left = a_binned[..., 0]**2. / x_interp[..., 0]  
+        x_right = a_binned[..., -1]**2. / x_interp[..., -1]  
+
+        # Stack the values efficiently along the last axis
+        a_bins_e_c = np.concatenate([x_left[..., np.newaxis], x_interp, x_right[..., np.newaxis]], axis=-1)
+
+        rho_ind = (rho_binned) / np.absolute(np.diff(np.log10(a_bins_e_c),axis=-1))
+        rho_ice_ind = (rho_ice_binned) / np.absolute(np.diff(np.log10(a_bins_e_c),axis=-1))
+
+        Z_e = g.R_c[:,None] * g.tan_th_e 
+
+        Sig_binned = 2.*np.sum(rho_binned[:,:,2:-2] * np.diff(Z_e[None,:,2:-2,None],axis=2), axis=2)
+        Sig_ice_binned = 2.*np.sum(rho_ice_binned[:,:,2:-2] * np.diff(Z_e[None,:,2:-2,None],axis=2), axis=2)
+
+        Sig_ind = 2.*np.sum(rho_ind[:,:,2:-2] * np.diff(Z_e[None,:,2:-2,None],axis=2), axis=2)
+        Sig_ice_ind = 2.*np.sum(rho_ice_ind[:,:,2:-2] * np.diff(Z_e[None,:,2:-2,None],axis=2), axis=2)
+
+        return BinnedData(rho_ind, rho_ice_ind, Sig_ind, Sig_ice_ind, m_bins, a_binned, a_bins_e_c, rho_binned, rho_ice_binned, Sig_binned, Sig_ice_binned, dens_binned)
+
+
         
 if __name__ == "__main__":
     disc = CuDiscModel('outputs/run_template')
