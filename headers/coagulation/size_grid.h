@@ -168,6 +168,22 @@ class SizeGridIce : public SizeGrid {
             }
         }
 
+        SizeGridIce(Grid& g, CudaArray<RealType>& a, int Nbins, RealType rho_daux, RealType rho_m_ice) : 
+            SizeGrid(a, Nbins, rho_daux),
+            _g(g),
+            stride(Nbins), _rho_daux(rho_daux),
+            _rho_m_ice(rho_m_ice)
+        {
+            for (int i=0; i<_g.NR+2*_g.Nghost; i++) {
+                for (int j=0; j<_g.Nphi+2*_g.Nghost; j++) {
+                    for (int k=0; k<Nbins; k++) {
+                        ice(i,j,k).a = centre_size(k);
+                        ice(i,j,k).rho = rho_daux;
+                    }
+                }
+            }
+        }
+
         Field3D<Ice> ice = create_field3D<Ice>(_g, stride);
 
         int size() const {
