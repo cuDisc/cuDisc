@@ -148,6 +148,7 @@ class CuzziOpacs {
             k_sca_ptr = make_CudaArray<double>(n_a*n_lam);
             k_abs_g_ptr = make_CudaArray<double>(n_lam);
             k_sca_g_ptr = make_CudaArray<double>(n_lam);
+            g_ptr = make_CudaArray<double>(n_a*n_lam);
 
         } 
 
@@ -156,7 +157,8 @@ class CuzziOpacs {
         }
 
         void calc_opacs(SizeGrid& sizes, double por=0.);
-
+        void calc_mie_opacs(SizeGrid& sizes, double por=0.);
+        
         double k_abs(int i, int j) const {
             return k_abs_ptr[i*n_lam + j];
         }
@@ -175,6 +177,9 @@ class CuzziOpacs {
         double lam(int i) const {
             return lam_ptr[i];
         }
+        double g(int i, int j) const {
+            return g_ptr[i*n_lam + j];
+        }
 
         double* k_abs() {
             return k_abs_ptr.get();
@@ -187,6 +192,9 @@ class CuzziOpacs {
         }
         double* lam() {
             return lam_ptr.get();
+        }
+        double* g() {
+            return g_ptr.get();
         }
 
         void set_k_g_min_grain(double fac) {
@@ -208,6 +216,7 @@ class CuzziOpacs {
         CudaArray<double> k_sca_ptr;
         CudaArray<double> k_abs_g_ptr;
         CudaArray<double> k_sca_g_ptr;
+        CudaArray<double> g_ptr;
 
         // friend class CuzziOpacsRef<CompMix>;
 } ;

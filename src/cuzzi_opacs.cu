@@ -5,6 +5,7 @@
 #include <fstream>
 #include <limits>
 #include <string>
+#include <complex>
 
 std::string opacity_dir = OPAC_DIR;
 
@@ -290,6 +291,7 @@ CuzziOpacs<CompMix>::CuzziOpacs(int _n_a, int _n_lam, double lam_min, double lam
     k_sca_ptr = make_CudaArray<double>(n_a*n_lam);
     k_abs_g_ptr = make_CudaArray<double>(n_lam);
     k_sca_g_ptr = make_CudaArray<double>(n_lam);
+    g_ptr = make_CudaArray<double>(n_a*n_lam);
 
     // Load optical constants
 
@@ -365,10 +367,11 @@ void CuzziOpacs<CompMix>::calc_opacs(SizeGrid& sizes, double por) {
                 else { g = 0.5; } 
             }
 
-            Q_s = std::min(Q_s*(1.-g),1.);
+            Q_s = std::min(Q_s,1.);
 
             x = 0.75/(sizes.centre_size(k)*rho_av);
 
+            g_ptr[k*n_lam + i] = g;
             k_abs_ptr[k*n_lam + i] = x*Q_a;
             k_sca_ptr[k*n_lam + i] = x*Q_s;
         }
@@ -746,6 +749,204 @@ void CuzziOpacs<CompMix>::write_interp(std::filesystem::path folder) const {
     f.close();
 
 }
+
+/**
+ * 
+ *  Mie opacity calculation adapted from DSHARP code (Birnstiel et al. 2018, ApJ, 869, L45)
+ * 
+ * 
+ */
+
+struct MieResult {
+    double Q_ext, Q_sca, Q_abs, Q_back, g;
+};
+
+static MieResult mie_single(double x, std::complex<double> m) {
+
+    if (x == 0.0) return {0.0, 0.0, 0.0, 0.0, 0.0};
+
+    std::complex<double> y = m * x;
+
+    double xstop = x + 4.0*std::pow(x, 1.0/3.0) + 2.0;
+    int nstop    = static_cast<int>(std::floor(xstop));
+    int nmx      = static_cast<int>(std::floor(std::max(xstop, std::abs(y)))) + 16;
+
+    // ---- Downward recurrence: EXACTLY matching DSHARP ----
+    // dlog has size nmx, indices 0..nmx-1, seeded as all zeros
+    // Loop: n = 0, 1, ..., nmx-2
+    //   en = nmx-n  (so en goes nmx, nmx-1, ..., 2)
+    //   fills dlog[nmx-n-2] = en/y - 1/(dlog[nmx-n-1] + en/y)
+    //   i.e. fills indices nmx-2, nmx-3, ..., 0
+    // Result: dlog[n] = D_{n+1}(y)  for n=0..nmx-2
+    std::vector<std::complex<double>> dlog(nmx, {0.0, 0.0});
+    for (int n = 0; n < nmx - 1; ++n) {
+        double en = static_cast<double>(nmx - n);
+        dlog[nmx - n - 2] = en / y - 1.0 / (dlog[nmx - n - 1] + en / y);
+    }
+
+    // ---- Riccati-Bessel initial values ---- (identical to DSHARP)
+    double psi0 =  std::cos(x);
+    double psi1 =  std::sin(x);
+    double chi0 = -std::sin(x);
+    double chi1 =  std::cos(x);
+    std::complex<double> xi1 = {psi1, -chi1};
+
+    double Qsca  = 0.0;
+    double gsca  = 0.0;
+    std::complex<double> S1_0 = {0.0, 0.0};  // S1 at theta=0 for Qext
+
+    std::complex<double> an  = {0.0, 0.0};
+    std::complex<double> bn  = {0.0, 0.0};
+    std::complex<double> an1 = {0.0, 0.0};
+    std::complex<double> bn1 = {0.0, 0.0};
+
+    for (int n = 0; n < nstop; ++n) {
+
+        double en = static_cast<double>(n + 1);
+        double fn = (2.0*en + 1.0) / (en*(en + 1.0));
+
+        double psi = (2.0*en - 1.0)/x * psi1 - psi0;
+        double chi = (2.0*en - 1.0)/x * chi1 - chi0;
+        std::complex<double> xi = {psi, -chi};
+
+        // Save previous — BEFORE computing new an/bn, matching DSHARP's an1=an, bn1=bn
+        an1 = an;
+        bn1 = bn;
+
+        // dlog[n] = D_{n+1}(y) = D_{en}(y) ✓
+        std::complex<double> dum = dlog[n] / m + en / x;
+        an = (dum * psi - psi1) / (dum * xi - xi1);
+
+        dum = dlog[n] * m + en / x;
+        bn = (dum * psi - psi1) / (dum * xi - xi1);
+
+        // Qsca sum
+        Qsca += (2.0*en + 1.0) * (std::norm(an) + std::norm(bn));
+
+        // gsca: exactly DSHARP's two lines
+        // Line 1: (2n+1)/(n(n+1)) * Re(an*conj(bn))
+        dum = (2.0*en + 1.0) / (en*(en + 1.0));
+        gsca += (dum * (an.real()*bn.real() + an.imag()*bn.imag())).real();
+
+        // Line 2: (n-1)(n+1)/n * Re(an1*conj(an) + bn1*conj(bn))
+        dum = (en - 1.0)*(en + 1.0) / en;
+        gsca += (dum * (an1.real()*an.real() + an1.imag()*an.imag()
+                      + bn1.real()*bn.real() + bn1.imag()*bn.imag())).real();
+
+        // S1(theta=0): pi_n(cos0)=1, tau_n(cos0)=n => fn*(an+bn)*... 
+        // At theta=0, pi=1, tau=en, so S1(0) += fn*(an*1 + bn*1)... 
+        // Actually DSHARP uses S1[iang0] which at theta=0 gives:
+        // S1(0) = sum fn*(an*pi_n(1) + bn*tau_n(1)) = sum fn*(an+bn)*en*(en+1)/2...
+        // Simplest equivalent: use the extinction sum
+        S1_0 += (2.0*en + 1.0) * (an + bn);
+
+        // Advance recurrence
+        psi0 = psi1;  psi1 = psi;
+        chi0 = chi1;  chi1 = chi;
+        xi1  = xi;
+    }
+
+    // ---- Final quantities: exactly DSHARP's order ----
+    // DSHARP does gsca first, THEN rescales Qsca
+    gsca  = 2.0 * gsca / Qsca;                    // normalize before Qsca rescaled
+    Qsca  = (2.0 / (x*x)) * Qsca;
+    double Qext = (2.0 / (x*x)) * S1_0.real();
+    double Qabs = std::max(0.0, Qext - Qsca);
+    gsca  = std::max(-1.0, std::min(1.0, gsca));
+
+    return {Qext, Qsca, Qabs, 0.0, gsca};
+}
+
+template<class CompMix>
+void CuzziOpacs<CompMix>::calc_mie_opacs(SizeGrid& sizes, double por) {
+
+    // ----------------------------------------------------------------
+    // Step 1: Build volume fractions and bulk density from composition
+    // ----------------------------------------------------------------
+    double rho_1 = 0.0;
+    for (int i = 0; i < comp.n_comp; i++) {
+        rho_1 += comp[i].mf / comp[i].dens;
+    }
+    double rho_av = 1.0 / rho_1;
+    std::cout << "Mie calc — bulk density: " << rho_av << " g cm^-3, porosity: " << por << "\n";
+
+    // Volume fractions of each solid component (accounting for porosity)
+    std::vector<double> vfs(comp.n_comp);
+    for (int i = 0; i < comp.n_comp; i++) {
+        vfs[i] = (1.0 - por) * rho_av * comp[i].mf / comp[i].dens;
+    }
+
+    // ----------------------------------------------------------------
+    // Step 2: Loop over wavelengths, compute effective n via Garnett EMT
+    //         (same mixing rule as calc_opacs), then run full Mie theory
+    // ----------------------------------------------------------------
+    for (int i = 0; i < n_lam; i++) {
+
+        // -- Garnett EMT (identical to calc_opacs) -------------------
+        double vfsig = 0.0, vfgam = 0.0, vf2sig2gam2 = 0.0;
+
+        std::vector<double> sigs(comp.n_comp), gams(comp.n_comp);
+
+        for (int j = 0; j < comp.n_comp; j++) {
+            double nr  = comp[j].opt[i].n;
+            double ni  = comp[j].opt[i].k;
+            double nr2 = nr * nr;
+            double ni2 = ni * ni;
+            double denom = (nr2 - ni2 + 2.0)*(nr2 - ni2 + 2.0) + 4.0*nr2*ni2;
+            sigs[j] = ((nr2 - ni2 - 1.0)*(nr2 - ni2 + 2.0) + 4.0*nr2*ni2) / denom;
+            gams[j] = 2.0 * nr * ni / denom;
+            vfsig += vfs[j] * sigs[j];
+            vfgam += vfs[j] * gams[j];
+        }
+        for (int j = 0; j < comp.n_comp; j++) {
+            for (int k = 0; k < comp.n_comp; k++) {
+                vf2sig2gam2 += vfs[j] * vfs[k] *
+                               (sigs[j]*sigs[k] + 9.0*gams[j]*gams[k]);
+            }
+        }
+
+        double D_emt = 1.0 - 2.0*vfsig + vf2sig2gam2;
+        double eps_r = (1.0 + vfsig - 2.0*vf2sig2gam2) / D_emt;  // Re(epsilon)
+        double eps_i = 9.0 * vfgam / D_emt;                       // Im(epsilon)
+
+        // epsilon -> complex refractive index  m = n - i*k  (k >= 0)
+        double eps_mod = std::sqrt(eps_r*eps_r + eps_i*eps_i) / 2.0;
+        double m_r = std::sqrt(eps_mod + eps_r / 2.0);
+        double m_i = std::sqrt(std::max(0.0, eps_mod - eps_r / 2.0));
+
+        // Bohren & Huffman use  m = n_r - i*n_i  with k>0 for absorbing media
+        std::complex<double> m_eff(m_r, m_i);
+
+        // Wavelength in cm  (lam_ptr is in microns)
+        double lam_cm = lam_ptr[i] * 1.0e-4;
+
+        // ----------------------------------------------------------------
+        // Step 3: Loop over grain sizes
+        // ----------------------------------------------------------------
+        for (int k = 0; k < sizes.size(); k++) {
+
+            double a_grain = sizes.centre_size(k);   // grain radius in cm
+
+            // Size parameter
+            double x_param = 2.0 * M_PI * a_grain / lam_cm;
+
+            // Full Mie solution
+            MieResult mie = mie_single(x_param, m_eff);
+
+            // Mass opacity  kappa = (3/4) * Q / (a * rho_bulk)
+            // [cm^2 g^-1]
+            double x_kap = 0.75 / (a_grain * rho_av);
+
+            k_abs_ptr[k*n_lam + i] = x_kap * mie.Q_abs;
+            // k_sca_ptr[k*n_lam + i] = x_kap * mie.Q_sca * (1.0 - mie.g);  // reduced scattering
+            k_sca_ptr[k*n_lam + i] = x_kap * mie.Q_sca;
+            g_ptr    [k*n_lam + i] = mie.g;
+        }
+    }
+
+    std::cout << "Mie opacity calculation complete.\n";
+}
+
 
 template class CuzziOpacs<CuzziComp>;
 template class CuzziOpacs<DSHARPComp>;
