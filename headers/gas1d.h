@@ -12,10 +12,53 @@ void update_gas_sigma(Grid& g, CudaArray<double>& Sig_g, double dt, const Field<
 
 void update_gas_vel(Grid& g, CudaArray<double>& Sig_g, CudaArray<double>& u_gas, double alpha, Star& star);
 
+/**
+ * Calculates the gas radial velocity using a temperature profile derived from the inputted viscosity, nu.
+ * This T is used to calculate the 2D gas density from Sig_g via hydrostatic equilibrium.
+ * The final radial velocities are adjusted so that the radial Mdot is correct given the actual 2D gas density:
+ *  
+ *  vR = vR_param * rho_g_param / rho_g_actual
+ * 
+ * The azimuthal velocity is still calculated from the full temperature profile.
+ */
 void calc_gas_velocities_from_nu(Grid& g, CudaArray<double>& Sig_g, Field<Prims>& wg, Field<double>& cs2, CudaArray<double>& nu, double alpha, Star& star, int bound, double floor, double cav=0.) ;
-void calc_gas_velocities(Grid& g, CudaArray<double>& Sig_g, Field<Prims>& wg, Field<double>& cs2, CudaArray<double>& nu, double alpha, Star& star, int bound, double floor, double cav=0.) ;
-void calc_gas_velocities_full(Grid& g, CudaArray<double>& Sig_g, Field<Prims>& wg, Field<double>& cs2, CudaArray<double>& nu, double alpha, Star& star, int bound, double floor, double cav=0.) ;
 
+/**
+ * Calculates the gas radial velocity using a temperature profile derived from the inputted viscosity, nu.
+ * This T is used to calculate the 2D gas density from Sig_g via hydrostatic equilibrium.
+ * The final radial velocities are adjusted so that the radial Mdot is correct given the actual 2D gas density:
+ *
+ *  vR = vR_param * rho_g_param / rho_g_actual
+ * 
+ * The azimuthal velocity is still calculated from the full temperature profile.
+ */
+void calc_gas_velocities_from_nu(Grid& g, CudaArray<double>& Sig_g, Field<Prims>& wg, Field<double>& cs2, CudaArray<double>& nu, CudaArray<double>& alpha, Star& star, int bound, double floor, double cav=0.);
+    
+/**
+ * Calculates the gas radial velocity using a parameterised temperature profile:
+ * 
+ * T = (6.25e-3 * Lstar / (pi r^2 sigma_SB)^0.25
+ * 
+ * This T is used to calculate the 2D gas density from Sig_g via hydrostatic equilibrium. 
+ * The azimuthal velocity is still calculated from the full temperature profile.
+ */
+void calc_gas_velocities_parameterised(Grid& g, CudaArray<double>& Sig_g, Field<Prims>& wg, Field<double>& cs2, CudaArray<double>& nu, double alpha, Star& star, int bound, double floor, double cav=0.) ;
+
+/**
+ * Calculates the radial and azimuthal gas velocities from the full temperature profile.
+ */
+void calc_gas_velocities(Grid& g, CudaArray<double>& Sig_g, Field<Prims>& wg, Field<double>& cs2, CudaArray<double>& nu, double alpha, Star& star, int bound, double floor, double cav=0.) ;
+
+/**
+ * Calculates the gas radial velocity using a parameterised temperature profile:
+ * 
+ * T = (6.25e-3 * Lstar / (pi r^2 sigma_SB)^0.25
+ * 
+ * This T is used to calculate the 2D gas density from Sig_g via hydrostatic equilibrium. 
+ * The azimuthal velocity is still calculated from the full temperature profile.
+ * 
+ * Vertical velocities are calculated using the wind mass-loss rate
+ */
 void calc_gas_velocities_wind(Grid& g, Field<Prims>& wg, CudaArray<double>& Sig_g, Field<double>& cs2, CudaArray<double>& nu, CudaArray<double>& Sig_dot_w,
                             double alpha, Star& star, int bound, double floor, double cav) ;
 
