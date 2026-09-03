@@ -20,12 +20,9 @@ __global__ void _compute_ytot(GridRef g, Field3DConstRef<double> y,
         double res = 0 ;
         for (int k=0; k<y.Nd; k++)
             res += y(i,j,k) ;
-        if (res > y.Nd*10*1e-40*wg(i,j)[0]) {
-            yscale(i,j) = (res+1e-100)*scale ;
-        }
-        else {
-            yscale(i,j) = 1.;
-        }
+
+        yscale(i,j) = (res+1e-100)*scale ;
+
     }
 }
 
@@ -40,12 +37,9 @@ __global__ void _compute_ytot(GridRef g, Field3DConstRef<double> y,
         double res = 0 ;
         for (int k=0; k<y.Nd; k++)
             res += y(i,j,k) ;
-        if (res > y.Nd*10*1e-40*wg(i,j)) {
-            yscale(i,j) = (res+1e-100)*scale ;
-        }
-        else {
-            yscale(i,j) = 1.;
-        }
+
+        yscale(i,j) = (res+1e-100)*scale ;
+
     }
 }
 
@@ -75,7 +69,7 @@ __global__ void _compute_error_norm(GridRef g,
     //   1. Reduce over y
     int size = blockDim.x / 2 ;
     while (size > 0) {
-        if (int(threadIdx.x) < size && (i < g.NR + 2*g.Nghost && j + size < g.Nphi + 2*g.Nghost))
+        if (threadIdx.x < size && (i < g.NR + 2*g.Nghost && j + size < g.Nphi + 2*g.Nghost))
             errtot(i,j) = max(errtot(i,j), errtot(i, j+size)) ;
         
         size /= 2 ;
@@ -84,9 +78,9 @@ __global__ void _compute_error_norm(GridRef g,
 
     //   2. Reduce over x
     size = blockDim.y / 2 ;
-    if (int(blockIdx.x * blockDim.x) < g.Nphi + 2*g.Nghost) {        
+    if (blockIdx.x * blockDim.x < g.Nphi + 2*g.Nghost) {        
         while (size > 0) {
-            if (int(threadIdx.x) == 0 && int(threadIdx.y) < size && i + size < g.NR + 2*g.Nghost)
+            if (threadIdx.x == 0 && threadIdx.y < size && i + size < g.NR + 2*g.Nghost)
                 errtot(i,j) = max(errtot(i,j), errtot(i+size, j)) ;
 
             size /= 2 ;
@@ -120,7 +114,7 @@ __global__ void _compute_error_norm_debug(GridRef g,
     //   1. Reduce over y
     int size = blockDim.x / 2 ;
     while (size > 0) {
-        if (int(threadIdx.x) < size && (i < g.NR + 2*g.Nghost && j + size < g.Nphi + 2*g.Nghost)) {
+        if (threadIdx.x < size && (i < g.NR + 2*g.Nghost && j + size < g.Nphi + 2*g.Nghost)) {
             if ( errtot(i, j+size) > errtot(i,j)) {
                 errtot(i,j) = errtot(i, j+size);
                 idxs(i,j,0) = idxs(i,j+size, 0);
@@ -135,9 +129,9 @@ __global__ void _compute_error_norm_debug(GridRef g,
 
     //   2. Reduce over x
     size = blockDim.y / 2 ;
-    if (int(blockIdx.x * blockDim.x) < g.Nphi + 2*g.Nghost) {        
+    if (blockIdx.x * blockDim.x < g.Nphi + 2*g.Nghost) {        
         while (size > 0) {
-            if (int(threadIdx.x) == 0 && int(threadIdx.y) < size && i + size < g.NR + 2*g.Nghost) {
+            if (threadIdx.x == 0 && threadIdx.y < size && i + size < g.NR + 2*g.Nghost) {
                 if ( errtot(i+size, j) > errtot(i,j)) {
                     errtot(i,j) = errtot(i+size, j);
                     idxs(i,j,0) = idxs(i+size, j, 0) ;
@@ -153,7 +147,7 @@ __global__ void _compute_error_norm_debug(GridRef g,
 } 
 
 template<typename T>
-double TimeIntegration::take_step(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess) const {
+double TimeIntegration::take_step(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess, Field<bool>& active) const {
 
     CodeTiming::BlockTimer block =
         timer->StartNewTimer("TimeIntegation::take_step");
@@ -187,7 +181,7 @@ double TimeIntegration::take_step(Grid& g, Field3D<double>& y, Field<T>& wg, dou
         if (dt == 0)
             throw std::runtime_error("Error time-step of zero was assigned");
           
-        do_step(dt, g, y, ynew, error) ;
+        do_step(dt, g, y, ynew, error, active) ;
 
         // Compute the normalized error
         _compute_error_norm<<<blocks,threads>>>(g, y, ynew, yabs, _rel_tol, 
@@ -214,7 +208,7 @@ double TimeIntegration::take_step(Grid& g, Field3D<double>& y, Field<T>& wg, dou
     return dt ;
 }
 template<typename T>
-double TimeIntegration::take_step_debug(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess, int* idxs) const {
+double TimeIntegration::take_step_debug(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess, int* idxs, Field<bool>& active) const {
 
     CodeTiming::BlockTimer block =
         timer->StartNewTimer("TimeIntegation::take_step");
@@ -250,7 +244,7 @@ double TimeIntegration::take_step_debug(Grid& g, Field3D<double>& y, Field<T>& w
         if (dt == 0)
             throw std::runtime_error("Error time-step of zero was assigned");
           
-        do_step(dt, g, y, ynew, error) ;
+        do_step(dt, g, y, ynew, error, active) ;
 
         // Compute the normalized error
         _compute_error_norm_debug<<<blocks,threads>>>(g, y, ynew, yabs, _rel_tol, 
@@ -381,18 +375,20 @@ int TimeIntegration::integrate(Grid& g, Field3D<T>& ws, Field<T>& wg, double tma
     double t = 0 ;
 
     Field3D<double> rhos = create_field3D<double>(g, ws.Nd);
+    Field<bool> active = create_field<bool>(g); 
     set_all(g, rhos, 0.);
 
     dim3 threads(16,8,8);
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (ws.Nd+7)/8) ;
 
     _copy_rho_forwards<<<blocks,threads>>>(g, Field3DRef<T>(ws), FieldRef<T>(wg), rhos, floor);
-    (void) cudaDeviceSynchronize();
+    _check_active<<<blocks,threads>>>(g, FieldRef<T>(wg), rhos, active, floor);
+    cudaDeviceSynchronize();
     int count = 0;
 
     while (t < tmax) {
         dt = std::min(dt, tmax-t) ;
-        t += take_step(g, rhos, wg, dt) ;
+        t += take_step(g, rhos, wg, dt, active) ;
         count += 1;
         if (_verbose && (count%100) == 0) {
             std::cout << "Coagulation Steps = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
@@ -416,13 +412,15 @@ int TimeIntegration::integrate_debug(Grid& g, Field3D<T>& ws, Field<T>& wg, doub
     double t = 0 ;
 
     Field3D<double> rhos = create_field3D<double>(g, ws.Nd);
+    Field<bool> active = create_field<bool>(g);
     set_all(g, rhos, 0.);
     
     dim3 threads(16,8,8);
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (ws.Nd+7)/8) ;
 
     _copy_rho_forwards<<<blocks,threads>>>(g, Field3DRef<T>(ws), FieldRef<T>(wg), rhos, floor);
-    (void) cudaDeviceSynchronize();
+    _check_active<<<blocks,threads>>>(g, FieldRef<T>(wg), rhos, active, floor);
+    cudaDeviceSynchronize();
     int count = 0;
     int idxs[2] = {0,0};
 
@@ -430,7 +428,7 @@ int TimeIntegration::integrate_debug(Grid& g, Field3D<T>& ws, Field<T>& wg, doub
 
 
         dt = std::min(dt, tmax-t) ;
-        t += take_step_debug(g, rhos, wg, dt, idxs) ;
+        t += take_step_debug(g, rhos, wg, dt, idxs, active) ;
         if (!(count%100) && count) {
             std::cout << "Count = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
             std::cout << "i index = " << idxs[0] << ", j index = " << idxs[1] << "\n";
@@ -486,7 +484,7 @@ __global__ void _Rk2_update2(GridRef g, Field3DConstRef<double> y,
 
 template<class Rate>
 void Rk2Integration<Rate>::do_step(double dt, Grid& g, const Field3D<double>& y,
-                                   Field3D<double>& ynew, Field3D<double>& error) const {
+                                   Field3D<double>& ynew, Field3D<double>& error, Field<bool>& active) const {
 
     CodeTiming::BlockTimer block =
         timer->StartNewTimer("Rk2Integration::do_step") ;
@@ -494,7 +492,7 @@ void Rk2Integration<Rate>::do_step(double dt, Grid& g, const Field3D<double>& y,
     Field3D<double>& rate = error ;
 
     // Compute the rate
-    this->operator()(y, rate) ;
+    this->operator()(y, rate, active) ;
 
     dim3 threads(32,8,4) ;
     dim3 blocks((y.Nd+31)/32, (g.Nphi +2*g.Nghost + 7)/8, (g.NR + 2*g.Nghost + 3)/4);
@@ -504,7 +502,7 @@ void Rk2Integration<Rate>::do_step(double dt, Grid& g, const Field3D<double>& y,
     check_CUDA_errors("_Rk2_update1") ;
 
     // Compute the rate, correction, and error (Heun's method)
-    this->operator()(ynew, rate) ;
+    this->operator()(ynew, rate, active) ;
 
     _Rk2_update2<<<blocks, threads>>>(g, y, dt, ynew, error) ;
     check_CUDA_errors("_Rk2_update2") ;
@@ -575,7 +573,7 @@ __global__ void _BS32_update4(GridRef g, Field3DConstRef<double> y,
 
 template<class Rate>
 void BS32Integration<Rate>::do_step(double dt, Grid& g, const Field3D<double>& y,
-                                   Field3D<double>& ynew, Field3D<double>& error) const {
+                                   Field3D<double>& ynew, Field3D<double>& error, Field<bool>& active) const {
                                 
     // Bogacki-Shampine embedded Runge-Kutta 3(2) method: https://www.sciencedirect.com/science/article/pii/0893965989900797
     
@@ -590,23 +588,68 @@ void BS32Integration<Rate>::do_step(double dt, Grid& g, const Field3D<double>& y
     dim3 threads(32,8,4) ;
     dim3 blocks((y.Nd+31)/32, (g.Nphi +2*g.Nghost + 7)/8, (g.NR + 2*g.Nghost + 3)/4);
 
-    this->operator()(y, k1) ;
+    this->operator()(y, k1, active) ;
 
     _BS32_update1<<<blocks, threads>>>(g, y, k1, dt, ynew) ;
 
-    this->operator()(ynew, k2) ;
+    this->operator()(ynew, k2, active) ;
 
     _BS32_update2<<<blocks, threads>>>(g, y, k2, dt, ynew) ;
 
-    this->operator()(ynew, k3) ;
+    this->operator()(ynew, k3, active) ;
 
     _BS32_update3<<<blocks, threads>>>(g, y, k1, k2, k3, dt, ynew) ;
 
-    this->operator()(ynew, k4) ;
+    this->operator()(ynew, k4, active) ;
 
     _BS32_update4<<<blocks, threads>>>(g, y, dt, ynew, k1, k2, k3, k4, error) ;
 
 }
+
+
+template<typename T>
+__global__ void _check_active(GridRef g, FieldRef<T> wg, Field3DRef<double> rhos, FieldRef<bool> active, double floor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
+            active(i,j) = false;
+            for (int k=0; k<rhos.Nd; k++) {
+                if (rhos(i,j,k) > 10.*floor*wg(i,j)[0]) {
+                    active(i,j) = true;
+                    break;
+                }
+            }
+        }
+    }
+}
+
+// Specialisations for type double
+
+__global__ void _check_active(GridRef g, FieldRef<double> wg, Field3DRef<double> rhos, FieldRef<bool> active, double floor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
+            active(i,j) = true;
+            for (int k=0; k<rhos.Nd; k++) {
+                if (rhos(i,j,k) > 10.*floor*wg(i,j)) {
+                    active(i,j) = true;
+                    break;
+                }
+            }
+        }
+    }
+}
+
 
 
 
