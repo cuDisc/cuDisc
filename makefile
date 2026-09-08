@@ -34,6 +34,7 @@ ifeq ($(HIP_MODE),1)
 	CFLAGS := $(CFLAGS) $(HIP_ARGS) $(HIP_INCLUDE) -DOPAC_DIR=\"$(OPAC_DIR)\" 
 else	
     CUDA_HOME = /usr/local/cuda-12.0
+	#CUDA_HOME = /uollinapps/v2/24-25/uol/packages/el8/linux-rocky8-x86_64_v3/gcc-8.5.0/cuda-12.0.1-bdbrsixhxmrfs5m24rdkgykcymiwyfwt
     GPU_COMPILER = nvcc
 
 	ARCH = --generate-code arch=compute_60,code=sm_60 \
@@ -47,7 +48,7 @@ else
 
     GPU_FLAGS    = -O3 -g --std=c++17 -Wno-deprecated-gpu-targets $(ARCH) -DOPAC_DIR=\"$(OPAC_DIR)\" 
     GPU_INCLUDE  = -I./$(HEADER_DIR) -I$(CUDA_HOME)/include
-    GPU_LIBS     = -L$(CUDA_HOME)/lib64 -lcudart -lcublas -lcusparse
+    GPU_LIBS     = -L$(CUDA_HOME)/lib64 -lcudart -lcublas -lcusparse# -lstdc++fs
 	CFLAGS := $(CFLAGS) -I$(CUDA_HOME)/include -DOPAC_DIR=\"$(OPAC_DIR)\" 
 endif
 

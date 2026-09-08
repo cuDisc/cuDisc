@@ -38,10 +38,12 @@ class TimeIntegration {
 
 
   template<typename T>
-  double take_step(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess, Field<bool>& active) const ;
+  double take_step(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess,
+                   Field<bool>& active, double floor) const ;
   
   template<typename T>
-  double take_step_debug(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess, int* idxs, Field<bool>& active) const ;
+  double take_step_debug(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess,
+                         int* idxs, Field<bool>& active, double floor) const ;
   template<typename T>
   int integrate(Grid& g, Field3D<T>& ws, Field<T>& wg, double tmax, double& dt_coag, double floor = 1.e-40) const ;
 
@@ -62,6 +64,15 @@ protected:
 		       Field3D<double>& rho_new, Field3D<double>& error, Field<bool>& active) const = 0 ;
 
 private:
+  template<bool debug, typename T>
+  int integrate_impl(Grid& g, Field3D<T>& ws, Field<T>& wg, double tmax,
+                     double& dt_coag, double floor) const ;
+
+  template<bool debug, typename T>
+  double take_step_impl(Grid& g, Field3D<double>& y, Field<T>& wg,
+                        double& dtguess, int* idxs, Field<bool>& active,
+                        double floor) const ;
+
   double _rel_tol, _abs_tol ;
 
   static constexpr double _MAX_FACTOR = 10. ;

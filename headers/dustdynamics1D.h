@@ -15,6 +15,13 @@ struct Prims1D {
         if (i==2) { return v_phi; }
         return v_Z;
     } ;
+
+    inline __host__ __device__ const double& operator[](int i) const {
+        if (i==0) { return Sig; }
+        if (i==1) { return v_R; }
+        if (i==2) { return v_phi; }
+        return v_Z;
+    } ;
 } ;
 
 struct Prims ;

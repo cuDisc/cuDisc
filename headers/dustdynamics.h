@@ -7,6 +7,7 @@
 #include "flags.h"
 #include "grid.h"
 #include "utils.h"
+#include <memory>
 
 class SourcesBase ; 
 
@@ -30,10 +31,18 @@ struct Prims {
         if (i==2) { return v_phi; } 
         return v_Z; 
     } ;
+
+    inline __host__ __device__ const double& operator[](int i) const {
+        if (i==0) { return rho; }
+        if (i==1) { return v_R; }
+        if (i==2) { return v_phi; }
+        return v_Z;
+    } ;
+
 } ;
 
 __global__
-void _set_boundaries(GridRef g, Field3DRef<Prims> w, int bound, double floor) ;
+void _set_boundaries(GridRef g, Field3DRef<Prims> w, int bound) ;
 
 class DustDynamics {
 
@@ -84,6 +93,7 @@ class DustDynamics {
         Field3DRef<double> _D;
         FieldConstRef<double> _cs;
         SourcesBase& _sources;
+        mutable std::unique_ptr<Field3D<int>> _active;
 
         int _boundary = BoundaryFlags::open_R_inner | BoundaryFlags::open_R_outer;
 

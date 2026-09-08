@@ -19,7 +19,7 @@
 
 
 __global__
-void _set_boundaries(GridRef g, Field3DRef<Prims> w, int bound, double /*floor*/) {
+void _set_boundaries(GridRef g, Field3DRef<Prims> w, int bound) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -173,8 +173,11 @@ void _calc_prim(GridRef g, Field3DRef<Quants> q, Field3DRef<Prims> w) {
     }
 }
 
+
+
 __global__
-void _floor_prim(GridRef g, Field3DRef<Prims> w, FieldConstRef<Prims> w_gas, double floor) {
+void _fix_negative_density(GridRef g, Field3DRef<Prims> w, FieldConstRef<Prims> w_gas,
+                           double floor) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -186,8 +189,8 @@ void _floor_prim(GridRef g, Field3DRef<Prims> w, FieldConstRef<Prims> w_gas, dou
     for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {   
             for (int k=kidx; k<w.Nd; k+=kstride) {
-                double f = w(i,j,k).rho / (floor * w_gas(i,j).rho) ;
-                if (f < 1.1) {
+                // Protect negative densities only.
+                if (!(w(i,j,k).rho > 0.)) {
                     w(i,j,k).rho   = w_gas(i,j).rho * floor;
                     w(i,j,k).v_R   = 0 ;
                     w(i,j,k).v_phi = w_gas(i,j).v_phi;
@@ -623,6 +626,90 @@ __global__ void set_flux_to_zero(GridRef g, Field3DRef<Quants> flux) {
 
 }
 
+__global__ void _initialize_active_cells(GridRef g, Field3DConstRef<Prims> w_dust, FieldConstRef<Prims> w_gas, Field3DRef<int> active, double floor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
+            for (int k=kidx; k<active.Nd; k+=kstride) {
+                active(i,j,k) = w_dust(i,j,k).rho > (floor * w_gas(i,j).rho);
+            }
+        }
+    }
+
+}
+
+__global__
+void _update_active_cells(GridRef g, Field3DRef<Prims> w_dust,
+                          FieldConstRef<Prims> w_gas, Field3DRef<int> active,
+                          double floor, double reactivation_factor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
+            for (int k=kidx; k<active.Nd; k+=kstride) {
+                double rho_floor = floor * w_gas(i,j).rho;
+                if (w_dust(i,j,k).rho <= rho_floor) {
+                    // Reset the velocity when a cell is de-activated.
+                    if (active(i,j,k)) {
+                        w_dust(i,j,k).v_R = 0;
+                        w_dust(i,j,k).v_phi = w_gas(i,j).v_phi;
+                        w_dust(i,j,k).v_Z = 0;
+                    }
+                    active(i,j,k) = 0;
+                } else if (w_dust(i,j,k).rho > reactivation_factor * rho_floor) {
+                    active(i,j,k) = 1;
+                }
+            }
+        }
+    }
+}
+
+__global__ void _zero_inactive_fluxes(GridRef g, Field3DRef<Quants> fluxR, Field3DRef<Quants> fluxZ, Field3DConstRef<int> active) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
+            for (int k=kidx; k<fluxR.Nd; k+=kstride) {
+                // Don't allow mass to leave inactive cells.
+                if (!active(i,j,k)) {
+                    if (fluxR(i,j,k).rho < 0) {
+                        fluxR(i,j,k) = {0.,0.,0.,0.};
+                    }
+                    if (fluxZ(i,j,k).rho < 0) {
+                        fluxZ(i,j,k) = {0.,0.,0.,0.};
+                    }
+                    if (fluxR(i+1,j,k).rho > 0) {
+                        fluxR(i+1,j,k) = {0.,0.,0.,0.};
+                    }
+                    if (fluxZ(i,j+1,k).rho > 0) {
+                        fluxZ(i,j+1,k) = {0.,0.,0.,0.};
+                    }
+                }
+            }
+        }
+    }
+
+}
+
 
 void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas, double dt) {
 
@@ -643,10 +730,19 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (q.Nd+3)/4) ;
     //dim3 blocks(4,4,4) ;
 
-    _set_boundaries<<<blocks,threads>>>(g, w_dust, _boundary, _floor);
+    _set_boundaries<<<blocks,threads>>>(g, w_dust, _boundary);
     check_CUDA_errors("_set_boundaries") ;
     _calc_conserved<<<blocks,threads>>>(g, q, w_dust);
     check_CUDA_errors("_calc_conserved") ;
+
+    if (!_active) {
+        _active = std::make_unique<Field3D<int>>(g.NR+2*g.Nghost,
+                                                  g.Nphi+2*g.Nghost,
+                                                  w_dust.Nd);
+        _initialize_active_cells<<<blocks,threads>>>(g, w_dust, w_gas, *_active, _floor);
+        check_CUDA_errors("initialize_active_cells") ;
+    }
+    Field3D<int>& active = *_active;
 
     // Calc donor cell flux
     if (_DoDiffusion) {
@@ -661,16 +757,19 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     // Update quantities a half time step and and source terms.
     _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
     check_CUDA_errors("_set_boundary_flux") ;
+    _zero_inactive_fluxes<<<blocks,threads>>>(g, fluxR, fluxZ, active);
+    check_CUDA_errors("_zero_inactive_fluxes") ;
     _update_quants<<<blocks,threads>>>(g, q_mids, q, dt/2., fluxR, fluxZ);
     check_CUDA_errors("_update_quants") ;
-    _sources.source_exp(g, w_dust, q_mids, dt/2.);
+    _sources.source_exp(g, w_dust, q_mids, active, dt/2.);
     _calc_prim<<<blocks,threads>>>(g, q_mids, w_dust);
     check_CUDA_errors("_calc_prim") ; 
-    _sources.source_imp(g, w_dust, dt/2.);
-    _floor_prim<<<blocks,threads>>>(g, w_dust, w_gas, _floor);
-    check_CUDA_errors("_floor_prim") ;
+    _fix_negative_density<<<blocks,threads>>>(g, w_dust, w_gas, _floor);
+    check_CUDA_errors("_fix_negative_density") ;
+    _sources.source_imp(g, w_dust, active, dt/2.);
+
     
-    _set_boundaries<<<blocks,threads>>>(g, w_dust, _boundary, _floor);
+    _set_boundaries<<<blocks,threads>>>(g, w_dust, _boundary);
     check_CUDA_errors("_set_boundaries") ;
 
     // Compute fluxes with Van Leer
@@ -687,21 +786,28 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
 
     _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
     check_CUDA_errors("_set_boundary_flux") ;
+    _zero_inactive_fluxes<<<blocks,threads>>>(g, fluxR, fluxZ, active);
+    check_CUDA_errors("_zero_inactive_fluxes") ;
     // set_flux_to_zero<<<blocks,threads>>>(g, fluxR);
     _update_quants<<<blocks,threads>>>(g, q_mids, q, dt, fluxR, fluxZ);
     check_CUDA_errors("_update_quants") ;
-    _sources.source_exp(g, w_dust, q_mids, dt);
+    _sources.source_exp(g, w_dust, q_mids, active, dt);
     _calc_prim<<<blocks, threads>>>(g, q_mids, w_dust);
     check_CUDA_errors("_calc_prim") ; 
-    _sources.source_imp(g, w_dust, dt);
-    _floor_prim<<<blocks,threads>>>(g, w_dust, w_gas, _floor);
-    check_CUDA_errors("_floor_prim") ;
+    _sources.source_imp(g, w_dust, active, dt);
+    _fix_negative_density<<<blocks,threads>>>(g, w_dust, w_gas, _floor);
+    check_CUDA_errors("_fix_negative_density") ;
+
+    constexpr double reactivation_factor = 1.1;
+    _update_active_cells<<<blocks,threads>>>(g, w_dust, w_gas, active,
+                                             _floor, reactivation_factor);
+    check_CUDA_errors("_update_active_cells") ;
 }
 
 
 __global__
 void _compute_CFL_diff(GridRef g, Field3DConstRef<Prims> w, FieldConstRef<Prims> w_gas, FieldRef<double> CFL_grid, Field3DConstRef<double> D,
-                        double CFL_adv, double CFL_diff, double floor) {
+                        Field3DConstRef<int> active, double CFL_adv, double CFL_diff) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -713,7 +819,7 @@ void _compute_CFL_diff(GridRef g, Field3DConstRef<Prims> w, FieldConstRef<Prims>
             double CFL_k = 1e308;
             for (int k=0; k<w.Nd; k++) {
 
-                if (w(i,j,k).rho < 10.*w_gas(i,j).rho*floor) { continue; }
+                if (!active(i,j,k)) { continue; }
 
                 double dtR = abs(g.dRe(i)/w(i,j,k).v_R);
                 double dtZ = abs(g.dZe(i,j)/w(i,j,k).v_Z);
@@ -742,7 +848,20 @@ double DustDynamics::get_CFL_limit(const Grid& g, const Field3D<Prims>& w, const
     Field<double> CFL_grid = create_field<double>(g);
     set_all(g, CFL_grid, std::numeric_limits<double>::max());
 
-    _compute_CFL_diff<<<blocks,threads>>>(g, w, w_gas, CFL_grid, _D, _CFL_adv, _CFL_diff, _floor);
+    if (!_active) {
+        _active = std::make_unique<Field3D<int>>(g.NR+2*g.Nghost,
+                                                  g.Nphi+2*g.Nghost,
+                                                  w.Nd);
+        dim3 active_threads(16,8,4) ;
+        dim3 active_blocks((g.NR + 2*g.Nghost+15)/16,
+                           (g.Nphi + 2*g.Nghost+7)/8,
+                           (w.Nd+3)/4) ;
+        _initialize_active_cells<<<active_blocks,active_threads>>>(g, w, w_gas, *_active, _floor);
+        check_CUDA_errors("initialize_active_cells") ;
+    }
+
+    _compute_CFL_diff<<<blocks,threads>>>(g, w, w_gas, CFL_grid, _D, *_active,
+                                          _CFL_adv, _CFL_diff);
     check_CUDA_errors("_compute_CFL_diff") ;
     Reduction::scan_R_min(g, CFL_grid);
 
@@ -762,7 +881,20 @@ double DustDynamics::get_CFL_limit_debug(const Grid& g, const Field3D<Prims>& w,
     Field<double> CFL_grid = create_field<double>(g);
     set_all(g, CFL_grid, std::numeric_limits<double>::max());
 
-    _compute_CFL_diff<<<blocks,threads>>>(g, w, w_gas, CFL_grid, _D, _CFL_adv, _CFL_diff, _floor);
+    if (!_active) {
+        _active = std::make_unique<Field3D<int>>(g.NR+2*g.Nghost,
+                                                  g.Nphi+2*g.Nghost,
+                                                  w.Nd);
+        dim3 active_threads(16,8,4) ;
+        dim3 active_blocks((g.NR + 2*g.Nghost+15)/16,
+                           (g.Nphi + 2*g.Nghost+7)/8,
+                           (w.Nd+3)/4) ;
+        _initialize_active_cells<<<active_blocks,active_threads>>>(g, w, w_gas, *_active, _floor);
+        check_CUDA_errors("initialize_active_cells") ;
+    }
+
+    _compute_CFL_diff<<<blocks,threads>>>(g, w, w_gas, CFL_grid, _D, *_active,
+                                          _CFL_adv, _CFL_diff);
     check_CUDA_errors("_compute_CFL_diff") ;
 
     double dt = std::numeric_limits<double>::max() ;

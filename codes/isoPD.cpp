@@ -170,9 +170,9 @@ int main() {
 
     double rho_p = 1.6;
     double a0 = 1e-5 ; // Grain size lower bound in cm
-    double a1 = 10.   ;  // Grain size upper bound in cm
+    double a1 = 100.   ;  // Grain size upper bound in cm
     int n_spec = 7.*3.*std::log10(a1/a0) + 1;
-    double v_frag = 100.; // Fragmentation threshold
+    double v_frag = 1000.; // Fragmentation threshold
 
     std::cout << "Number of dust species: "<< n_spec << "\n";
     SizeGrid sizes(a0, a1, n_spec, rho_p) ;
@@ -183,6 +183,9 @@ int main() {
     
     double mu = 2.4, M_star = 1., alpha = 1.e-3, T_star=4500., R_star = 1.7*Rsun;
     double L_star = 4.*M_PI*sigma_SB*std::pow(T_star, 4.)*std::pow(R_star, 2.);
+
+    Field<double> mu2D = create_field<double>(g); // mu 2D
+    set_all(g, mu2D, mu);
 
     // Create star
 
@@ -212,7 +215,7 @@ int main() {
         
     int gas_boundary = BoundaryFlags::open_R_inner | BoundaryFlags::open_R_outer | BoundaryFlags::open_Z_outer;
     double gas_floor = 1e-100;
-    double floor = 1.e-10;
+    double floor = 1.e-12;
 
     compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, gas_floor);
     calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor);   
@@ -234,7 +237,7 @@ int main() {
 
     // Set up coagulation kernel, storing the fragmentation velocity
 
-    BirnstielKernel kernel = BirnstielKernel(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu, M_star);
+    BirnstielKernel kernel(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu, M_star);
     kernel.set_fragmentation_threshold(v_frag);
 
     // Setup the integrator
@@ -252,8 +255,8 @@ int main() {
     // Choose times to store data
     
     double t = 0, dt;
-    const int ntimes = 4;  
-    double ts[ntimes] = {10*year, 100*year, 1000*year, 1e4*year};
+    const int ntimes = 7;  
+    double ts[ntimes] = {1*year, 10*year, 100*year, 1000*year, 2000*year, 5000*year, 1e4*year};
 
     std::ofstream f_times((dir / "2Dtimes.txt"));
     f_times << 0. << "\n";

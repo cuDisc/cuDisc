@@ -235,35 +235,28 @@ __global__ void _compute_coagulation_rate(_CoagulationRateHelper<Kernel,Fragment
     int iZ = threadIdx.y + blockIdx.y*blockDim.y ;
     int iR = threadIdx.z + blockIdx.z*blockDim.z ;
 
-    if (!active(iR,iZ)) {
-        if (iR < coag.kernel.NR() && iZ < coag.kernel.Nphi()) {
-            for (int i=s0; i < coag.size * (1 + num_tracers); i += blockDim.x*gridDim.x) {
-                rate(iR,iZ,i) = 0 ;
-            }
+    int threads_per_cell = blockDim.x*gridDim.x ;
+
+    // Initialize the shared space
+    extern __shared__ double shared_mem[] ;
+    double *tmp ;
+
+    if (iR < coag.kernel.NR() && iZ < coag.kernel.Nphi()) {
+        // Offset the temporary space
+        int size = coag.size * (1 + num_tracers) ;
+
+        tmp = shared_mem + (threadIdx.y + threadIdx.z * blockDim.y) * size ;
+
+        // Initialize the storage
+        for (int i=s0; i < size; i += threads_per_cell) {
+            tmp[i] = 0 ;
+            rate(iR,iZ,i) = 0 ;
         }
-    }
-    else {
-        int threads_per_cell = blockDim.x*gridDim.x ;
+    } 
+    __syncthreads() ;
 
-        // Initialize the shared space
-        extern __shared__ double shared_mem[] ;
-        double *tmp ;
-
-
-        if (iR < coag.kernel.NR() && iZ < coag.kernel.Nphi()) {
-            // Offset the temporary space
-            int size = coag.size * (1 + num_tracers) ;
-
-            tmp = shared_mem + (threadIdx.y + threadIdx.z * blockDim.y) * size ;
-
-            // Initialize the storage
-            for (int i=s0; i < size; i += threads_per_cell) {
-                tmp[i] = 0 ;
-                rate(iR,iZ,i) = 0 ;
-            }
-        } 
-        __syncthreads() ;
-
+    
+    if (active(iR,iZ)) {
         // Main coagulation loop
         if (iR < coag.kernel.NR() && iZ < coag.kernel.Nphi()) {
             for (int i=s0; i < coag.size; i += threads_per_cell) {

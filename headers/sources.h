@@ -11,9 +11,11 @@ class SourcesBase {
 
     public:
 
-        virtual void source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u, double dt) = 0;
+        virtual void source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u,
+                    Field3DConstRef<int> active, double dt) = 0;
 
-        virtual void source_imp(Grid& g, Field3D<Prims>& w, double dt) = 0;
+        virtual void source_imp(Grid& g, Field3D<Prims>& w,
+                    Field3DConstRef<int> active, double dt) = 0;
 
 
 } ;
@@ -22,8 +24,10 @@ class NoSources : public SourcesBase {
 
     public:
 
-        void source_exp(Grid&, Field3D<Prims>&, Field3D<Quants>&, double) {};
-        void source_imp(Grid&, Field3D<Prims>&, double) {};
+        void source_exp(Grid&, Field3D<Prims>&, Field3D<Quants>&,
+                Field3DConstRef<int>, double) {};
+        void source_imp(Grid&, Field3D<Prims>&,
+                Field3DConstRef<int>, double) {};
 
 } ;
 
@@ -35,8 +39,10 @@ class Sources : public SourcesBase {
         Sources(const Field<double>& T, const Field<Prims>& w_gas, const SizeGrid& s, double floor, double Mstar=1., double mu=2.4) :
             _Mstar(Mstar), _mu(mu), _sizes(s), _T(T), _w_gas(w_gas), _floor(floor) {};
 
-        void source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u, double dt);
-        void source_imp(Grid& g, Field3D<Prims>& w, double dt);
+        void source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u,
+                Field3DConstRef<int> active, double dt);
+        void source_imp(Grid& g, Field3D<Prims>& w,
+                Field3DConstRef<int> active, double dt);
 
     private:
 
@@ -56,8 +62,10 @@ class SourcesRad : public SourcesBase {
         SourcesRad(const Field<double>& T, const Field<Prims>& w_gas, const Field3D<double>& f_rad, const SizeGrid& s, double floor, double Mstar=1., double mu=2.4) :
             _Mstar(Mstar), _mu(mu), _sizes(s), _T(T), _w_gas(w_gas), _f_rad(f_rad), _floor(floor){};
 
-        void source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u, double dt);
-        void source_imp(Grid& g, Field3D<Prims>& w, double dt);
+        void source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u,
+                Field3DConstRef<int> active, double dt);
+        void source_imp(Grid& g, Field3D<Prims>& w,
+                Field3DConstRef<int> active, double dt);
 
     private:
 
