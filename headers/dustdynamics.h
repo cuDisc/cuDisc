@@ -77,6 +77,9 @@ class DustDynamics {
 
         void floor_above(Grid&g, Field3D<Prims>& w_dust, Field<Prims>& w_gas, CudaArray<double>& h);
 
+        void reinitialize_active(Grid& g, const Field3D<Prims>& w_dust,
+                     const Field<Prims>& w_gas);
+
         void operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas, double dt) ;
 
         double get_CFL_limit(const Grid& g, const Field3D<Prims>& w, const Field<Prims>& w_gas) ;

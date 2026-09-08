@@ -804,6 +804,22 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     check_CUDA_errors("_update_active_cells") ;
 }
 
+void DustDynamics::reinitialize_active(Grid& g, const Field3D<Prims>& w_dust,
+                                       const Field<Prims>& w_gas) {
+    if (!_active) {
+        _active = std::make_unique<Field3D<int>>(g.NR+2*g.Nghost,
+                                                  g.Nphi+2*g.Nghost,
+                                                  w_dust.Nd);
+    }
+
+    dim3 threads(16,8,4) ;
+    dim3 blocks((g.NR + 2*g.Nghost+15)/16,
+                (g.Nphi + 2*g.Nghost+7)/8,
+                (w_dust.Nd+3)/4) ;
+    _initialize_active_cells<<<blocks,threads>>>(g, w_dust, w_gas, *_active, _floor);
+    check_CUDA_errors("reinitialize_active") ;
+}
+
 
 __global__
 void _compute_CFL_diff(GridRef g, Field3DConstRef<Prims> w, FieldConstRef<Prims> w_gas, FieldRef<double> CFL_grid, Field3DConstRef<double> D,
@@ -910,7 +926,7 @@ double DustDynamics::get_CFL_limit_debug(const Grid& g, const Field3D<Prims>& w,
             
         }
     }
-    printf("%d %d\n", iind, jind);
+    std::cout << "CFL_grid: " << CFL_grid(iind, jind) << std::endl;
     return dt;
 }
 

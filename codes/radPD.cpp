@@ -160,23 +160,48 @@ void cs2_to_cs(Grid& g, Field<double> &cs, Field<double> &cs2) {
 }
 
 
-void read_in_params(std::ifstream& file, double& Mdisc, double& R_c, double& alpha, double& v_frag) {
+void read_in_params(std::filesystem::path filename, double& Mdisc, double& R_c,
+                    double& alpha, double& v_frag) {
 
-    file >> Mdisc;
-    file >> R_c;
-    file >> alpha;
-    file >> v_frag;
+    std::ifstream file(filename);
+    if (!file) {
+        Mdisc = 0.07;
+        R_c = 30.;
+        alpha = 1.e-3;
+        v_frag = 1000.;
+
+        std::ofstream defaults(filename);
+        defaults << Mdisc << "\n"
+                 << R_c << "\n"
+                 << alpha << "\n"
+                 << v_frag << "\n";
+        if (!defaults) {
+            throw std::runtime_error("Could not create " + filename.string());
+        }
+        std::cout << "Created " << filename << " using defaults.\n";
+        return;
+    }
+
+    if (!(file >> Mdisc >> R_c >> alpha >> v_frag)) {
+        throw std::runtime_error("Invalid parameter file: " + filename.string()
+                                 + " (expected Mdisc, R_c, alpha, v_frag)");
+    }
 }
 
 int main(int argc, char* argv[]) {
 
-    std::filesystem::path dir = argv[1];
+    std::filesystem::path dir ;
+    if (argc < 2) {
+        dir = "codes/outputs/radPD";
+    }
+    else {
+        dir = argv[1];
+    }
+    std::filesystem::create_directories(dir);
 
     double Mdisc, R_c, alpha, v_frag;
 
-    std::ifstream f_params((dir / "params.txt"));
-    read_in_params(f_params, Mdisc, R_c, alpha, v_frag);
-    f_params.close();
+    read_in_params(dir / "params.txt", Mdisc, R_c, alpha, v_frag);
     Mdisc *= Msun;
     R_c *= au;
 
@@ -377,6 +402,7 @@ int main(int argc, char* argv[]) {
         std::cout << "Restart params: " << count << " " << t/year << " " << dt_CFL/year << "\n";
 
         read_restart_prims(dir, Ws_d, Ws_g, Sig_g);
+        dyn.reinitialize_active(g, Ws_d, Ws_g);
 
         compute_cs2(g,T,cs2,mu);
         cs2_to_cs(g, cs, cs2);
@@ -472,7 +498,7 @@ int main(int argc, char* argv[]) {
             if ((t+dt >= t_coag+dt_coag)|| (t+2*dt >= t_coag+dt_coag && dt < dt_coag) || dt == ti-t) {
                 std::cout << "Coag step at count = " << count << "\n";
                 // Run coagulation internal integration (routine calculates its own sub-steps to integrate over the timestep passed into it)
-                coagulation_integrate.integrate(g, Ws_d, Ws_g, (t+dt)-t_coag, dt_coag, floor) ;
+                coagulation_integrate.integrate_debug(g, Ws_d, Ws_g, (t+dt)-t_coag, dt_coag, floor) ;
                 t_coag = t+dt;
             } 
 

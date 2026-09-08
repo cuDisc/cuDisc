@@ -624,7 +624,7 @@ int main() {
 
             count += 1;
             t += dt;
-            dt_CFL = dyn.get_CFL_limit(g, Ws_d, Ws_g); // Calculate new CFL condition time-step
+            dt_CFL = dyn.get_CFL_limit_debug(g, Ws_d, Ws_g); // Calculate new CFL condition time-step
 
             if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start).count()/3600. > 20.) {
                 std::cout << "Writing restart at t = " << t/year << " years.\n" ;
