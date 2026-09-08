@@ -34,7 +34,7 @@ ifeq ($(HIP_MODE),1)
 	CFLAGS := $(CFLAGS) $(HIP_ARGS) $(HIP_INCLUDE) -DOPAC_DIR=\"$(OPAC_DIR)\" 
 else	
     CUDA_HOME = /usr/local/cuda-12.0
-	#CUDA_HOME = /uollinapps/v2/24-25/uol/packages/el8/linux-rocky8-x86_64_v3/gcc-8.5.0/cuda-12.0.1-bdbrsixhxmrfs5m24rdkgykcymiwyfwt
+	CUDA_HOME = /uollinapps/v2/24-25/uol/packages/el8/linux-rocky8-x86_64_v3/gcc-8.5.0/cuda-12.0.1-bdbrsixhxmrfs5m24rdkgykcymiwyfwt
     GPU_COMPILER = nvcc
 
 	ARCH = --generate-code arch=compute_60,code=sm_60 \
