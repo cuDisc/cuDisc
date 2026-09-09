@@ -347,7 +347,7 @@ int main() {
         
     int gas_boundary = BoundaryFlags::open_R_inner | BoundaryFlags::open_R_outer | BoundaryFlags::open_Z_outer;
     double gas_floor = 1e-30;
-    double floor = 1.e-12;
+    double floor = 1.e-10;
 
     compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g);
     double Rcav=0;
