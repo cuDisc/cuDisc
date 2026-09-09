@@ -327,6 +327,7 @@ int main() {
     Field<Prims> Ws_g = create_field<Prims>(g); // Gas primitives
     CudaArray<double> Sig_g = make_CudaArray<double>(g.NR+2*g.Nghost); // Gas surface density
     CudaArray<double> Sigdot_wind = make_CudaArray<double>(g.NR+2*g.Nghost); // Gas surface density
+    CudaArray<double> h_floor = make_CudaArray<double>(g.NR+2*g.Nghost); // Height of gas floor
 
     CudaArray<double> nu = make_CudaArray<double>(g.NR+2*g.Nghost); // Kinematic viscosity
     Field<double> T = create_field<double>(g); // Temperature
@@ -396,8 +397,8 @@ int main() {
     // Choose times to store data
     
     double t = 0, dt;
-    const int ntimes = 6;  
-    double ts[ntimes] = {10*year, 100*year, 1000*year, 1e5*year, 5e5*year, 1e6*year};
+    const int ntimes = 7;  
+    double ts[ntimes] = {10*year, 100*year, 1000*year, 1e4*year, 1e5*year, 5e5*year, 1e6*year};
 
     std::ofstream f_times((dir / "2Dtimes.txt"));
     f_times << 0. << "\n";
@@ -443,6 +444,7 @@ int main() {
         std::cout << "Restart params: " << count << " " << t/year << " " << dt_CFL/year << "\n";
 
         read_restart_quants(dir, Ws_d, Ws_g, Sig_g, T, J);
+        dyn.reinitialize_active(g, Ws_d, Ws_g);
 
         compute_cs2(g,T,cs2,mu);
         cs2_to_cs(g, cs, cs2);
@@ -455,8 +457,10 @@ int main() {
         // Compute initial temperature structure
         std::cout << "Computing initial temperature structure\n"; 
 
-
+        FLD.set_precond_level(1);
         while (n<50 && tol>0.00001) {
+            if (n >= 20) 
+                FLD.set_precond_level(0);
 
             Field<double> oldT = create_field<double>(g);
             copy_field(g, T, oldT); 
@@ -501,17 +505,23 @@ int main() {
                 Ws_g(i,j).v_R = 0.;
 
             }
-        }
+        }        
+        FLD.set_precond_level(0);
+
 
         compute_nu(g, nu, cs2, M_star, alpha);
         compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);
+
+        dyn.compute_gas_floor_height(g, Ws_g, h_floor);
+        dyn.floor_above(g, Ws_d, Ws_g, h_floor);
+
         write_file(dir, 0, g, Ws_d, Ws_g, Sig_g, T, J);
     }
 
     double dt_temp_max = 5000*year;
 
     // Main timestep iteration
-
+    dt = dt_CFL;
     for (double ti : ts) {
 
         if (t > ti) {
@@ -528,10 +538,23 @@ int main() {
                 yps = ((t-t_restart)/year) / std::chrono::duration_cast<std::chrono::seconds>(stop - start).count();
                 std::cout << "Years per second: " << yps << "\n";
             }
-
-            dt = std::min(dt_CFL, ti-t); // Set time-step according to CFL condition or proximity to selected time snapshots
+            dt = std::min(dt_CFL, 1.1*dt); // Increase time-step by 10% each iteration, but not above CFL limit
+            dt = std::min(dt, ti-t); // Limit time-step to next time snapshots
             
             dyn(g, Ws_d, Ws_g, dt); // Diffusion-advection update
+            dyn.floor_above(g, Ws_d, Ws_g, h_floor); // Remove dust in cells where gas density is below floor
+
+            // Coagulation update
+
+            if ((t+dt >= t_coag+dt_coag)|| (t+2*dt >= t_coag+dt_coag && dt < dt_coag) || ((t+dt)-t_coag)>50.*year || dt == ti-t || t_temp == t+dt) {
+                std::cout << "Coag step at count = " << count << "\n";
+                cs2_to_cs(g, cs, cs2);
+                kernel = BirnstielKernel(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu);
+                kernel.set_fragmentation_threshold(1000.);
+                coagulation_integrate.set_kernel(kernel);
+                coagulation_integrate.integrate(g, Ws_d, Ws_g, (t+dt)-t_coag, dt_coag, floor) ;
+                t_coag = t+dt;
+            } 
 
             // Temperature update
         
@@ -591,6 +614,9 @@ int main() {
                     compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);
                     compute_nu(g, nu, cs2, M_star, alpha);
                     calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor, Rcav);   
+                    dyn.compute_gas_floor_height(g, Ws_g, h_floor);
+                    dyn.enforce_floor_for_inactive(g, Ws_d, Ws_g);
+
                     for (int i=0; i<g.NR + 2*g.Nghost; i++) {
                         for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
                             Ws_g(i,j).v_R = 0.;
@@ -610,21 +636,9 @@ int main() {
                 }
             }
 
-            // Coagulation update
-
-            if ((t+dt >= t_coag+dt_coag)|| (t+2*dt >= t_coag+dt_coag && dt < dt_coag) || ((t+dt)-t_coag)>50.*year || dt == ti-t || t_temp == t+dt) {
-                std::cout << "Coag step at count = " << count << "\n";
-                cs2_to_cs(g, cs, cs2);
-                kernel = BirnstielKernel(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu);
-                kernel.set_fragmentation_threshold(1000.);
-                coagulation_integrate.set_kernel(kernel);
-                coagulation_integrate.integrate_debug(g, Ws_d, Ws_g, (t+dt)-t_coag, dt_coag, floor) ;
-                t_coag = t+dt;
-            } 
-
             count += 1;
             t += dt;
-            dt_CFL = dyn.get_CFL_limit_debug(g, Ws_d, Ws_g); // Calculate new CFL condition time-step
+            dt_CFL = dyn.get_CFL_limit(g, Ws_d, Ws_g); // Calculate new CFL condition time-step
 
             if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start).count()/3600. > 20.) {
                 std::cout << "Writing restart at t = " << t/year << " years.\n" ;

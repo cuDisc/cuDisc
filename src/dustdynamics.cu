@@ -926,11 +926,48 @@ double DustDynamics::get_CFL_limit_debug(const Grid& g, const Field3D<Prims>& w,
             
         }
     }
-    std::cout << "CFL_grid: " << CFL_grid(iind, jind) << std::endl;
+    std::cout << "CFL_grid: " << iind << ", " << jind << ": " << CFL_grid(iind, jind) << std::endl;
     return dt;
 }
 
-__global__ void _floor_above(GridRef g, Field3DRef<Prims> w, FieldRef<Prims> w_g, double* h, double _floor) {
+__device__ __host__ inline
+bool _is_gas_floored(const Prims& w_g, double gas_floor) {
+    return w_g.rho <= gas_floor ;
+}
+
+// Mark the height of cells where the gas has hit the floor (else a large sentinel),
+// so that an inclusive min-scan over Z gives the lowest such height per radius.
+__global__ void _mark_gas_floor_height(GridRef g, FieldRef<Prims> w_g, double gas_floor, FieldRef<double> height) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
+            if (j >= g.Nghost && _is_gas_floored(w_g(i,j), gas_floor)) {
+                height(i,j) = g.Zc(i,j) ;
+            }
+            else {
+                height(i,j) = 1e308 ;
+            }
+        }
+    }
+}
+
+__global__ void _extract_gas_floor_height(GridRef g, FieldRef<double> height, double* h) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.x * blockDim.x ;
+
+    int j_last = g.Nphi + 2*g.Nghost - 1 ;
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        h[i] = height(i, j_last) ;
+    }
+}
+
+__global__ void _floor_above(GridRef g, Field3DRef<Prims> w, FieldRef<Prims> w_g, double* h, Field3DRef<int> active, double _floor) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -943,6 +980,7 @@ __global__ void _floor_above(GridRef g, Field3DRef<Prims> w, FieldRef<Prims> w_g
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {   
             for (int k=kidx; k<w.Nd; k+=kstride) {
                 if (g.Zc(i,j) > h[i] || h[i] == g.Zc(i,g.Nghost)) {
+                    active(i,j,k) = 0;
                     w(i,j,k).rho = _floor*w_g(i,j).rho ;
                     w(i,j,k).v_R = 0.;
                     w(i,j,k).v_phi = w_g(i,j).v_phi;
@@ -953,10 +991,80 @@ __global__ void _floor_above(GridRef g, Field3DRef<Prims> w, FieldRef<Prims> w_g
     }
 }
 
-void DustDynamics::floor_above(Grid& g, Field3D<Prims>& w_dust, Field<Prims>& w_gas, CudaArray<double>& h) {
+void DustDynamics::compute_gas_floor_height(Grid& g, Field<Prims>& w_gas, CudaArray<double>& h) const {
+
+    Field<double> height = create_field<double>(g);
+
+    dim3 threads(16,16) ;
+    dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+15)/16) ;
+    _mark_gas_floor_height<<<blocks,threads>>>(g, w_gas, _gas_floor, height);
+    check_CUDA_errors("_mark_gas_floor_height") ;
+
+    Reduction::scan_Z_min(g, height);
+
+    dim3 h_threads(32) ;
+    dim3 h_blocks((g.NR + 2*g.Nghost+31)/32) ;
+    _extract_gas_floor_height<<<h_blocks,h_threads>>>(g, height, h.get());
+    check_CUDA_errors("_extract_gas_floor_height") ;
+}
+
+void DustDynamics::floor_above(Grid& g, Field3D<Prims>& w_dust, Field<Prims>& w_gas, CudaArray<double>& h) const {
 
     dim3 threads(16,8,8) ;
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (w_dust.Nd+7)/8) ;
 
-    _floor_above<<<blocks,threads>>>(g, w_dust, w_gas, h.get(), _floor);
+    if (!_active) {
+        _active = std::make_unique<Field3D<int>>(g.NR+2*g.Nghost,
+                                                  g.Nphi+2*g.Nghost,
+                                                  w_dust.Nd);
+
+        _initialize_active_cells<<<blocks,threads>>>(g, w_dust, w_gas, *_active, _floor);
+        check_CUDA_errors("initialize_active_cells") ;
+    }
+    Field3D<int>& active = *_active;
+
+    _floor_above<<<blocks,threads>>>(g, w_dust, w_gas, h.get(), active,_floor);
+}
+
+__global__ 
+void _enforce_floor_for_inactive(GridRef g, Field3DRef<Prims> w, FieldConstRef<Prims> w_gas, Field3DConstRef<int> active, double _floor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ; 
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {   
+            for (int k=kidx; k<w.Nd; k+=kstride) {
+                if (!active(i,j,k)) {
+                    w(i,j,k).rho = _floor*w_gas(i,j).rho ;
+                    w(i,j,k).v_R = 0.;
+                    w(i,j,k).v_phi = w_gas(i,j).v_phi;
+                    w(i,j,k).v_Z = 0.;
+                }
+            } 
+        }
+    }
+}
+
+void DustDynamics::enforce_floor_for_inactive(Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas) const {
+
+    dim3 threads(16,8,8) ;
+    dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (w_dust.Nd+7)/8) ;
+
+    if (!_active) {
+        _active = std::make_unique<Field3D<int>>(g.NR+2*g.Nghost,
+                                                  g.Nphi+2*g.Nghost,
+                                                  w_dust.Nd);
+
+        _initialize_active_cells<<<blocks,threads>>>(g, w_dust, w_gas, *_active, _floor);
+        check_CUDA_errors("initialize_active_cells") ;
+    }
+    Field3D<int>& active = *_active;
+
+    _enforce_floor_for_inactive<<<blocks,threads>>>(g, w_dust, w_gas, active, _floor);
+    check_CUDA_errors("_enforce_floor_for_inactive") ;
 }

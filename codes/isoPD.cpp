@@ -305,6 +305,7 @@ int main() {
         std::cout << "Restart params: " << count << " " << t/year << " " << dt_CFL/year << "\n";
 
         read_restart_prims(dir, Ws_d, Ws_g, Sig_g);
+        dyn.reinitialize_active(g, Ws_d, Ws_g);
 
         compute_cs2(g,T,cs2,mu);
         cs2_to_cs(g, cs, cs2);

@@ -75,10 +75,13 @@ class DustDynamics {
         return _boundary ;
         }
 
-        void floor_above(Grid&g, Field3D<Prims>& w_dust, Field<Prims>& w_gas, CudaArray<double>& h);
+        void compute_gas_floor_height(Grid& g, Field<Prims>& w_gas, CudaArray<double>& h) const;
+
+        void floor_above(Grid&g, Field3D<Prims>& w_dust, Field<Prims>& w_gas, CudaArray<double>& h) const;
 
         void reinitialize_active(Grid& g, const Field3D<Prims>& w_dust,
                      const Field<Prims>& w_gas);
+        void enforce_floor_for_inactive(Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas) const;
 
         void operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas, double dt) ;
 
@@ -87,6 +90,7 @@ class DustDynamics {
         // double get_CFL_limit_debug(const Grid& g, const Field3D<Quants>& q, const Field3D<double>& D) ;
 
     private:
+
 
         bool _DoDiffusion = true ;
         double _CFL_adv;
