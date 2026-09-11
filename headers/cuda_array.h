@@ -21,8 +21,8 @@
 template <typename T>
 struct CudaArray_deleter {
     void operator()(T* p) const {
-      cudaDeviceSynchronize();
-      cudaFree(p);
+      (void) cudaDeviceSynchronize();
+      (void) cudaFree(p);
 
       check_CUDA_errors("CudaArray_deleter") ;
     }
@@ -57,7 +57,7 @@ CudaArray<T> make_CudaArray(std::size_t n) {
     if (status != cudaSuccess) {
         throw std::runtime_error("CUDA Failed to allocate memory") ;
     }
-    cudaDeviceSynchronize();
+    (void) cudaDeviceSynchronize();
     return CudaArray<T>(ptr);
 }
 

@@ -191,7 +191,7 @@ int main() {
 
     double tol=1;
     int n = 0;
-    std::cout.setstate(std::ios_base::failbit);
+    //std::cout.setstate(std::ios_base::failbit);
     while (n<20 && tol>0.0001) {
 
         Field<double> oldT = create_field<double>(g);

@@ -13,12 +13,12 @@
 #include "constants.h"
 #include "gas1d.h"
 #include "hydrostatic.h"
+#include "file_io.h"
+#include "errorfuncs.h"
 #include "stellar_irradiation.h"
 #include "DSHARP_opacs.h"
 #include "FLD.h"
 #include "bins.h"
-#include "file_io.h"
-#include "errorfuncs.h"
 
 #include "coagulation/coagulation.h"
 #include "coagulation/integration.h"
@@ -26,50 +26,77 @@
 
 
 /*
-Dynamics + Coag + FLD for a steady state transition disc
+Dynamics + Coag for a primordial disc with vertically isothermal temperature profile 
 */
 
-double calc_mass(Grid& g, Field3D<Prims>& q) {
+void set_up_gas(Grid& g, CudaArray<double>& Sig_g, CudaArray<double>& nu, Field<double>& T, Field<double>& cs, Field<double>& cs2, double Mdisc, double r_c, double alpha, Star& star) {
+  
+    double mu = 2.4;
+    double Mtot = 0.;
 
-    double mass=0;
+    for (int i=0; i<g.NR+2*g.Nghost; i++) {
 
-    for (int i=g.Nghost; i<g.NR+g.Nghost; i++) {
-        for (int j=g.Nghost; j<g.Nphi+g.Nghost; j++) {
-            for (int k=0; k<q.Nd; k++) {
-                mass += 4.*M_PI*q(i,j,k).rho * g.volume(i,j);
+        Sig_g[i] =  std::pow(g.Rc(i)/r_c, -1.) * std::exp(-g.Rc(i)/r_c);
+        Mtot += M_PI*Sig_g[i]*(g.Re(i+1)*g.Re(i+1) - g.Re(i)*g.Re(i));
+        for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
+            T(i,j) = std::pow(6.25e-3 * star.L / (M_PI * g.Rc(i)*g.Rc(i) * sigma_SB), 0.25);
+            cs(i,j) = std::sqrt(k_B*T(i,j) / (mu*m_H));
+            cs2(i,j) = k_B*T(i,j) / (mu*m_H);
+            nu[i] = alpha * cs(i,j) * cs(i,j) / std::sqrt(star.GM/std::pow(g.Rc(i), 3.));
+        }
+    
+    }
+    
+    for (int i=0; i<g.NR+2*g.Nghost; i++) {
+        Sig_g[i] *= Mdisc/Mtot + 1e-30;
+    }
+
+}
+
+void set_up_dust(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, Field3D<double>& D, SizeGrid& sizes, double alpha, Field<double>& cs, double floor, double gfloor, double Mstar) {
+
+    double d_to_g = 0.01;
+    double Sc = 1.;
+
+    for (int i=0; i<g.NR+2*g.Nghost; i++) {
+
+        for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
+            double rho_tot = 0;
+            for (int k=0; k<qd.Nd; k++) {
+                // Initialise dust with MRN profile and exponential cut off at 0.1 micron
+                qd(i,j,k).rho = std::pow(sizes.centre_size(k)/sizes.centre_size(0), 0.5) * std::exp(-std::pow(sizes.centre_size(k)/1e-5, 10.));
+                D(i,j,k) = wg(i,j).rho * (alpha * cs(i,j) * cs(i,j) / std::sqrt(GMsun/std::pow(g.Rc(i), 3.))) / Sc ;
+                rho_tot += qd(i,j,k).rho;
+            }
+            for (int k=0; k<qd.Nd; k++) {
+                if (wg(i,j).rho <= 1.1*gfloor) {
+                    qd(i,j,k).rho = 0.1*wg(i,j).rho*floor;
+                }
+                else {
+                    qd(i,j,k).rho *= d_to_g*wg(i,j).rho/rho_tot ;
+                }
+            }
+        }
+    }
+    
+    for (int i=0; i<g.NR+2*g.Nghost; i++) {
+        for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
+
+            double vk = std::sqrt(GMsun*Mstar/g.Rc(i));
+
+            for (int k=0; k < sizes.size(); k++) {
+                qd(i,j,k).rho = std::max(qd(i,j,k).rho, 0.1*floor*wg(i,j).rho);
+
+                // Set initial dust velocity to Keplerian orbit
+              
+                qd(i,j,k).v_R   = 0.;
+                qd(i,j,k).v_phi = vk;
+                qd(i,j,k).v_Z   = 0.;
+
             }
         }
     }
 
-    return mass;
-}
-
-
-
-void Sigdot_w_PicPD(Grid& g, CudaArray<double>& Sigdot_w, double logLx) {
-
-    // From https://ui.adsabs.harvard.edu/abs/2019MNRAS.487..691P/abstract
-
-    double a = -0.5885, b = 4.313, c = -12.1214, d = 16.3587, e = -11.4721, f = 5.7248, g_ = -2.8562;
-    double A_L = -2.7326, B_L = 3.3307, C_L = -2.9869e-3, D_L = -7.258;
-    double Mdot_w, Mdot_Lx;
-
-    Mdot_Lx = std::pow(10., A_L * std::exp(std::pow(std::log(logLx)-B_L, 2.)/C_L) + D_L);
-
-
-    for (int i=0; i<g.NR+2*g.Nghost; i++) {
-
-        double R = g.Rc(i)/au;
-
-        Mdot_w = Mdot_Lx * std::pow(10., a*std::pow(std::log10(R), 6.) + b*std::pow(std::log10(R), 5.) + c*std::pow(std::log10(R), 4.) +
-                d*std::pow(std::log10(R), 3.) + e*std::pow(std::log10(R), 2.) + f*std::log10(R) + g_);
-
-        Sigdot_w[i] = std::log(10.) * (6.*a*std::pow(std::log(R), 5.)/(R*std::pow(std::log(10.),6.)) + 5.*b*std::pow(std::log(R), 4.)/(R*std::pow(std::log(10.),5.)) +
-            4.*c*std::pow(std::log(R), 3.)/(R*std::pow(std::log(10.),4.)) + 3.*d*std::pow(std::log(R), 2.)/(R*std::pow(std::log(10.),3.)) + 
-            2.*e*std::log(R)/(R*std::pow(std::log(10.),2.)) + f/(R*std::log(10.)) ) * Mdot_w/(2.*M_PI*R) * (Msun/(au*au*year));  
-
-        if (Sigdot_w[i] < 0.) { Sigdot_w[i] = 0.; }           
-    }  
 }
 
 void setup_init_J(const Grid &g, Field<double> &heat, Field3D<double> &J) {
@@ -81,90 +108,6 @@ void setup_init_J(const Grid &g, Field<double> &heat, Field3D<double> &J) {
             for (int k=0; k<J.Nd; k++) {
                 J[J.index(i,j,k)] = heat[heat.index(i,j)]/J.Nd ; 
             }    
-        }
-    }
-
-}
-
-void set_up_gas(Grid& g, Field<Prims>& wg, CudaArray<double>& Sig_g, CudaArray<double>& nu, Field<double>& T, Field<double>& cs, Field<double>& cs2, double alpha, Star& star) {
-
-    // Constant gas surface density and velocities set according to Takeuchi and Lin 2002 (https://iopscience.iop.org/article/10.1086/344437/pdf)
-
-    double rho_0 = 2.e-10;
-    double M_star = 1.;
-    double h_0 = 3.33e-2*au;
-    double p = -2.25;
-    double q = -0.5;
-    double mu = 2.4;
-
-    for (int i=0; i<g.NR+2*g.Nghost; i++) {
-        for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
-
-            double h_g = h_0 * std::pow(g.Rc(i)/au, (q+3)/2);
-
-            Sig_g[i] = std::sqrt(2.*M_PI) * rho_0*h_0*std::pow(g.Rc(i)/au, p+(q+3.)/2.)*std::exp(-std::pow(5./(g.Rc(i)/au),10)) + 1.e-30;
-            
-            double eta = - std::pow(h_g/g.Rc(i), 2) * (p + q + ((q+3)/2)*std::pow(g.Zc(i,j)/h_g, 2));
-
-            wg(i,j).v_R = 0.;
-            wg(i,j).v_phi = g.Rc(i) * std::pow(GMsun*M_star/std::pow(g.Rc(i)*g.Rc(i)+g.Zc(i,j)*g.Zc(i,j),1.5), 0.5) * std::pow(1 - eta, 0.5);
-            wg(i,j).v_Z = 0.;
-
-            T(i,j) = std::pow(6.25e-3 * star.L / (M_PI * g.Rc(i)*g.Rc(i) * sigma_SB), 0.25);
-            cs(i,j) = std::sqrt(k_B*T(i,j) / (mu*m_H));
-            cs2(i,j) = k_B*T(i,j) / (mu*m_H);
-            nu[i] = alpha * cs(i,j) * cs(i,j) / std::sqrt(GMsun/std::pow(g.Rc(i), 3.));
-        }
-    
-    }
-    
-}
-
-void set_up_dust(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, CudaArray<double>& Sig_g, Field3D<double>& D, SizeGrid& sizes, double alpha, Field<double>& cs, double M_gas, double floor) {
-
-    double d_to_g = 0.01;
-    double M_star = 1.;
-    double Sc = 1.;
-    double M_dust=0;
-
-    for (int i=0; i<g.NR+2*g.Nghost; i++) {
-
-        double h_g = cs(i,2)/std::sqrt(GMsun/(g.Rc(i)*g.Rc(i)*g.Rc(i)));
-        for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
-            for (int k=0; k<qd.Nd; k++) {
-                // Initialise dust with MRN profile and exponential cut off for large grains
-                double St = sizes.solid_density() * sizes.centre_size(k) * (M_PI/2.) / Sig_g[i];
-                double hp =  h_g * std::sqrt(1/(1+St/alpha));
-                double Sig_d = std::pow(sizes.centre_size(k)/sizes.centre_size(0), 0.5) * std::exp(-std::pow(sizes.centre_size(k)/0.2, 10.)) * Sig_g[i] * std::exp(-std::pow(6/(g.Rc(i)/au),10)) * std::exp(-g.Rc(i)/(10.*au));
-                qd(i,j,k).rho = Sig_d/(std::sqrt(2.*M_PI)*hp) * std::exp(-g.Zc(i,j)*g.Zc(i,j)/(2.*hp*hp));
-                D(i,j,k) = wg(i,j).rho * (alpha * cs(i,j) * cs(i,j) / std::sqrt(GMsun/std::pow(g.Rc(i), 3.))) / Sc ;
-            }
-        }
-    }
-    for (int i=g.Nghost; i<g.NR + g.Nghost; i++) {
-        for (int j=g.Nghost; j<g.Nphi + g.Nghost; j++) {
-            for (int k=0; k<qd.Nd; k++) {
-                M_dust += 4.*M_PI * qd(i,j,k).rho * g.volume(i,j);
-            }
-        }
-    }
-    
-    for (int i=0; i<g.NR+2*g.Nghost; i++) {
-        for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
-
-            double vk = std::sqrt(GMsun*M_star/g.Rc(i));
-
-            for (int k=0; k < sizes.size(); k++) {
-                qd(i,j,k).rho = qd(i,j,k).rho * d_to_g*M_gas/M_dust ;
-                qd(i,j,k).rho = std::max(qd(i,j,k).rho, 0.1* floor*wg(i,j).rho);
-
-                // Set initial dust velocities through standard drift velocity equations
-              
-                qd(i,j,k).v_R   = 0.;
-                qd(i,j,k).v_phi = vk;
-                qd(i,j,k).v_Z   = 0.;
-
-            }
         }
     }
 
@@ -208,19 +151,6 @@ void compute_nu(const Grid &g, CudaArray<double> &nu, double nu0, double Mstar, 
     }
 }
 
-void compute_D(const Grid &g, Field3D<double> &D, Field<Prims> &wg, CudaArray<double> &nu, double Sc) {
-
-    // Calculates the dust diffusion constant
-
-    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-        for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
-            for (int k=0; k<D.Nd; k++) {
-                D(i,j,k) = wg(i,j).rho * nu[i] / Sc ;
-            }
-        }
-    }
-}
-
 void cs2_to_cs(Grid& g, Field<double> &cs, Field<double> &cs2) {
     for (int i=0; i<g.NR + 2*g.Nghost; i++) {
         for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
@@ -229,53 +159,83 @@ void cs2_to_cs(Grid& g, Field<double> &cs, Field<double> &cs2) {
     }
 }
 
-void find_Rcav(Grid& g, CudaArray<double>& Sig_g, double& Rcav) {
 
-    for (int i=0; i<g.NR; i++) {
-        if (Sig_g[i] > 1.e-30) {
-            Rcav = g.Rc(i);
-            // std::cout << i << "\n";
-            break;
+void read_in_params(std::filesystem::path filename, double& Mdisc, double& R_c,
+                    double& alpha, double& v_frag) {
 
+    std::ifstream file(filename);
+    if (!file) {
+        Mdisc = 0.07;
+        R_c = 30.;
+        alpha = 1.e-3;
+        v_frag = 1000.;
+
+        std::ofstream defaults(filename);
+        defaults << Mdisc << "\n"
+                 << R_c << "\n"
+                 << alpha << "\n"
+                 << v_frag << "\n";
+        if (!defaults) {
+            throw std::runtime_error("Could not create " + filename.string());
         }
-    }   
+        std::cout << "Created " << filename << " using defaults.\n";
+        return;
+    }
+
+    if (!(file >> Mdisc >> R_c >> alpha >> v_frag)) {
+        throw std::runtime_error("Invalid parameter file: " + filename.string()
+                                 + " (expected Mdisc, R_c, alpha, v_frag)");
+    }
 }
 
-int main() {
+int main(int argc, char* argv[]) {
 
-    std::filesystem::path dir = std::string("./codes/outputs/steadyTD");
+    std::filesystem::path dir ;
+    if (argc < 2) {
+        dir = "codes/outputs/radPD";
+    }
+    else {
+        dir = argv[1];
+    }
     std::filesystem::create_directories(dir);
+
+    double Mdisc, R_c, alpha, v_frag;
+
+    read_in_params(dir / "params.txt", Mdisc, R_c, alpha, v_frag);
+    Mdisc *= Msun;
+    R_c *= au;
 
     // Set up spatial grid 
 
     Grid::params p;
-    p.NR = 150;
-    p.Nphi = 150;
+    p.NR = 100;
+    p.Nphi = 100;
     p.Nghost = 2;
 
-    p.Rmin = 3.*au;
-    p.Rmax = 20.*au;
+    p.Rmin = 5.*au;
+    p.Rmax = 500.*au;
     p.theta_min = 0. ;
-    p.theta_subdiv = M_PI/9.;
     p.theta_power = 0.75;
-    p.theta_max = M_PI/4.;
+    p.theta_max = M_PI/6.;
 
     p.R_spacing = RadialSpacing::log ;
-    p.theta_spacing = ThetaSpacing::subdiv;
+    p.theta_spacing = ThetaSpacing::power;
 
     Grid g(p);
 
     // Setup a size distribution
 
-    int n_spec = 135;
     double rho_p = 1.6;
     double a0 = 1e-5 ; // Grain size lower bound in cm
-    double a1 = 20.   ;  // Grain size upper bound in cm
+    double a1 = 100.   ;  // Grain size upper bound in cm
+    int n_spec = 7.*3.*std::log10(a1/a0) + 1;
+
+    std::cout << "Number of dust species: "<< n_spec << "\n";
     SizeGrid sizes(a0, a1, n_spec, rho_p) ;
 
-    // Read in opacity table 
+    // Import opacity table
 
-    DSHARP_opacs opac_tab("./codes/opacities/dustkappa_DSHARP100.txt", false);
+    DSHARP_opacs opac_tab(std::string(OPAC_DIR) + "/dustkappa_DSHARP500_wg.txt");
 
     // Interpolate opacities onto specified (grain size, wavelength) grid
 
@@ -295,8 +255,6 @@ int main() {
 
     write_grids(dir, &g, &sizes, &opacs, &bins); // Write grids to file
 
-    // Create rho*kappa fields for absorption and scattering 
-
     Field3D<double> rhok_abs = create_field3D<double>(g, num_wavelengths);
     Field3D<double> rhok_sca = create_field3D<double>(g, num_wavelengths);
     Field3D<double> rhok_abs_binned = create_field3D<double>(g, n_bands);
@@ -304,7 +262,7 @@ int main() {
 
     // Disc & Star parameters
     
-    double mu = 2.4, M_star = 1., alpha = 1.e-3, T_star=4500., R_star = 1.7*Rsun, Cv = 2.5*R_gas/mu;
+    double mu = 2.4, M_star = 1., T_star=4500., R_star = 1.7*Rsun, Cv = 2.5*R_gas/mu;;
     double L_star = 4.*M_PI*sigma_SB*std::pow(T_star, 4.)*std::pow(R_star, 2.);
 
     // Create star
@@ -316,21 +274,18 @@ int main() {
     // Create fields for temperature solver
 
     Field<double> heat = create_field<double>(g);
-    Field3D<double> J = create_field3D<double>(g, n_bands);
+    Field<double> T = create_field<double>(g); // Temperature
+    Field3D<double> J = create_field3D<double>(g, n_bands); // Radiation field
     Field3D<double> scattering = create_field3D<double>(g, num_wavelengths);
     Field3D<double> binned_scattering = create_field3D<double>(g, n_bands);
     Field<double> rho_tot = create_field<double>(g);
-    
+
     // Create gas and dust fields
 
     Field3D<Prims> Ws_d = create_field3D<Prims>(g, n_spec); // Dust quantities 
     Field<Prims> Ws_g = create_field<Prims>(g); // Gas primitives
     CudaArray<double> Sig_g = make_CudaArray<double>(g.NR+2*g.Nghost); // Gas surface density
-    CudaArray<double> Sigdot_wind = make_CudaArray<double>(g.NR+2*g.Nghost); // Gas surface density
-    CudaArray<double> h_floor = make_CudaArray<double>(g.NR+2*g.Nghost); // Height of gas floor
-
     CudaArray<double> nu = make_CudaArray<double>(g.NR+2*g.Nghost); // Kinematic viscosity
-    Field<double> T = create_field<double>(g); // Temperature
     Field<double> cs = create_field<double>(g); // Sound speed
     Field<double> cs2 = create_field<double>(g); // Sound speed squared
     Field<double> alpha2D = create_field<double>(g); // alpha 2D
@@ -338,29 +293,26 @@ int main() {
 
     // Set up initial dust and gas variables
 
-    set_up_gas(g, Ws_g, Sig_g, nu, T, cs, cs2, alpha, star);
+    set_up_gas(g, Sig_g, nu, T, cs, cs2, Mdisc, R_c, alpha, star);
 
     double M_gas=0, M_dust=0;
 
     for (int i=g.Nghost; i<g.NR+g.Nghost; i++ ) { M_gas += Sig_g[i]*2.*M_PI*g.Rc(i)*g.dRe(i);}
     std::cout << "Initial gas mass: " << M_gas/Msun << " M_sun\n";
         
-    int gas_boundary = BoundaryFlags::open_R_inner | BoundaryFlags::open_R_outer | BoundaryFlags::open_Z_outer;
-    double gas_floor = 1e-30;
+    int gas_boundary = BoundaryFlags::const_Mdot_R_inner | BoundaryFlags::const_Mdot_R_outer | BoundaryFlags::open_Z_outer;
+    double gas_floor = 1e-100;
     double floor = 1.e-10;
 
-    compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g);
-    double Rcav=0;
-    find_Rcav(g,Sig_g, Rcav);
-    calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor, Rcav);   
+    compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, gas_floor);
+    calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor);   
     for (int i=0; i<g.NR + 2*g.Nghost; i++) {
         for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
             alpha2D(i,j) = alpha;
-            Ws_g(i,j).v_R = 0.;
         }
     }
 
-    set_up_dust(g, Ws_d, Ws_g, Sig_g, D, sizes, alpha, cs, M_gas, floor);
+    set_up_dust(g, Ws_d, Ws_g, D, sizes, alpha, cs, floor, gas_floor, M_star);
 
     for (int i=g.Nghost; i<g.NR + g.Nghost; i++) {
         for (int j=g.Nghost; j<g.Nphi + g.Nghost; j++) { 
@@ -370,8 +322,12 @@ int main() {
         }
     }
 
-    BirnstielKernel kernel = BirnstielKernel(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu);
-    kernel.set_fragmentation_threshold(1000.);
+    // Set up coagulation kernel, storing the fragmentation velocity
+
+    BirnstielKernel kernel = BirnstielKernel(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu, M_star);
+    kernel.set_fragmentation_threshold(v_frag);
+
+    // Setup the integrator
     BS32Integration<CoagulationRate<decltype(kernel), SimpleErosion>>
         coagulation_integrate(
             create_coagulation_rate(
@@ -383,22 +339,11 @@ int main() {
 
     std::cout << "Initial dust mass: " << M_dust/Msun << " M_sun\n";
 
-    // Initialise temperature solver
-
-    FLD_Solver FLD(10, 1e-5, 5000);
-
-    FLD.set_boundaries(BoundaryFlags::open_R_inner | 
-                       BoundaryFlags::open_R_outer | 
-                       BoundaryFlags::open_Z_outer) ;
-
-    double tol=1;
-    int n = 0;
-
     // Choose times to store data
     
     double t = 0, dt;
-    const int ntimes = 7;  
-    double ts[ntimes] = {10*year, 100*year, 1000*year, 1e4*year, 1e5*year, 5e5*year, 1e6*year};
+    const int ntimes = 9;  
+    double ts[ntimes] = {10*year, 100*year, 1000*year, 2e3*year, 3e3*year, 4e3*year, 5e3*year, 1e4*year, 1.5e4*year};
 
     std::ofstream f_times((dir / "2Dtimes.txt"));
     f_times << 0. << "\n";
@@ -406,6 +351,16 @@ int main() {
         f_times << ts[i] << "\n";
     } 
     f_times.close();
+
+    // Initialise temperature solver
+
+    FLD_Solver FLD(10, 1e-5, 5000);
+    FLD.set_precond_level(1);
+    double dt_temp_max = 5000*year, err;
+
+    FLD.set_boundaries(BoundaryFlags::open_R_inner | 
+                       BoundaryFlags::open_R_outer | 
+                       BoundaryFlags::open_Z_outer) ;
 
     // Initialise diffusion-advection solver
 
@@ -427,9 +382,9 @@ int main() {
     std::chrono::microseconds duration;
     double yps;
     int count = 0;
-    double t_coag = 0, dt_coag = 0, t_temp = 0, err = 1., dt_1perc = year;
+    double t_coag = 0, dt_coag = 0, t_temp = 0, dt_1perc = year;
 
-    dt_CFL = 1e3;
+    dt_CFL = 1;
 
     int Nout = 1;
 
@@ -439,11 +394,14 @@ int main() {
     double t_restart=0;
 
     if (f) {
+
+        // This block is used for reading in restart configurations if running on a cluster that requires restarting the code
+        
         read_restart_file(dir / ("restart_params.dat"), count, t, dt_CFL, t_coag, t_temp, dt_coag, dt_1perc, dummy);
 
         std::cout << "Restart params: " << count << " " << t/year << " " << dt_CFL/year << "\n";
 
-        read_restart_quants(dir, Ws_d, Ws_g, Sig_g, T, J);
+        read_restart_prims(dir, Ws_d, Ws_g, Sig_g);
         dyn.reinitialize_active(g, Ws_d, Ws_g);
 
         compute_cs2(g,T,cs2,mu);
@@ -453,14 +411,13 @@ int main() {
         t_restart = t;
     }
     else {
-
         // Compute initial temperature structure
         std::cout << "Computing initial temperature structure\n"; 
 
-        FLD.set_precond_level(1);
-        while (n<50 && tol>0.00001) {
-            if (n >= 20) 
-                FLD.set_precond_level(0);
+        int n=0;
+        double tol=1.;
+
+        while (n<15 && tol>0.00001) {
 
             Field<double> oldT = create_field<double>(g);
             copy_field(g, T, oldT); 
@@ -487,7 +444,7 @@ int main() {
             compute_cs2(g,T,cs2,mu);
             compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g);
             cs2_to_cs(g, cs, cs2);
-            set_up_dust(g, Ws_d, Ws_g, Sig_g, D, sizes, alpha, cs, M_gas, floor);
+            set_up_dust(g, Ws_d, Ws_g, D, sizes, alpha, cs, floor, gas_floor, M_star);
 
             std::cout << "T:" << T[T.index(1,1)] << " " << T[T.index(g.NR, 1)] 
                     << " "<< T[T.index(1, g.Nphi)] << " " <<  T[T.index(g.NR, g.Nphi)]
@@ -498,30 +455,16 @@ int main() {
 
             n += 1;
         }
-        calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor, Rcav);   
-        for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-            for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
-
-                Ws_g(i,j).v_R = 0.;
-
-            }
-        }        
-        FLD.set_precond_level(0);
-
-
         compute_nu(g, nu, cs2, M_star, alpha);
         compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);
-
-        dyn.compute_gas_floor_height(g, Ws_g, h_floor);
-        dyn.floor_above(g, Ws_d, Ws_g, h_floor);
-
-        write_file(dir, 0, g, Ws_d, Ws_g, Sig_g, T, J);
+        calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor);   
+        write_prims(dir, 0, g, Ws_d, Ws_g, Sig_g);
+        write_temp(dir, 0, g, T, J) ; 
     }
 
-    double dt_temp_max = 5000*year;
 
     // Main timestep iteration
-    dt = dt_CFL;
+
     for (double ti : ts) {
 
         if (t > ti) {
@@ -538,26 +481,27 @@ int main() {
                 yps = ((t-t_restart)/year) / std::chrono::duration_cast<std::chrono::seconds>(stop - start).count();
                 std::cout << "Years per second: " << yps << "\n";
             }
-            dt = std::min(dt_CFL, 1.1*dt); // Increase time-step by 10% each iteration, but not above CFL limit
-            dt = std::min(dt, ti-t); // Limit time-step to next time snapshots
+
+            dt = std::min(dt_CFL, ti-t); // Set time-step according to CFL condition or proximity to selected time snapshots
             
             dyn(g, Ws_d, Ws_g, dt); // Diffusion-advection update
-            dyn.floor_above(g, Ws_d, Ws_g, h_floor); // Remove dust in cells where gas density is below floor
 
-            // Coagulation update
+            // Gas updates
 
-            if ((t+dt >= t_coag+dt_coag)|| (t+2*dt >= t_coag+dt_coag && dt < dt_coag) || ((t+dt)-t_coag)>50.*year || dt == ti-t || t_temp == t+dt) {
+            update_gas_sigma(g, Sig_g, dt, nu, gas_boundary, gas_floor);
+            compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, Ws_d, gas_floor);
+            calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor);  
+            compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);
+
+            // Coagulation update when 1 internal coagulation time-step has passed in the global simulation time
+
+            if ((t+dt >= t_coag+dt_coag)|| (t+2*dt >= t_coag+dt_coag && dt < dt_coag) || dt == ti-t) {
                 std::cout << "Coag step at count = " << count << "\n";
-                cs2_to_cs(g, cs, cs2);
-                kernel = BirnstielKernel(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu);
-                kernel.set_fragmentation_threshold(1000.);
-                coagulation_integrate.set_kernel(kernel);
-                coagulation_integrate.integrate(g, Ws_d, Ws_g, (t+dt)-t_coag, dt_coag, floor) ;
+                // Run coagulation internal integration (routine calculates its own sub-steps to integrate over the timestep passed into it)
+                coagulation_integrate.integrate_debug(g, Ws_d, Ws_g, (t+dt)-t_coag, dt_coag, floor) ;
                 t_coag = t+dt;
             } 
 
-            // Temperature update
-        
             if (count == 1 || (t+dt)-t_temp > 0.1*dt_1perc || ((t+dt)-t_temp)>dt_temp_max || dt == ti-t) {
 
                 bool exit = false;
@@ -603,25 +547,19 @@ int main() {
                     err = fracerr(g, oldT, T);
                     Tcount += 1;
                 }
-                FLD.set_precond_level(0);
+                FLD.set_precond_level(1);
                 FLD.set_tolerance(1e-5);
                 if (exit == true) { 
-                    dt_1perc += 10*year;
+                    
                 }
                 else {
                     compute_cs2(g,T,cs2,mu);
+                    cs2_to_cs(g, cs, cs2);
                     compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g);
                     compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);
                     compute_nu(g, nu, cs2, M_star, alpha);
-                    calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor, Rcav);   
-                    dyn.compute_gas_floor_height(g, Ws_g, h_floor);
-                    dyn.enforce_floor_for_inactive(g, Ws_d, Ws_g);
 
-                    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-                        for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
-                            Ws_g(i,j).v_R = 0.;
-                        }
-                    }
+                    calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor);   
 
                     std::cout << "T:" << T[T.index(1,1)] << " " << T[T.index(g.NR, 1)] 
                             << " "<< T[T.index(1, g.Nphi)] << " " <<  T[T.index(g.NR, g.Nphi)]
@@ -638,24 +576,35 @@ int main() {
 
             count += 1;
             t += dt;
-            dt_CFL = dyn.get_CFL_limit(g, Ws_d, Ws_g); // Calculate new CFL condition time-step
 
-            if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start).count()/3600. > 20.) {
-                std::cout << "Writing restart at t = " << t/year << " years.\n" ;
-                write_restart_file(dir / ("restart_params.dat"), count, t, dt_CFL, t_coag, t_temp, dt_coag, dt_1perc, dummy);
-                write_restart_quants(dir, g, Ws_d, Ws_g, Sig_g, T, J);  
-                return 0;
-            } 
+            if (count < 1000) {
+                dt_CFL = std::min(dyn.get_CFL_limit(g, Ws_d, Ws_g), 1.1*dt); // Calculate new CFL condition time-step 
+            }
+            else {
+                dt_CFL = dyn.get_CFL_limit(g, Ws_d, Ws_g);
+            }
+                
+            // Uncomment this section for writing restart files for jobs on clusters that need to be re-batched after a certain amount of time; here a restart file is written after 20 hrs
+            // if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start).count()/3600. > 20.) {
+            //     std::cout << "Writing restart at t = " << t/year << " years.\n" ;
+            //     write_restart_file(dir / ("restart_params.dat"), count, t, dt_CFL, t_coag, t_temp, dt_coag, dt_1perc, dummy);
+            //     write_restart_prims(dir, g, Ws_d, Ws_g, Sig_g);  
+            //     return 0;
+            // } 
 
         }
 
-        // Record densities and temperatures to file at time snapshots
-
-        write_file(dir, Nout, g, Ws_d, Ws_g, Sig_g, T, J);  
+        // Record densities to file at time snapshots
+        std::cout << "\nSnapshot " << Nout << " completed: t = " << ti/year << " years\n";
+        stop = std::chrono::high_resolution_clock::now();
+        yps = ((t)/year) / std::chrono::duration_cast<std::chrono::seconds>(stop - start).count();
+        std::cout << "Years per second: " << yps << "\n\n";
+        write_prims(dir, Nout, g, Ws_d, Ws_g, Sig_g);  
+        write_temp(dir, Nout, g, T, J) ; 
         Nout+=1;
     }
     
-
+    // This is used for telling your job submission script that the final snapshot has been reached, meaning no more restarts are necessary
     std::ofstream fin(dir / ("finished"));
     fin.close();
 

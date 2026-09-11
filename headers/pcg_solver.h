@@ -23,12 +23,7 @@ class Precond {
 
 class NoPrecond : public Precond {
   public:
-    NoPrecond() ;
-    ~NoPrecond();
     virtual void solve(const DnVec& rhs, DnVec& x); 
-  
-  private:
-    cublasHandle_t _handle_cublas ;
 } ;
 
 /* class Jacobi_Precond
@@ -55,8 +50,6 @@ class ILU_precond : public Precond
     CSR_SpLUfac LUfac;
     DnVec tmp;
 
-    cusparseHandle_t _handle_cusparse ;
-    cublasHandle_t _handle_cublas ;
 
     SpSVDescr solveL, solveU ;  
     CudaArray<char> bufferL, bufferU ;
@@ -66,16 +59,13 @@ class ILU_precond : public Precond
   public:
     ILU_precond(const CSR_SpMatrix& mat, int k=0) ;
     
-    ~ILU_precond() {
-        cusparseDestroy(_handle_cusparse) ;
-        cublasDestroy(_handle_cublas) ;
-    }
+    ~ILU_precond() {}
     
     void setup(const DnVec& rhs, DnVec& x) ; 
     void solve(const DnVec& rhs, DnVec& x) ; 
 
-    private:
-        CSR_SpMatrix get_ILUk_shape(const CSR_SpMatrix& mat, int k) ;
+  private:
+    CSR_SpMatrix get_ILUk_shape(const CSR_SpMatrix& mat, int k) ;
 } ;
 
 /* class BlockJacobi_precond
@@ -88,17 +78,11 @@ class BlockJacobi_precond : public Precond
   public:
     BlockJacobi_precond(const CSR_SpMatrix& A, int block_size=1) ;
 
-    ~BlockJacobi_precond() {
-        cublasDestroy(_handle_cublas) ;
-        cusparseDestroy(_handle_cusparse) ;
-    }
+    ~BlockJacobi_precond() {}
 
     void solve(const DnVec& rhs, DnVec& x) ; 
 
   private:
-    cublasHandle_t _handle_cublas ;
-    cusparseHandle_t _handle_cusparse ;
-    
     const CSR_SpMatrix& A ;
     DnVec tmp ;
     CudaArray<char> buffer ;
@@ -155,23 +139,15 @@ class PCG_Solver {
     PCG_Solver(double tol=1e-7, int max_iter=1000)
       : _check_convergence(new CheckResidual(tol)),
         _max_iter(max_iter)
-    { 
-        _init() ;
-    } ;
+    { } ;
 
     PCG_Solver(std::unique_ptr<CheckConvergence> convergence_test, 
                int max_iter=1000)
       : _check_convergence(std::move(convergence_test)),
         _max_iter(max_iter)
-    { 
-        _init() ;
-    } ;
+    { } ;
 
-    ~PCG_Solver() {
-        cublasDestroy(_handle_cublas) ;
-        cusparseDestroy(_handle_cusparse) ;
-    }
-
+    ~PCG_Solver() {}
 
     bool operator()(const CSR_SpMatrix& mat, const DnVec& rhs, DnVec& result) ;    
     bool operator()(const CSR_SpMatrix& mat, const DnVec& rhs, DnVec& result, Precond&) ;
@@ -180,21 +156,6 @@ class PCG_Solver {
     bool solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, DnVec& result, Precond&) ;
 
   private:
-    cublasHandle_t _handle_cublas ;
-    cusparseHandle_t _handle_cusparse ;
-
-    void _init() {
-        cublasStatus_t status_cub = 
-            cublasCreate(&_handle_cublas) ;
-        if (status_cub != CUBLAS_STATUS_SUCCESS)
-            throw std::runtime_error("Failed to initialize CUBLAS") ;
-
-        cusparseStatus_t status_cus =
-            cusparseCreate(&_handle_cusparse) ;
-         if (status_cus != CUSPARSE_STATUS_SUCCESS)
-            throw std::runtime_error("Failed to initialize CUSPARSE") ;
-    }
-
     std::unique_ptr<CheckConvergence> _check_convergence ;
     int _max_iter ;
 } ;
@@ -210,23 +171,9 @@ class GMRES_Solver {
   public:
     GMRES_Solver(double tol=1e-7, int n_restart=100, int max_iters=10)
       : _tol(tol), _max_iters(max_iters), _n_restart(n_restart)
-    { 
-        cublasStatus_t status_cub = 
-            cublasCreate(&_handle_cublas) ;
-        if (status_cub != CUBLAS_STATUS_SUCCESS)
-            throw std::runtime_error("Failed to initialize CUBLAS") ;
+    { }
 
-        cusparseStatus_t status_cus =
-            cusparseCreate(&_handle_cusparse) ;
-         if (status_cus != CUSPARSE_STATUS_SUCCESS)
-            throw std::runtime_error("Failed to initialize CUSPARSE") ;
-    } ;
-
-    ~GMRES_Solver() {
-        cublasDestroy(_handle_cublas) ;
-        cusparseDestroy(_handle_cusparse) ;
-    }
-
+    ~GMRES_Solver() {}
 
     void operator()(const CSR_SpMatrix& mat, const DnVec& rhs, DnVec& result) ;
 
@@ -247,9 +194,6 @@ class GMRES_Solver {
     double minimize_residual(int k, std::vector<double>& h, 
                              std::vector<double>& cn, std::vector<double>& sn,
                              std::vector<double>& beta) const ;
-
-    cublasHandle_t _handle_cublas ;
-    cusparseHandle_t _handle_cusparse ;
 
     double _tol ;
     int _max_iters, _n_restart ;

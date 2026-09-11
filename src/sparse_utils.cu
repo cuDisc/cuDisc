@@ -49,11 +49,11 @@ CSR_SpMatrix copy_sparse_matrix(const CSR_SpMatrix& m) {
 
     CSR_SpMatrix m_copy(m.rows, m.cols, m.non_zeros) ;
 
-    cudaMemcpy(m_copy.csr_offset.get(), m.csr_offset.get(), (m.rows+1)*sizeof(int), 
+    (void) cudaMemcpy(m_copy.csr_offset.get(), m.csr_offset.get(), (m.rows+1)*sizeof(int), 
                cudaMemcpyDeviceToDevice) ;
-    cudaMemcpy(m_copy.col_index.get(), m.col_index.get(), m.non_zeros*sizeof(int),
+    (void) cudaMemcpy(m_copy.col_index.get(), m.col_index.get(), m.non_zeros*sizeof(int),
                cudaMemcpyDeviceToDevice) ;
-    cudaMemcpy(m_copy.data.get(), m.data.get(), m.non_zeros*sizeof(double), 
+    (void) cudaMemcpy(m_copy.data.get(), m.data.get(), m.non_zeros*sizeof(double), 
                cudaMemcpyDeviceToDevice) ;
 
     return m_copy; 

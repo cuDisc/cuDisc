@@ -83,6 +83,9 @@ int main() {
     Field<double> wg = create_field<double>(g) ;
     setup_IC(g, sizes, rho, wg) ;
 
+    Field<double> rho_g = create_field<double>(g) ;
+    set_all(g,rho_g,1);
+
     // Create the kernel/rates
     BS32Integration<CoagulationRate<ConstantKernel, SimpleErosion>>
         coagulation_integrate(

@@ -28,7 +28,7 @@ inline double calc_vC_D(double a, double rho_g, double cs, double u_rel, double 
 }
 
 __device__ __host__
-inline double calc_vC_D_step(double a, double rho_g, double cs, double u_rel, double mu, double mfp) {
+inline double calc_vC_D_step(double a, double, double cs, double u_rel, double, double mfp) {
 
     double nu_mol = 1.595769122 * 0.5 * mfp*cs;
     double Re = (2.*a*u_rel)/nu_mol;

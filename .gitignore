@@ -28,3 +28,4 @@
 tests/outputs/
 tests/scripts/radmc_data_for_pinte/
 codes/outputs/
+build

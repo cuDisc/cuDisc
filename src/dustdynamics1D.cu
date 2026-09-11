@@ -10,7 +10,7 @@
 
 template<bool full_stokes>
 __global__
-void _calc_dust_vel(GridRef g, Field3DRef<Prims1D> W_d, FieldRef<Prims1D> W_g, FieldConstRef<double> cs, double GMstar, RealType rho_m, const RealType* a, Field3DRef<double> D, double mu, double alpha, double floor) {
+void _calc_dust_vel(GridRef g, Field3DRef<Prims1D> W_d, FieldRef<Prims1D> W_g, FieldConstRef<double> cs, double GMstar, RealType rho_m, const RealType* a, Field3DRef<double> D, double mu, double alpha, double /*floor*/) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
@@ -64,7 +64,7 @@ void _calc_dust_vel(GridRef g, Field3DRef<Prims1D> W_d, FieldRef<Prims1D> W_g, F
 
 template<bool full_stokes>
 __global__
-void _calc_dust_vel(GridRef g, GridRef g2D, Field3DRef<Prims1D> W_d, FieldRef<Prims1D> W_g, FieldRef<Prims> W_g2D, FieldConstRef<double> cs, double GMstar, RealType rho_m, const RealType* a, Field3DRef<double> D, double mu, double alpha, double floor) {
+void _calc_dust_vel(GridRef g, GridRef g2D, Field3DRef<Prims1D> W_d, FieldRef<Prims1D> W_g, FieldRef<Prims> W_g2D, FieldConstRef<double> cs, double GMstar, RealType rho_m, const RealType* a, Field3DRef<double> D, double mu, double alpha, double /*floor*/) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
@@ -261,7 +261,7 @@ __global__ void _calc_diff_flux_vl(GridRef g, Field3DConstRef<Prims1D> W_d, Fiel
 }
 
 __global__
-void _set_bounds_d(GridRef g, Field3DRef<Prims1D> W_d, int bound, double floor) {
+void _set_bounds_d(GridRef g, Field3DRef<Prims1D> W_d, int bound, double /*floor*/) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
@@ -432,6 +432,10 @@ void DustDyn1D<use_full_stokes>::operator() (Grid& g, Field3D<Prims1D>& W_d, Fie
 
     Field3D<Prims1D> W_d_mid = Field3D<Prims1D>(g.NR+2*g.Nghost,1+2*g.Nghost,W_d.Nd);
 
+    if (_boundary & BoundaryFlags::const_Mdot_R_inner || _boundary & BoundaryFlags::const_Mdot_R_outer) {
+        throw std::runtime_error("Const Mdot BC not implemented for 1D dust, please change") ;
+    } 
+
     if (_boundary & BoundaryFlags::set_ext_R_inner || _boundary & BoundaryFlags::set_ext_R_outer) {
         copy_boundaries<<<blocks,threads>>>(g, W_d, W_d_mid, _boundary);
     }
@@ -451,7 +455,7 @@ void DustDyn1D<use_full_stokes>::operator() (Grid& g, Field3D<Prims1D>& W_d, Fie
     check_CUDA_errors("_set_boundary_flux");
     _update_mid_Sig<<<blocks,threads>>>(g, W_d_mid, W_d, W_g, dt, flux, _floor);
     check_CUDA_errors("_update_mid_Sig");
-    cudaDeviceSynchronize();
+    (void) cudaDeviceSynchronize();
     if (use_full_stokes) {
         calculate_dust_vel<true>(g, W_d_mid, W_g, _cs, _star, _sizes, _D, _mu, _alpha, _floor);
     }
@@ -471,7 +475,7 @@ void DustDyn1D<use_full_stokes>::operator() (Grid& g, Field3D<Prims1D>& W_d, Fie
     check_CUDA_errors("_set_boundary_flux");
     _update_Sig<<<blocks,threads>>>(g, W_d, W_g, dt, flux, _floor);
     check_CUDA_errors("_update_Sig");
-    cudaDeviceSynchronize();
+    (void) cudaDeviceSynchronize();
     if (use_full_stokes) {
         calculate_dust_vel<true>(g, W_d, W_g, _cs, _star, _sizes, _D, _mu, _alpha, _floor);
     }
@@ -710,6 +714,10 @@ void DustDyn1D<use_full_stokes>::operator() (Grid& g, Grid& g2D, Field3D<Prims1D
 
     Field3D<Prims1D> W_d_mid = Field3D<Prims1D>(g.NR+2*g.Nghost,1+2*g.Nghost,W_d.Nd);
 
+    if (_boundary & BoundaryFlags::const_Mdot_R_inner || _boundary & BoundaryFlags::const_Mdot_R_outer) {
+        throw std::runtime_error("Const Mdot BC not implemented for 1D dust, please change") ;
+    } 
+
     if (_boundary & BoundaryFlags::set_ext_R_inner || _boundary & BoundaryFlags::set_ext_R_outer) {
         copy_boundaries<<<blocks,threads>>>(g, W_d, W_d_mid, _boundary);
     }
@@ -729,7 +737,7 @@ void DustDyn1D<use_full_stokes>::operator() (Grid& g, Grid& g2D, Field3D<Prims1D
     check_CUDA_errors("_set_boundary_flux");
     _update_mid_Sig<<<blocks,threads>>>(g, W_d_mid, W_d, W_g, dt, flux, _floor);
     check_CUDA_errors("_update_mid_Sig");
-    cudaDeviceSynchronize();
+    (void) cudaDeviceSynchronize();
     if (use_full_stokes) {
         calculate_dust_vel<true>(g, g2D, W_d_mid, W_g, W_g2D, _cs, _star, _sizes, _D, _mu, _alpha, _floor);
     }
@@ -749,7 +757,7 @@ void DustDyn1D<use_full_stokes>::operator() (Grid& g, Grid& g2D, Field3D<Prims1D
     check_CUDA_errors("_set_boundary_flux");
     _update_Sig<<<blocks,threads>>>(g, W_d, W_g, dt, flux, _floor);
     check_CUDA_errors("_update_Sig");
-    cudaDeviceSynchronize();
+    (void) cudaDeviceSynchronize();
     if (use_full_stokes) {
         calculate_dust_vel<true>(g, g2D, W_d, W_g, W_g2D, _cs, _star, _sizes, _D, _mu, _alpha, _floor);
     }
@@ -760,22 +768,22 @@ void DustDyn1D<use_full_stokes>::operator() (Grid& g, Grid& g2D, Field3D<Prims1D
 
 template<bool use_full_stokes>
 double DustDyn1D<use_full_stokes>::get_CFL_limit(const Grid& g, const Field3D<Prims1D>& W_dust, const Field<Prims1D>& W_gas) {
-    double CFL_min = 1e308;
+    double CFL_min = std::numeric_limits<double>::max();
     for (int i=g.Nghost; i<g.NR+g.Nghost; i++) {
-        double CFL_k = 1e308;
+        double CFL_k = std::numeric_limits<double>::max();
         for (int k=0; k<W_dust.Nd; k++) {
 
             if (W_dust(i,g.Nghost,k).Sig < 10.*W_gas(i,g.Nghost).Sig*_floor) { continue; }
 
-            double dtR = abs(g.dRe(i)/W_dust(i,g.Nghost,k).v_R);
-            CFL_k = min(CFL_k, _CFL_adv*dtR);
+            double dtR = fabs(g.dRe(i)/W_dust(i,g.Nghost,k).v_R);
+            CFL_k = std::min(CFL_k, _CFL_adv*dtR);
             
             if (_D(i,g.Nghost,k) != 0) {
                 dtR = abs(g.dRe(i)*g.dRe(i) * W_gas(i,g.Nghost).Sig / _D(i,g.Nghost,k));
-                CFL_k = min(CFL_k, _CFL_diff*dtR);
+                CFL_k = std::min(CFL_k, _CFL_diff*dtR);
             }
         }
-        CFL_min = min(CFL_min, CFL_k);
+        CFL_min = std::min(CFL_min, CFL_k);
     } 
     return CFL_min;
 }

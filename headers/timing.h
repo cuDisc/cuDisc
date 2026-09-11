@@ -203,7 +203,7 @@ public:
     void EndTiming() {
 #ifndef DISABLE_CODE_TIMING
       if (timing_in_progress) {
-        cudaDeviceSynchronize() ;
+        (void) cudaDeviceSynchronize() ;
         parent->EndTimingBlock(timing_block, WallClockTime() - tstart) ;
         timing_in_progress = false ;
       }

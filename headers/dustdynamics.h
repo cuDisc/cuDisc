@@ -8,6 +8,7 @@
 #include "grid.h"
 #include "utils.h"
 #include "icevapour.h"
+#include <memory>
 
 class SourcesBase ; 
 
@@ -31,10 +32,18 @@ struct Prims {
         if (i==2) { return v_phi; } 
         return v_Z; 
     } ;
+
+    inline __host__ __device__ const double& operator[](int i) const {
+        if (i==0) { return rho; }
+        if (i==1) { return v_R; }
+        if (i==2) { return v_phi; }
+        return v_Z;
+    } ;
+
 } ;
 
 __global__
-void _set_boundaries(GridRef g, Field3DRef<Prims> w, int bound, double floor) ;
+void _set_boundaries(GridRef g, Field3DRef<Prims> w, int bound) ;
 
 class DustDynamics {
 
@@ -68,7 +77,13 @@ class DustDynamics {
         return _boundary ;
         }
 
-        void floor_above(Grid&g, Field3D<Prims>& w_dust, Field<Prims>& w_gas, CudaArray<double>& h);
+        void compute_gas_floor_height(Grid& g, Field<Prims>& w_gas, CudaArray<double>& h) const;
+
+        void floor_above(Grid&g, Field3D<Prims>& w_dust, Field<Prims>& w_gas, CudaArray<double>& h) const;
+
+        void reinitialize_active(Grid& g, const Field3D<Prims>& w_dust,
+                     const Field<Prims>& w_gas);
+        void enforce_floor_for_inactive(Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas) const;
 
         void operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas, double dt) ;
         void operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas, double dt, Molecule& mol) ;
@@ -81,6 +96,7 @@ class DustDynamics {
 
     private:
 
+
         bool _DoDiffusion = true ;
         double _CFL_adv;
         double _CFL_diff;
@@ -89,6 +105,7 @@ class DustDynamics {
         Field3DRef<double> _D;
         FieldConstRef<double> _cs;
         SourcesBase& _sources;
+        mutable std::unique_ptr<Field3D<int>> _active;
 
         int _boundary = BoundaryFlags::open_R_inner | BoundaryFlags::open_R_outer;
 

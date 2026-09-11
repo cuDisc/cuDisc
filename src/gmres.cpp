@@ -63,22 +63,22 @@ GMRES_Solver::_gmres_result GMRES_Solver::gmres_loop(
 
     size_t buffer_size ;
     cusparseSpMV_bufferSize(
-        _handle_cusparse, CUSPARSE_OPERATION_NON_TRANSPOSE,
+        CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
         &minus_one, A.descr, x0.descr, &zero, r.descr, 
         CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, &buffer_size) ;
 
     CudaArray<char>  buffer = make_CudaArray<char>(buffer_size) ;
 
-    cusparseSpMV(_handle_cusparse, CUSPARSE_OPERATION_NON_TRANSPOSE,
+    cusparseSpMV(CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
         &minus_one, A.descr, x0.descr, &zero, r.descr, 
         CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, buffer.get()) ;
 
-    cublasDaxpy(_handle_cublas, A.rows, &one, rhs.get(), 1, r.get(), 1) ;
+    cublasDaxpy(CublasHandle::get(), A.rows, &one, rhs.get(), 1, r.get(), 1) ;
 
     // Check for convergence already
     double normrhs, normr ;
-    cublasDnrm2(_handle_cublas, r.rows, r.get(), 1, &normr);
-    cublasDnrm2(_handle_cublas, rhs.rows, rhs.get(), 1, &normrhs);
+    cublasDnrm2(CublasHandle::get(), r.rows, r.get(), 1, &normr);
+    cublasDnrm2(CublasHandle::get(), rhs.rows, rhs.get(), 1, &normrhs);
 
     double error = normr/normrhs ;
     //std::cout << "iteration: 0, norm:" << error << "\n" ;
@@ -110,8 +110,8 @@ GMRES_Solver::_gmres_result GMRES_Solver::gmres_loop(
     Q.push_back(DnVec(A.rows)) ;
     Q.push_back(DnVec(A.rows)) ;
 
-    cublasDcopy(_handle_cublas, A.rows, r.get(), 1, Q[0].get(), 1);
-    cublasDscal(_handle_cublas, A.rows, &tmp, Q[0].get(), 1) ;
+    cublasDcopy(CublasHandle::get(), A.rows, r.get(), 1, Q[0].get(), 1);
+    cublasDscal(CublasHandle::get(), A.rows, &tmp, Q[0].get(), 1) ;
 
     int n, success = false ;
     for (n=0; n < _n_restart; n++) {
@@ -141,13 +141,13 @@ GMRES_Solver::_gmres_result GMRES_Solver::gmres_loop(
     }
 
     // Set x = x0 + Q * y
-    cublasDscal(_handle_cublas, A.rows, &zero, r.get(), 1) ;
+    cublasDscal(CublasHandle::get(), A.rows, &zero, r.get(), 1) ;
 
     for (int j=0; j <= n; j++) 
-        cublasDaxpy(_handle_cublas, r.rows, &beta[j], Q[j].get(), 1, r.get(), 1) ;
+        cublasDaxpy(CublasHandle::get(), r.rows, &beta[j], Q[j].get(), 1, r.get(), 1) ;
 
     precond.solve(r, r) ;
-    cublasDaxpy(_handle_cublas, r.rows, &one, r.get(), 1, x0.get(), 1) ;     
+    cublasDaxpy(CublasHandle::get(), r.rows, &one, r.get(), 1, x0.get(), 1) ;     
 
     GMRES_Solver::_gmres_result result ;
 
@@ -178,7 +178,7 @@ void GMRES_Solver::arnoldi(
 
     // Q[k+1] = A*Q[k]
     double zero = 0, one = 1 ;
-    cusparseSpMV(_handle_cusparse, CUSPARSE_OPERATION_NON_TRANSPOSE,
+    cusparseSpMV(CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
         &one, A.descr, Q[k+2].descr, &zero, Q[k+1].descr, 
         CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, buffer) ;
     
@@ -186,15 +186,15 @@ void GMRES_Solver::arnoldi(
     // Orthogonalize
     double tmp ;
     for (int i=0; i <= k; i++) {
-        cublasDdot(_handle_cublas, A.rows, Q[i].get(), 1, Q[k+1].get(), 1, &h[i]);
+        cublasDdot(CublasHandle::get(), A.rows, Q[i].get(), 1, Q[k+1].get(), 1, &h[i]);
         tmp = -h[i] ; 
-        cublasDaxpy(_handle_cublas, A.rows, &tmp, Q[i].get(), 1, Q[k+1].get(), 1) ;
+        cublasDaxpy(CublasHandle::get(), A.rows, &tmp, Q[i].get(), 1, Q[k+1].get(), 1) ;
     }
 
     // Normalize
-    cublasDnrm2(_handle_cublas, A.rows, Q[k+1].get(), 1, &h[k+1]);
+    cublasDnrm2(CublasHandle::get(), A.rows, Q[k+1].get(), 1, &h[k+1]);
     tmp = 1/h[k+1] ;
-    cublasDscal(_handle_cublas, A.rows, &tmp, Q[k+1].get(), 1) ;
+    cublasDscal(CublasHandle::get(), A.rows, &tmp, Q[k+1].get(), 1) ;
 }
 
 /* GMRES_Solver::minimize_residual() 

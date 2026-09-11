@@ -1,3 +1,4 @@
+#include <cstring>
 
 #include "grid.h"
 #include "utils.h"

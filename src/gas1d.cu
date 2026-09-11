@@ -540,7 +540,7 @@ __global__ void _set_vZ(GridRef g, FieldRef<Prims> wg, double* Sig_dot_w, double
     }
 }
 
-__global__ void _calc_vphi(GridRef g, FieldConstRef<double> p, FieldRef<Prims> wg, FieldRef<double> vphig,double GMstar, double floor, int nbuffer, double cav) {
+__global__ void _calc_vphi(GridRef g, FieldConstRef<double> p, FieldRef<Prims> wg, FieldRef<double> vphig, double GMstar, double /*floor*/, int nbuffer, double /*cav*/) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -627,7 +627,7 @@ __global__ void _calc_T(GridRef g, FieldRef<double> Trphi, FieldRef<double> TZph
 }
 
 __global__ void _calc_T(GridRef g, FieldRef<double> Trphi, FieldRef<double> TZphi, FieldConstRef<double> vphig,
-                            FieldRef<double> dvphidr, FieldRef<double> dvphidZ, FieldRef<Prims> wg, FieldRef<double> rho, double* nu, int nbuffer) {
+                            FieldRef<double> dvphidr, FieldRef<double> dvphidZ, FieldRef<Prims> /*wg*/, FieldRef<double> rho, double* nu, int nbuffer) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -794,9 +794,7 @@ void _calc_rho(GridRef g, double* Sig_g, double GMstar, double alpha, double* nu
 
             double Om = sqrt(GMstar / (g.rc(i,j)*g.rc(i,j)*g.rc(i,j)));
             double H = sqrt(nu[i]/(alpha*Om));
-            double cs = H*Om;
             rho(i,j) = Sig_g[i]/(sqrt(2.*M_PI)*H) * exp(-g.Zc(i,j)*g.Zc(i,j)/(2.*H*H));
-            // rho(i,j) = Sig_g[i]/(sqrt(2.*M_PI)*H) * exp(GMstar/(cs*cs*sqrt(g.Zc(i,j)*g.Zc(i,j)+g.Rc(i)*g.Rc(i))));
 
         }
     }
@@ -846,7 +844,7 @@ void _correct_vr_cav(GridRef g, FieldRef<Prims> Ws_g, double cav) {
     int istride = gridDim.x * blockDim.x ;
     int jstride = gridDim.y * blockDim.y ;
     
-    int cavind;
+    int cavind=g.NR+2*g.Nghost-1;
     for (int i=0; i<g.NR+2*g.Nghost; i++) { 
         if (g.Rc(i) > 1.1*cav) {
             cavind = i;
@@ -987,7 +985,119 @@ void calc_gas_velocities_parameterised(Grid& g, CudaArray<double>& Sig_g, Field<
     dim3 threads(16,16) ;
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+15)/16) ;
     int buff = 0;
-    int vrbuff = 10;
+    int vrbuff = 4;
+
+    // Calc v_phi from true profile
+
+    _calc_p<<<blocks,threads>>>(g, wg, cs2, p);
+    _calc_vphi<<<blocks,threads>>>(g, p, wg, vphig, star.GM, floor, buff, cav);
+    _set_v_bounds<<<blocks,threads>>>(g, wg, bound, 2, buff);    
+
+    // Calc v_R from parametrised profiles
+
+    _calc_rho<<<blocks,threads>>>(g, Sig_g.get(), star.GM, star.L, rho);
+    _calc_p<<<blocks,threads>>>(g, rho, nu.get(), alpha, star.GM, p);
+    _calc_vphi<<<blocks,threads>>>(g, p, rho, vphig, star.GM, floor, buff, cav);
+    _set_vphi_bounds<<<blocks,threads>>>(g, vphig, bound);        
+    _calc_T<<<blocks,threads>>>(g, Trphi, TZphi, vphig, drvphidr, dvphidZ, wg, rho, nu.get(), 2);
+    _calc_vr<<<blocks,threads>>>(g, Trphi, TZphi, vphig, drvphidr, dvphidZ, wg, rho, floor, vrbuff, cav);
+
+    _correct_vr_cav<<<blocks,threads>>>(g, wg, cav);
+    _set_v_bounds<<<blocks,threads>>>(g, wg, bound, 1, vrbuff);
+}
+
+void calc_gas_vphi(Grid& g, Field<Prims>& wg, Field<double>& cs2, Star& star, int bound, double floor, double cav) {
+
+    Field<double> Trphi = create_field<double>(g);
+    Field<double> TZphi = create_field<double>(g);
+    Field<double> drvphidr = create_field<double>(g);
+    Field<double> dvphidZ = create_field<double>(g);
+    Field<double> p = create_field<double>(g);
+    Field<double> rho = create_field<double>(g);
+    Field<double> vphig = create_field<double>(g);
+
+    dim3 threads(16,16) ;
+    dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+15)/16) ;
+    int buff = 0;
+
+    // Calc v_phi from true profile
+
+    _calc_p<<<blocks,threads>>>(g, wg, cs2, p);
+    _calc_vphi<<<blocks,threads>>>(g, p, wg, vphig, star.GM, floor, buff, cav);
+    _set_v_bounds<<<blocks,threads>>>(g, wg, bound, 2, buff); 
+}
+
+__global__ void _mov_av(GridRef g, FieldRef<double> vR, FieldRef<Prims> Ws_g, int window) {
+
+    int jidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jstride = gridDim.x * blockDim.x ;
+
+    for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
+        for (int i=window-1; i<g.NR+2*g.Nghost; i++) {
+            double wind_sum = vR(i,j)/(double)window;
+            if (i>=window) {wind_sum -= vR(i-window,j)/(double)window;}
+            Ws_g(i-(window-1)/2,j).v_R = wind_sum;
+        }
+    }
+}
+__global__ void _mov_av(GridRef g, FieldRef<double> vR, FieldRef<Prims1D> Ws_g, int window) {
+
+    int jidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jstride = gridDim.x * blockDim.x ;
+
+    for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
+        for (int i=window-1; i<g.NR+2*g.Nghost; i++) {
+            double wind_sum = vR(i,j)/(double)window;
+            if (i>=window) {wind_sum -= vR(i-window,j)/(double)window;}
+            Ws_g(i-(window-1)/2,j).v_R = wind_sum;
+        }
+    }
+}
+
+__global__ void _copy_vR(GridRef g, FieldRef<double> vR, FieldRef<Prims> Ws_g) {
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
+            vR(i,j) = Ws_g(i,j).v_R;
+        }
+    }
+} 
+
+__global__ void _copy_vR(GridRef g, FieldRef<double> vR, FieldRef<Prims1D> Ws_g) {
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
+            vR(i,j) = Ws_g(i,j).v_R;
+        }
+    }
+} 
+
+/**
+ * Calculates the radial and azimuthal gas velocities from the full temperature profile.
+ */
+void calc_gas_velocities(Grid& g, CudaArray<double>& Sig_g, Field<Prims>& wg, Field<double>& cs2, CudaArray<double>& nu, double alpha, Star& star, int bound, double floor, double cav) {
+
+    Field<double> Trphi = create_field<double>(g);
+    Field<double> TZphi = create_field<double>(g);
+    Field<double> drvphidr = create_field<double>(g);
+    Field<double> dvphidZ = create_field<double>(g);
+    Field<double> p = create_field<double>(g);
+    Field<double> rho = create_field<double>(g);
+    Field<double> vphig = create_field<double>(g);
+    Field<double> vR = create_field<double>(g);
+
+    dim3 threads(16,16) ;
+    dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+15)/16) ;
+    int buff = 0;
+    int vrbuff = 4;
 
     // Calc v_phi from true profile
 
@@ -1303,7 +1413,7 @@ double compute_diff_flux(GridRef& g, double* sig, double* sig_g, double* D, int 
 }
 
 __device__
-void construct_diff_fluxes(GridRef& g, double v_l, double v_r, double v_av, 
+void construct_diff_fluxes(GridRef& /*g*/, double v_l, double v_r, double v_av, 
                   double sig_l, double sig_r, double* flux, double diff_flux, int i) {
 
     if (v_l < 0 && v_r > 0) {
@@ -1466,7 +1576,7 @@ void _set_ubar_bounds(Grid& g, CudaArray<double>& ubar, int buff) {
 
 void calculate_ubar(Grid& g, CudaArray<double>& sig, CudaArray<double>& sig_g, 
                     CudaArray<double>& ubar, CudaArray<double>& u_gas,
-                    double t, double u_f, double rho_s, double alpha, double a0, Star& star, int bound,int boundg) {
+                    double t, double u_f, double rho_s, double alpha, double a0, Star& star, int /*bound*/,int /*boundg*/) {
 
     size_t threads = 64 ;
     size_t blocks = (g.NR + 2*g.Nghost+63)/64;
@@ -1476,7 +1586,7 @@ void calculate_ubar(Grid& g, CudaArray<double>& sig, CudaArray<double>& sig_g,
     
     _calc_P<<<blocks,threads>>>(g, sig_g.get(), P.get(), star.GM, star.L);
     _calc_ubar<<<blocks, threads>>>(g, ubar.get(), sig.get(), sig_g.get(), u_gas.get(), P.get(), u_f, rho_s, alpha, t, a0, buff, star.GM, star.L);
-    cudaDeviceSynchronize();
+    (void) cudaDeviceSynchronize();
     _set_ubar_bounds(g,ubar,buff);
 }
 
@@ -1536,7 +1646,7 @@ double compute_CFL(Grid& g, CudaArray<double>& ubar, CudaArray<double>& D,
 
 // Calculate wind launch surface
 
-__global__ void _calc_wind_surface(GridRef g, FieldConstRef<Quants> wg) {
+__global__ void _calc_wind_surface(GridRef g, FieldConstRef<Quants> /*wg*/) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -1576,7 +1686,7 @@ void calc_wind_surface(Grid& g, const Field<Prims>& wg, CudaArray<double>& h_w, 
     _calc_nH<<<blocks,threads>>>(g, wg, nH);
 
     Reduction::scan_R_sum(g, nH);
-    cudaDeviceSynchronize();
+    (void) cudaDeviceSynchronize();
 
     for (int i=0; i<g.NR+2*g.Nghost; i++) {
         h_w[i] = g.Zc(i,g.Nphi+2*g.Nghost-1);
@@ -1652,7 +1762,7 @@ void update_gas_sigma(Grid& g, Field<Prims1D>& W_g, double dt, const CudaArray<d
     _set_bounds(g, Sig_g.get(), bound, floor, nu.get());
     _calc_Rflux<<<blocks, threads>>>(g, Sig_g.get(), RF.get(), nu.get());
     _update_Sig<<<blocks, threads>>>(g, Sig_g.get(), RF.get(), dt, floor);
-    cudaDeviceSynchronize();
+    (void) cudaDeviceSynchronize();
 
     for (int i=0; i<g.NR + 2*g.Nghost; i++) {
         W_g(i,g.Nghost).Sig = Sig_g[i];
@@ -1701,7 +1811,7 @@ void calc_v_gas(Grid& g, Field<Prims1D>& W_g, const Field<double>& cs, CudaArray
 
     _calc_v_gas<<<blocks,threads>>>(g, W_g, GMstar, cs, gasfloor, nu.get());
     check_CUDA_errors("_calc_v_gas");
-    cudaDeviceSynchronize();
+    (void) cudaDeviceSynchronize();
 
     for (int i=0; i<g.Nghost; i++) {
         W_g(i,g.Nghost).v_R = W_g(g.Nghost,g.Nghost).v_R;

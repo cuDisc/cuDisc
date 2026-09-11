@@ -89,7 +89,7 @@ class CoagulationRate {
         _set_fragment_properties(fragments) ;
     }
 
-    void operator()(const Field3D<double>& dust_density, Field3D<double>& rate) const ;
+    void operator()(const Field3D<double>& dust_density, Field3D<double>& rate, Field<bool>& active) const ;
 
     struct id {
         int coag, frag, remnant, eps ;

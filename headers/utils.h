@@ -18,7 +18,7 @@ template<typename T> class Field3D;
  * runtime_error.
  */
 inline void check_CUDA_errors(std::string fn_name) {
-  cudaDeviceSynchronize();
+  (void) cudaDeviceSynchronize();
   
   cudaError_t cudaError = cudaGetLastError();
   if (cudaError != cudaSuccess) {
@@ -57,13 +57,13 @@ void set_all_cpu(const Grid& g, Field3D<double>& f, double val) ;
 inline void check_CUDA_devices() {
 
   int nDevices;
-  cudaGetDeviceCount(&nDevices);
+  (void) cudaGetDeviceCount(&nDevices);
   
   printf("Number of devices: %d\n", nDevices);
   
   for (int i = 0; i < nDevices; i++) {
     cudaDeviceProp prop;
-    cudaGetDeviceProperties(&prop, i);
+    (void) cudaGetDeviceProperties(&prop, i);
     printf("Device Number: %d\n", i);
     printf("  Device name: %s\n", prop.name);
     printf("  Memory Clock Rate (MHz): %d\n",

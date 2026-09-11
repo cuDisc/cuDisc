@@ -46,7 +46,7 @@ __global__ void vol_integ_Z_device(GridRef g, FieldConstRef<double> f, double* r
     // Step 2: Parallel reduction of j
     j = blockDim.x / 2 ;
     while (j != 0) {
-        if (threadIdx.x < j) tmp[tid] += tmp[tid + j] ;
+        if (int(threadIdx.x) < j) tmp[tid] += tmp[tid + j] ;
         __syncthreads() ;
         j /= 2 ;
     }
