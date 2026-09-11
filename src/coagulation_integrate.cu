@@ -584,8 +584,9 @@ void _decombine_rho_tr(GridRef g, Field3DRef<double> rhos, Field3DRef<double> tr
     }
 }
 
-template<typename T>
-double TimeIntegration::take_step_tracers(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess, Field3D<double>& tracers, int* idxs) const {
+template<bool debug, typename T>
+double TimeIntegration::take_step_tracers_impl(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess, Field3D<double>& tracers,
+                                             int* idxs, Field<bool>& active, double floor) const {
 
     CodeTiming::BlockTimer block =
         timer->StartNewTimer("TimeIntegation::take_step");
@@ -616,27 +617,29 @@ double TimeIntegration::take_step_tracers(Grid& g, Field3D<double>& y, Field<T>&
     _combine_rho_tr<<<blocks,threads>>>(g, y, tracers, ywtr);
 
     // Compute the total density for the error estimation
-    _compute_ytot<<<blocks,threads>>>(g, ywtr, yabs, _abs_tol, FieldRef<T>(wg)) ; 
+    _compute_ytot<<<blocks,threads>>>(g, ywtr, yabs, _abs_tol) ; 
     check_CUDA_errors("_compute_ytot") ;
 
     while (not success) {
         if (dt == 0)
             throw std::runtime_error("Error time-step of zero was assigned");
           
-        do_step(dt, g, ywtr, ynew, error) ;
+        do_step(dt, g, ywtr, ynew, error, active) ;
 
         // Compute the normalized error
-        _compute_error_norm_debug<<<blocks,threads>>>(g, ywtr, ynew, yabs, _rel_tol, 
-                                                error, err_tot, idxgrid) ;
+        _compute_error_norm<debug,T><<<blocks,threads>>>(g, ywtr, ynew, yabs, 
+            FieldConstRef<T>(wg), floor, _rel_tol, error, err_tot, idxgrid) ;
         check_CUDA_errors("_compute_error_norm") ;
 
         double err_norm = 0 ;
         for (int i=0; i < g.NR + 2*g.Nghost; i += 32) {
             for (int j=0; j < g.Nphi + 2*g.Nghost; j += 32) {
                 if (err_tot(i,j) > err_norm) {
-                    err_norm = std::max(err_norm, err_tot(i,j)) ;
-                    idxs[0] = idxgrid(i,j,0);
-                    idxs[1] = idxgrid(i,j,1);
+                    err_norm = err_tot(i,j) ;
+                    if constexpr (debug) {
+                        idxs[0] = idxgrid(i,j,0);
+                        idxs[1] = idxgrid(i,j,1);
+                    }
                 }
             }
         }
@@ -658,85 +661,20 @@ double TimeIntegration::take_step_tracers(Grid& g, Field3D<double>& y, Field<T>&
 }
 
 template<typename T>
-__global__ void _remove_tr_floor(GridRef g, FieldRef<T> wg, Field3DRef<double> rhos, Field3DRef<double> tr, double floor) {
-
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
-    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
-    int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
-
-    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
-        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
-            for (int k=kidx; k<tr.Nd; k+=kstride) { 
-                if (rhos(i,j,k) < floor*wg(i,j)[0]) {
-                    tr(i,j,k) = 0.;
-                }
-            }
-        }
-    }
+double TimeIntegration::take_step_tracers(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess,
+                                            Field3D<double>& tracers, Field<bool>& active, double floor) const {
+    return take_step_tracers_impl<false>(g, y, wg, dtguess, tracers, nullptr, active, floor);
 }
 
 template<typename T>
-__global__ void _add_tr_floor(GridRef g, FieldRef<T> wg, Field3DRef<double> tr, double floor) {
-
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
-    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
-    int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
-
-    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
-        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
-            for (int k=kidx; k<tr.Nd; k+=kstride) { 
-                tr(i,j,k) += 1e-100*floor*wg(i,j)[0];
-            }
-        }
-    }
+double TimeIntegration::take_step_tracers_debug(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess,
+                                                Field3D<double>& tracers, int* idxs, Field<bool>& active, double floor) const {
+    return take_step_tracers_impl<true>(g, y, wg, dtguess, tracers, idxs, active, floor);
 }
 
-__global__ void _remove_tr_floor(GridRef g, FieldRef<double> wg, Field3DRef<double> rhos, Field3DRef<double> tr, double floor) {
-
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
-    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
-    int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
-
-    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
-        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
-            for (int k=kidx; k<tr.Nd; k+=kstride) { 
-                if (rhos(i,j,k)<floor*wg(i,j)) {
-                    tr(i,j,k) = 0.;
-                }
-            }
-        }
-    }
-}
-
-__global__ void _add_tr_floor(GridRef g, FieldRef<double> wg, Field3DRef<double> tr, double floor) {
-
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
-    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
-    int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
-
-    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
-        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
-            for (int k=kidx; k<tr.Nd; k+=kstride) { 
-                tr(i,j,k) += 1e-100*floor*wg(i,j);
-            }
-        }
-    }
-}
-
-template<typename T>
-void TimeIntegration::integrate_tracers(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const {
+template<bool debug, typename T>
+int TimeIntegration::integrate_tracers_impl(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, double tmax,
+                                                double& dt_coag, double floor) const {
     double dt = dt_coag ;
     if (dt_coag < tmax && dt_coag > _SAFETY*tmax)
         dt /= 2 ;
@@ -745,12 +683,14 @@ void TimeIntegration::integrate_tracers(Grid& g, Field3D<T>& ws, Field<T>& wg, M
 
     Field3D<double> rhos = create_field3D<double>(g, ws.Nd);
     Field3D<double> rhos_tr = create_field3D<double>(g, ws.Nd);
+    Field<bool> active = create_field<bool>(g); 
     set_all(g, rhos, 0.);
 
     dim3 threads(16,8,8);
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (ws.Nd+7)/8) ;
 
     _copy_rho_forwards<<<blocks,threads>>>(g, Field3DRef<T>(ws), FieldRef<T>(wg), rhos, rhos_tr, mol.ice, floor);
+    _check_active<<<blocks,threads>>>(g, FieldRef<T>(wg), rhos, active, floor);
     cudaDeviceSynchronize();
     
     int count = 0;
@@ -758,28 +698,41 @@ void TimeIntegration::integrate_tracers(Grid& g, Field3D<T>& ws, Field<T>& wg, M
 
     while (t < tmax) {
         dt = std::min(dt, tmax-t) ;
-        t += take_step_tracers(g, rhos, wg, dt, rhos_tr, idxs) ;
+        if constexpr (debug) {
+            t += take_step_tracers_debug(g, rhos, wg, dt, rhos_tr, idxs, active, floor) ;
+        }
+        else {
+            t += take_step_tracers(g, rhos, wg, dt, rhos_tr, active, floor) ;
+        }
         if (dt < tmax/10000.) {
             dt = -1.;
             break;
         }
         count += 1;
-        if (_verbose && (count%10) == 0) {
+        bool print_progress = (count % 100) == 0 && (debug || _verbose);
+        if (print_progress) {
             std::cout << "Coagulation Steps = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
-            std::cout << "i index = " << idxs[0] << ", j index = " << idxs[1] << "\n";
+            if constexpr (debug) {
+                std::cout << "i index = " << idxs[0] << ", j index = " << idxs[1] << "\n";
+            }
         }
     }
     
     if (dt > 0.) {
         dt_coag = dt;
-        if (_verbose) 
+        if (debug || _verbose) {
             std::cout << "Coagulation Steps = " << count << ", dt_coag = " << dt/year << " years, t = " << t/year << " years \n";
-
+            if constexpr (debug) {
+                std::cout << "i index = " << idxs[0] << ", j index = " << idxs[1] << "\n";
+            }
+        }
         _copy_rho_backwards<<<blocks,threads>>>(g, Field3DRef<T>(ws), FieldRef<T>(wg), rhos, rhos_tr, mol.ice, floor);
+        return count ;
     }
     else {
         std::cout << "Coag. failed (dt = " << t/year <<", i index = " << idxs[0] << ", j index = " << idxs[1] << ") - try again next step\n";
         dt_coag = dt;
+        return count ;
     }
 }
 
@@ -803,6 +756,18 @@ __global__ void _check_active(GridRef g, FieldRef<T> wg, Field3DRef<double> rhos
             }
         }
     }
+}
+
+template<typename T>
+int TimeIntegration::integrate_tracers(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol,
+                               double tmax, double& dt_coag, double floor) const {
+    return integrate_tracers_impl<false>(g, ws, wg, mol, tmax, dt_coag, floor);
+}
+
+template<typename T>
+int TimeIntegration::integrate_tracers_debug(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol,
+                                     double tmax, double& dt_coag, double floor) const {
+    return integrate_tracers_impl<true>(g, ws, wg, mol, tmax, dt_coag, floor);
 }
 
 
@@ -831,9 +796,13 @@ template int TimeIntegration::integrate_debug<Prims>(Grid& g, Field3D<Prims>& ws
 template int TimeIntegration::integrate_debug<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, double tmax, double& dt_coag, double floor) const;
 template int TimeIntegration::integrate_debug<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, double tmax, double& dt_coag, double floor) const;
 
-template void TimeIntegration::integrate_tracers<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const;
-template void TimeIntegration::integrate_tracers<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const;
-template void TimeIntegration::integrate_tracers<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const;
+template int TimeIntegration::integrate_tracers<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const;
+template int TimeIntegration::integrate_tracers<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const;
+template int TimeIntegration::integrate_tracers<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const;
+
+template int TimeIntegration::integrate_tracers_debug<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const;
+template int TimeIntegration::integrate_tracers_debug<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const;
+template int TimeIntegration::integrate_tracers_debug<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const;
 
 template int TimeIntegration::integrate<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, double tmax, double& dt_coag, double floor) const;
 template int TimeIntegration::integrate<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, double tmax, double& dt_coag, double floor) const;

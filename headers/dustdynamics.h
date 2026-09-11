@@ -106,6 +106,7 @@ class DustDynamics {
         FieldConstRef<double> _cs;
         SourcesBase& _sources;
         mutable std::unique_ptr<Field3D<int>> _active;
+        mutable std::unique_ptr<Field3D<int>> _active_vap;
 
         int _boundary = BoundaryFlags::open_R_inner | BoundaryFlags::open_R_outer;
 

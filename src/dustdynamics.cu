@@ -1552,8 +1552,8 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     check_CUDA_errors("_fix_negative_density") ;
 
     _update_tracer_vap<<<blocks2D, threads2D>>>(g, w_trac_vap, mol);
+    check_CUDA_errors("_update_tracer_vap") ;
 
-    constexpr double reactivation_factor = 1.1;
     _update_active_cells<<<blocks_vap,threads_vap>>>(g, w_trac_vap, w_gas, active_vap,
                                              1e-100*_floor, reactivation_factor);
     check_CUDA_errors("_update_active_cells") ;

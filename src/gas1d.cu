@@ -1118,112 +1118,6 @@ void calc_gas_velocities(Grid& g, CudaArray<double>& Sig_g, Field<Prims>& wg, Fi
     _set_v_bounds<<<blocks,threads>>>(g, wg, bound, 1, vrbuff);
 }
 
-void calc_gas_vphi(Grid& g, Field<Prims>& wg, Field<double>& cs2, Star& star, int bound, double floor, double cav) {
-
-    Field<double> Trphi = create_field<double>(g);
-    Field<double> TZphi = create_field<double>(g);
-    Field<double> drvphidr = create_field<double>(g);
-    Field<double> dvphidZ = create_field<double>(g);
-    Field<double> p = create_field<double>(g);
-    Field<double> rho = create_field<double>(g);
-    Field<double> vphig = create_field<double>(g);
-
-    dim3 threads(16,16) ;
-    dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+15)/16) ;
-    int buff = 0;
-
-    // Calc v_phi from true profile
-
-    _calc_p<<<blocks,threads>>>(g, wg, cs2, p);
-    _calc_vphi<<<blocks,threads>>>(g, p, wg, vphig, star.GM, floor, buff, cav);
-    _set_v_bounds<<<blocks,threads>>>(g, wg, bound, 2, buff); 
-}
-
-__global__ void _mov_av(GridRef g, FieldRef<double> vR, FieldRef<Prims> Ws_g, int window) {
-
-    int jidx = threadIdx.x + blockIdx.x*blockDim.x ;
-    int jstride = gridDim.x * blockDim.x ;
-
-    for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
-        for (int i=window-1; i<g.NR+2*g.Nghost; i++) {
-            double wind_sum = vR(i,j)/(double)window;
-            if (i>=window) {wind_sum -= vR(i-window,j)/(double)window;}
-            Ws_g(i-(window-1)/2,j).v_R = wind_sum;
-        }
-    }
-}
-__global__ void _mov_av(GridRef g, FieldRef<double> vR, FieldRef<Prims1D> Ws_g, int window) {
-
-    int jidx = threadIdx.x + blockIdx.x*blockDim.x ;
-    int jstride = gridDim.x * blockDim.x ;
-
-    for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
-        for (int i=window-1; i<g.NR+2*g.Nghost; i++) {
-            double wind_sum = vR(i,j)/(double)window;
-            if (i>=window) {wind_sum -= vR(i-window,j)/(double)window;}
-            Ws_g(i-(window-1)/2,j).v_R = wind_sum;
-        }
-    }
-}
-
-__global__ void _copy_vR(GridRef g, FieldRef<double> vR, FieldRef<Prims> Ws_g) {
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
-    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int istride = gridDim.x * blockDim.x ;
-    int jstride = gridDim.y * blockDim.y ;
-
-    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
-        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
-            vR(i,j) = Ws_g(i,j).v_R;
-        }
-    }
-} 
-
-__global__ void _copy_vR(GridRef g, FieldRef<double> vR, FieldRef<Prims1D> Ws_g) {
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
-    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int istride = gridDim.x * blockDim.x ;
-    int jstride = gridDim.y * blockDim.y ;
-
-    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
-        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
-            vR(i,j) = Ws_g(i,j).v_R;
-        }
-    }
-} 
-
-/**
- * Calculates the radial and azimuthal gas velocities from the full temperature profile.
- */
-void calc_gas_velocities(Grid& g, CudaArray<double>& Sig_g, Field<Prims>& wg, Field<double>& cs2, CudaArray<double>& nu, double alpha, Star& star, int bound, double floor, double cav) {
-
-    Field<double> Trphi = create_field<double>(g);
-    Field<double> TZphi = create_field<double>(g);
-    Field<double> drvphidr = create_field<double>(g);
-    Field<double> dvphidZ = create_field<double>(g);
-    Field<double> p = create_field<double>(g);
-    Field<double> rho = create_field<double>(g);
-    Field<double> vphig = create_field<double>(g);
-    Field<double> vR = create_field<double>(g);
-
-    dim3 threads(16,16) ;
-    dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+15)/16) ;
-    int buff = 0;
-    int vrbuff = 4;
-
-
-    // Calc v_phi from true profile
-
-    _calc_p<<<blocks,threads>>>(g, wg, cs2, p);
-    _calc_vphi<<<blocks,threads>>>(g, p, wg, vphig, star.GM, floor, buff, cav);
-    _set_v_bounds<<<blocks,threads>>>(g, wg, bound, 2, buff);    
-
-    _set_vphi_bounds<<<blocks,threads>>>(g, vphig, bound);     
-    _calc_T<<<blocks,threads>>>(g, Trphi, TZphi, vphig, drvphidr, dvphidZ, wg, nu.get(), 2);
-    _calc_vr<<<blocks,threads>>>(g, Trphi, TZphi, vphig, drvphidr, dvphidZ, wg, floor, vrbuff, cav);
-    _set_v_bounds<<<blocks,threads>>>(g, wg, bound, 1, vrbuff);
-}
-
 /**
  * Calculates the gas radial velocity using a parameterised temperature profile:
  * 
@@ -1829,8 +1723,6 @@ void _calc_Mdot(GridRef g, double* Sig_g, double* nu, double* Mdot) {
     
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int istride = gridDim.x * blockDim.x ;
-
-    int j = g.Nghost;
 
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
 

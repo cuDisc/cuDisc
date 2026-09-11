@@ -40,12 +40,19 @@ class TimeIntegration {
   template<typename T>
   double take_step(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess,
                    Field<bool>& active, double floor) const ;
-  
-  template<typename T>
-  double take_step_tracers(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess, Field3D<double>& tracers, int* idxs) const ;
 
+  template<typename T>
   double take_step_debug(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess,
                          int* idxs, Field<bool>& active, double floor) const ;
+
+  template<typename T>
+  double take_step_tracers(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess, 
+                            Field3D<double>& tracers, Field<bool>& active, double floor) const ;
+  
+  template<typename T>
+  double take_step_tracers_debug(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess, 
+                                  Field3D<double>& tracers, int* idxs, Field<bool>& active, double floor) const ;
+                         
 
   template<typename T>
   int integrate(Grid& g, Field3D<T>& ws, Field<T>& wg, double tmax, double& dt_coag, double floor = 1.e-40) const ;
@@ -54,8 +61,10 @@ class TimeIntegration {
   int integrate_debug(Grid& g, Field3D<T>& ws, Field<T>& wg, double tmax, double& dt_coag, double floor) const ;
 
   template<typename T>
-  void integrate_tracers(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const ;
-
+  int integrate_tracers(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const ;
+  
+  template<typename T>
+  int integrate_tracers_debug(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const ;
 
 protected:
 
@@ -77,6 +86,15 @@ private:
   template<bool debug, typename T>
   double take_step_impl(Grid& g, Field3D<double>& y, Field<T>& wg,
                         double& dtguess, int* idxs, Field<bool>& active,
+                        double floor) const ;
+
+  template<bool debug, typename T>
+  int integrate_tracers_impl(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, double tmax,
+                     double& dt_coag, double floor) const ;
+
+  template<bool debug, typename T>
+  double take_step_tracers_impl(Grid& g, Field3D<double>& y, Field<T>& wg,
+                        double& dtguess, Field3D<double>& tracers, int* idxs, Field<bool>& active,
                         double floor) const ;
 
   double _rel_tol, _abs_tol ;
