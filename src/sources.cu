@@ -139,7 +139,7 @@ void _calc_t_s(GridRef g, Field3DConstRef<Prims> q, FieldConstRef<Prims> w_gas, 
 template<bool full_stokes>
 __global__
 void _calc_t_s(GridRef g, Field3DConstRef<Prims> q, FieldConstRef<Prims> w_gas, FieldConstRef<double> T, 
-                    Field3DRef<double> t_stop, Field3DConstRef<Ice> ice, FieldConstRef<double> mu) {
+                    Field3DRef<double> t_stop, Field3DConstRef<Grain> ice, FieldConstRef<double> mu) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -224,9 +224,9 @@ void SourcesIce<use_full_stokes>::source_imp(Grid& g, Field3D<Prims>& w, Field3D
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (w.Nd+7)/8) ;
 
     if (use_full_stokes) 
-        _calc_t_s<true><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.ice, _mu);
+        _calc_t_s<true><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_props, _mu);
     else
-        _calc_t_s<false><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.ice, _mu);
+        _calc_t_s<false><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_props, _mu);
     _source_drag<<<blocks,threads>>>(g, w, _w_gas, t_stop, active, dt, _Mstar);
 }
 

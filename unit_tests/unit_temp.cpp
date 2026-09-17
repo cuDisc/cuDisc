@@ -140,7 +140,7 @@ int main() {
     int n_spec = 100;
     double a0 = 1e-5 ; // Grain size lower bound in cm
     double a1 = 1.   ;  // Grain size upper bound in cm
-    SizeGrid sizes(a0, a1, n_spec, 3.5) ;
+    SizeGrid sizes(g, a0, a1, n_spec, 3.5) ;
 
     double Cv = 2.5*R_gas/2.4;
 

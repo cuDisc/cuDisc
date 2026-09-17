@@ -113,8 +113,8 @@ class IceVapChem {
                     f.write((char*) &_mol.vap(i,j), sizeof(double));
                     for (int k=0; k<nspec; k++) {
                         f.write((char*) &_mol.ice(i,j,k), sizeof(double));
-                        f.write((char*) &_sizes.ice(i,j,k).a, sizeof(double));
-                        f.write((char*) &_sizes.ice(i,j,k).rho, sizeof(double));
+                        f.write((char*) &_sizes.grain_props(i,j,k).a, sizeof(double));
+                        f.write((char*) &_sizes.grain_props(i,j,k).rho, sizeof(double));
                     }
 
                 }
@@ -142,8 +142,8 @@ class IceVapChem {
                     f.read((char*) &_mol.vap(i,j), sizeof(double));
                     for (int k=0; k<nspec; k++) {
                         f.read((char*) &_mol.ice(i,j,k), sizeof(double));
-                        f.read((char*) &_sizes.ice(i,j,k).a, sizeof(double));
-                        f.read((char*) &_sizes.ice(i,j,k).rho, sizeof(double));
+                        f.read((char*) &_sizes.grain_props(i,j,k).a, sizeof(double));
+                        f.read((char*) &_sizes.grain_props(i,j,k).rho, sizeof(double));
                     }
                 }
             }  
@@ -238,8 +238,8 @@ class IceVapChem1D {
                     f.write((char*) &_mol.vap(i,j), sizeof(double));
                     for (int k=0; k<nspec; k++) {
                         f.write((char*) &_mol.ice(i,j,k), sizeof(double));
-                        f.write((char*) &_sizes.ice(i,j,k).a, sizeof(double));
-                        f.write((char*) &_sizes.ice(i,j,k).rho, sizeof(double));
+                        f.write((char*) &_sizes.grain_props(i,j,k).a, sizeof(double));
+                        f.write((char*) &_sizes.grain_props(i,j,k).rho, sizeof(double));
                     }
 
                 }
@@ -268,8 +268,8 @@ class IceVapChem1D {
                     double ice_tot = 0;
                     for (int k=0; k<nspec; k++) {
                         f.read((char*) &_mol.ice(i,j,k), sizeof(double));
-                        f.read((char*) &_sizes.ice(i,j,k).a, sizeof(double));
-                        f.read((char*) &_sizes.ice(i,j,k).rho, sizeof(double));
+                        f.read((char*) &_sizes.grain_props(i,j,k).a, sizeof(double));
+                        f.read((char*) &_sizes.grain_props(i,j,k).rho, sizeof(double));
                     }
                 }
             }  

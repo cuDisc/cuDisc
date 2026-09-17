@@ -55,10 +55,6 @@ double Sig_bench[100] = {0.00188614, 0.00106862, 0.000888368, 0.000839277, 0.000
 
 int main() {
 
-
-    std::filesystem::path dir = std::string("./codes/outputs/unit_coag_vertint");
-    std::filesystem::create_directories(dir);
-
     std::cout << "Test coag vertically-integrated... ";
     std::cout.flush() ;
     
@@ -82,9 +78,7 @@ int main() {
     double rho_p = 1.6;
     double a0 = 5e-5 ; // Grain size lower bound in cm
     double a1 = 0.1   ;  // Grain size upper bound in cm
-    SizeGrid sizes(a0, a1, n_spec, rho_p) ;
-
-    write_grids(dir, &g, &sizes);
+    SizeGrid sizes(g, a0, a1, n_spec, rho_p) ;
 
     // Disc & Star parameters
     

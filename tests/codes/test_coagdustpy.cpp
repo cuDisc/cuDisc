@@ -114,7 +114,7 @@ int main() {
     double rho_p = 1.6;
     double a0 = 5e-5 ; // Grain size lower bound in cm
     double a1 = 0.1   ;  // Grain size upper bound in cm
-    SizeGrid sizes(a0, a1, n_spec, rho_p) ;
+    SizeGrid sizes(g, a0, a1, n_spec, rho_p) ;
 
     write_grids(dir, &g, &sizes);
 

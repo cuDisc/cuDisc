@@ -196,7 +196,7 @@ int main() {
                 calculate_ubar(g, Sig_d, Sig_g, ubar, u_g, t, u_f, rho_s, alpha, a0, star, boundary, boundaryg);
             }
             update_dust_sigma(g, Sig_d, Sig_g, ubar, nu, dt, boundary);
-            update_gas_sources(g, Sig_g, Sigdot_w, dt, boundaryg,1e-10);
+            update_gas_sources(g, Sig_g, Sigdot_w, nu, dt, boundaryg,1e-10);
             update_gas_sigma(g, Sig_g, dt, nu, boundaryg,1e-10);
             update_gas_vel(g, Sig_g, u_g, alpha, star);
             t += dt;

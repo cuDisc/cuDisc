@@ -71,7 +71,7 @@ int main() {
     p.theta_max = M_PI / 20.;
 
     Grid g(p);
-    SizeGrid sizes(1e-1, 1, 1, 1);
+    SizeGrid sizes(g, 1e-1, 1, 1, 1);
 
     double M_star = 0.7, T_star=4500., R_star = 1.7*Rsun;
     double L_star = 4.*M_PI*sigma_SB*std::pow(T_star, 4.)*std::pow(R_star, 2.);

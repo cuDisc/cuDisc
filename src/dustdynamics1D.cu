@@ -50,7 +50,7 @@ void _calc_dust_vel(GridRef g, Field3DRef<Prims1D> W_d, FieldRef<Prims1D> W_g, F
         for (int k=kidx; k<W_d.Nd; k+=kstride) {
 
             double Om = sqrt(GMstar/g.Rc(i))/g.Rc(i);
-            double St = calc_t_s<full_stokes>(W_d(i,j,k), W_g(i,j), sizes.ice(i,j,k).a, sizes.ice(i,j,k).rho, cs(i,j), mu, Om) * Om;
+            double St = calc_t_s<full_stokes>(W_d(i,j,k), W_g(i,j), sizes.grain_props(i,j,k).a, sizes.grain_props(i,j,k).rho, cs(i,j), mu, Om) * Om;
 
             double _alpha = D(i,j,k) * Om / (cs(i,j)*cs(i,j) * W_g(i,j).Sig);
             

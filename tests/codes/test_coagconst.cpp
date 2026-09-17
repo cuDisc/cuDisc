@@ -74,7 +74,7 @@ int main() {
     // Setup a size distribution
     double a0 = std::pow(3e-6/(4*M_PI), 1/3.) ;
     double a1 = std::pow(3e+9/(4*M_PI), 1/3.) ;
-    SizeGrid sizes(a0, a1, 150) ;
+    SizeGrid sizes(g, a0, a1, 150) ;
 
     write_grids(dir, &g, &sizes);
 
@@ -89,7 +89,8 @@ int main() {
     // Create the kernel/rates
     BS32Integration<CoagulationRate<ConstantKernel, SimpleErosion>>
         coagulation_integrate(
-            create_coagulation_rate(sizes, ConstantKernel(g), SimpleErosion())
+            create_coagulation_rate(sizes, ConstantKernel(g), SimpleErosion()),
+            0.01,1e-10,false
         ) ;
 
     // Run the test

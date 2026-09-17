@@ -231,7 +231,7 @@ int main(int argc, char* argv[]) {
     int n_spec = 7.*3.*std::log10(a1/a0) + 1;
 
     std::cout << "Number of dust species: "<< n_spec << "\n";
-    SizeGrid sizes(a0, a1, n_spec, rho_p) ;
+    SizeGrid sizes(g, a0, a1, n_spec, rho_p) ;
 
     // Import opacity table
 
@@ -489,7 +489,7 @@ int main(int argc, char* argv[]) {
             // Gas updates
 
             update_gas_sigma(g, Sig_g, dt, nu, gas_boundary, gas_floor);
-            compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, Ws_d, gas_floor);
+            compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, Ws_d, gas_floor, floor);
             calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor);  
             compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);
 
@@ -555,7 +555,7 @@ int main(int argc, char* argv[]) {
                 else {
                     compute_cs2(g,T,cs2,mu);
                     cs2_to_cs(g, cs, cs2);
-                    compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g);
+                    compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, Ws_d, gas_floor, floor);
                     compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);
                     compute_nu(g, nu, cs2, M_star, alpha);
 

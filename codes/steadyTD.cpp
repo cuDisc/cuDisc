@@ -271,7 +271,7 @@ int main() {
     double rho_p = 1.6;
     double a0 = 1e-5 ; // Grain size lower bound in cm
     double a1 = 20.   ;  // Grain size upper bound in cm
-    SizeGrid sizes(a0, a1, n_spec, rho_p) ;
+    SizeGrid sizes(g, a0, a1, n_spec, rho_p) ;
 
     // Read in opacity table 
 
@@ -610,7 +610,7 @@ int main() {
                 }
                 else {
                     compute_cs2(g,T,cs2,mu);
-                    compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g);
+                    compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, Ws_d, gas_floor, floor);
                     compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);
                     compute_nu(g, nu, cs2, M_star, alpha);
                     calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor, Rcav);   

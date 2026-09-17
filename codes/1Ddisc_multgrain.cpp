@@ -86,7 +86,7 @@ int main() {
     double a_max = 10.;
     int n_spec = 3*7*std::log10(a_max/a0) + 1;
     double v_frag = 100.;
-    SizeGrid sizes(a0, a_max, n_spec, rho_s);
+    SizeGrid sizes(g, a0, a_max, n_spec, rho_s);
 
     write_grids(dir, &g, &sizes);
 

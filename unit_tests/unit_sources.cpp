@@ -167,7 +167,7 @@ int main() {
     double a1 = 10.   ;  // Grain size upper bound in cm
     int n_spec = 20;
 
-    SizeGrid sizes(a0, a1, n_spec, rho_p) ;
+    SizeGrid sizes(g, a0, a1, n_spec, rho_p) ;
 
     // Disc & Star parameters
     

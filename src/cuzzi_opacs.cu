@@ -456,7 +456,7 @@ __global__ void _calc_rho_kappa_vol(GridRef g, Field3DConstRef<Prims> qd, FieldC
             n1 = sqrt(x+eps1/2.);
             n2 = sqrt(x-eps1/2.);
 
-            x = 2.*M_PI*sizes.ice(i,j,n).a/(lam[k]/1.e4);
+            x = 2.*M_PI*sizes.grain_props(i,j,n).a/(lam[k]/1.e4);
 
             double Q_a = min(1.,12.*x*eps2/((eps1+2.)*(eps1+2.)+eps2*eps2));
             double Q_s, g_asym;
@@ -479,8 +479,8 @@ __global__ void _calc_rho_kappa_vol(GridRef g, Field3DConstRef<Prims> qd, FieldC
 
             Q_s = min(Q_s*(1.-g_asym),1.);
 
-            // x = M_PI*sizes.ice(i,j,n).a*sizes.ice(i,j,n).a/(4.188790205*);
-            x = 0.75/(sizes.ice(i,j,n).a*sizes.ice(i,j,n).rho);
+            // x = M_PI*sizes.grain_props(i,j,n).a*sizes.grain_props(i,j,n).a/(4.188790205*);
+            x = 0.75/(sizes.grain_props(i,j,n).a*sizes.grain_props(i,j,n).rho);
 
             if (n==0) {
                 k_abs_g = x*Q_a * 1e-10;
@@ -576,7 +576,7 @@ __global__ void _calc_rho_kappa_vol(GridRef g, GridRef g_in, Field3DConstRef<dou
                 n1 = sqrt(x+eps1/2.);
                 n2 = sqrt(x-eps1/2.);
 
-                x = 2.*M_PI*sizes.ice(i-g_in.NR,j,n).a/(lam[k]/1.e4);
+                x = 2.*M_PI*sizes.grain_props(i-g_in.NR,j,n).a/(lam[k]/1.e4);
 
                 double Q_a = max(min(1.,12.*x*eps2/((eps1+2.)*(eps1+2.)+eps2*eps2)),0.);
                 double Q_s, g_asym;
@@ -599,8 +599,8 @@ __global__ void _calc_rho_kappa_vol(GridRef g, GridRef g_in, Field3DConstRef<dou
 
                 Q_s = max(min(Q_s*(1.-g_asym),1.),0.);
 
-                // x = M_PI*sizes.ice(i,j,n).a*sizes.ice(i,j,n).a/(4.188790205*);
-                x = 0.75/(sizes.ice(i-g_in.NR,j,n).a*sizes.ice(i-g_in.NR,j,n).rho);
+                // x = M_PI*sizes.grain_props(i,j,n).a*sizes.grain_props(i,j,n).a/(4.188790205*);
+                x = 0.75/(sizes.grain_props(i-g_in.NR,j,n).a*sizes.grain_props(i-g_in.NR,j,n).rho);
 
                 if (n==0) {
                     k_abs_g = x*Q_a * 1e-12;
@@ -611,7 +611,7 @@ __global__ void _calc_rho_kappa_vol(GridRef g, GridRef g_in, Field3DConstRef<dou
                 // }
 
                 rhok_dust_abs += rho_d(i,j,n)*x*Q_a;
-                // if (i==601 && j==82 && k==0) {printf("%g\n",sizes.ice(i-g_in.NR,j,n).a);}
+                // if (i==601 && j==82 && k==0) {printf("%g\n",sizes.grain_props(i-g_in.NR,j,n).a);}
 
                 rhok_dust_sca += rho_d(i,j,n)*x*Q_s;
             }

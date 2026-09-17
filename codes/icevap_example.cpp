@@ -67,12 +67,13 @@ void set_up_gas(Grid& g, CudaArray<double>& Sig_g, CudaArray<double>& nu, Field<
     }
     
     for (int i=0; i<g.NR+2*g.Nghost; i++) {
-        Sig_g[i] *= Mdisc/Mtot + 1e-30;
+        Sig_g[i] *= Mdisc/Mtot;
+        Sig_g[i] = std::max(Sig_g[i],1.e-50);
     }
 
 }
     
-void init_dust(Grid& g, Field3D<Prims>& wd, Field<Prims>& wg, CudaArray<double>& Sig_g, SizeGrid& sizes, Field<double>& cs, CudaArray<double>& nu, double Mstar, double u_f, double d_to_g, double gfloor) {
+void init_dust(Grid& g, Field3D<Prims>& wd, Field<Prims>& wg, CudaArray<double>& Sig_g, SizeGrid& sizes, Field<double>& cs, CudaArray<double>& nu, double Mstar, double u_f, double d_to_g, double gfloor, double floor) {
 
     auto dtg = [d_to_g](double R) {
         return d_to_g;
@@ -152,8 +153,8 @@ void init_dust(Grid& g, Field3D<Prims>& wd, Field<Prims>& wg, CudaArray<double>&
         for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
             for (int k=0; k < sizes.size(); k++) {
                 double Om = std::sqrt(GMsun*Mstar/(g.Rc(i)*g.Rc(i)*g.Rc(i)));
-                if (wd(i,j,k).rho < 1e-12*wg(i,j).rho) {
-                    wd(i,j,k).rho = 1e-12*wg(i,j).rho;
+                if (wd(i,j,k).rho < 0.1*floor*wg(i,j).rho) {
+                    wd(i,j,k).rho = 0.1*floor*wg(i,j).rho;
                     wd(i,j,k).v_R   = 0;
                     wd(i,j,k).v_phi = Om*g.Rc(i); 
                     wd(i,j,k).v_Z = 0;
@@ -344,8 +345,7 @@ int main() {
     calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor);   
     compute_alpha(g, nu, alpha2D, cs2, M_star);
 
-    // init_dust(g, Ws_d, Ws_g, Sig_g, sizes, cs, alpha, M_star, v_frag, gas_floor);
-    init_dust(g, Ws_d, Ws_g, Sig_g, sizes, cs, nu, M_star, v_frag, 0.01, gas_floor);
+    init_dust(g, Ws_d, Ws_g, Sig_g, sizes, cs, nu, M_star, v_frag, 0.01, gas_floor, floor);
 
     for (int i=g.Nghost; i<g.NR + g.Nghost; i++) {
         for (int j=g.Nghost; j<g.Nphi + g.Nghost; j++) { 
@@ -368,6 +368,7 @@ int main() {
     // Initialise coag solver
 
     BirnstielKernelIce kernel = BirnstielKernelIce(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu2D, M_star);
+    kernel.set_fragmentation_thresholds(v_frag,v_frag);
     BS32Integration<CoagulationRate<decltype(kernel), SimpleErosion>>
         coagulation_integrate(
             create_coagulation_rate(
@@ -402,7 +403,7 @@ int main() {
     
     double t = 0, dt;
     const int ntimes = 6;  
-    double ts[ntimes] = {1*year, 10*year, 100*year, 1e3*year, 1e4*year, 1e5*year};
+    double ts[ntimes] = {1*year, 10*year, 100*year, 1e3*year, 2e3*year, 5e3*year};
 
     // Set up boundary conditions
 
@@ -435,7 +436,8 @@ int main() {
         read_prims(dir, "restart", Ws_d, Ws_g, Sig_g);
         read_temp(dir, "restart", T, J);
         COchem.read_mol(dir, "restart"); 
-        // COchem.read_restart_file(dir, t_chem, dt_1percchem);
+        COchem.read_restart_file(dir, t_chem, dt_1percchem);
+        dyn.reinitialize_active(g, Ws_d, Ws_g);
 
         compute_cs2(g,T,cs2,mu2D);
         cs2_to_cs(g, cs, cs2);
@@ -467,8 +469,7 @@ int main() {
             
             std::cout << "Iteration: " << n << "\n" ;  
 
-            // init_dust(g, Ws_d, Ws_g, Sig_g, sizes, cs, alpha, M_star, v_frag, gas_floor);
-            init_dust(g, Ws_d, Ws_g, Sig_g, sizes, cs, nu, M_star, v_frag, 0.01, gas_floor);
+            init_dust(g, Ws_d, Ws_g, Sig_g, sizes, cs, nu, M_star, v_frag, 0.01, gas_floor, floor);
 
             calculate_total_rhokappa(g, sizes, Ws_d, Ws_g, rho_tot, opacs, rhok_abs, rhok_sca, CO);
 
@@ -516,7 +517,7 @@ int main() {
             for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
                 CO.vap(i,j) = ((2.*Ws_g(i,j).rho/(2.4*m_H) * 1.e-4)*28*m_H);
                 for (int k=0; k<Ws_d.Nd; k++) {
-                    CO.ice(i,j,k) = 1e-100;
+                    CO.ice(i,j,k) = 1e-300;
                 }
             }
         }
@@ -562,7 +563,7 @@ int main() {
 
             n += 1;
         }
-        
+
         calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor);   
 
         compute_nu(g, nu, cs2, M_star, alpha);
@@ -574,6 +575,7 @@ int main() {
         COchem.write_mol(dir, 0);   
         dt_CFL = 1; 
         t_coag=0*year;
+        dt_1percchem = 1*year;
     }
 
     double dt_temp_max = 5000*year;
@@ -603,10 +605,10 @@ int main() {
             dyn(g, Ws_d, Ws_g, dt, CO, sizes); // Diffusion-advection update
 
             update_gas_sigma(g, Sig_g, dt, nu, gas_boundary, gas_floor);
-            compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, CO, gas_floor);
+            compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, Ws_d, CO, gas_floor, floor);
             compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);    
 
-            if ( ((t+dt >= t_coag+dt_coag)|| (t+2*dt >= t_coag+dt_coag && dt < dt_coag) || ((t+dt)-t_coag)>50.*year || dt == ti-t )) {
+            if ( ((t+dt >= t_coag+dt_coag)|| (t+2*dt >= t_coag+dt_coag && dt < dt_coag) || ((t+dt)-t_coag)>10.*year || dt == ti-t )) {
 
                 std::cout << "Coag step at count = " << count << "\n";
                 double dt_coag_0 = dt_coag;
@@ -673,7 +675,7 @@ int main() {
                 }
                 else {
                     compute_cs2(g,T,cs2,mu2D);
-                    compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, CO, gas_floor, floor);
+                    compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, Ws_d, CO, gas_floor, floor);
                     compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);
                     compute_nu(g, nu, cs2, M_star, alpha);
                     compute_alpha(g, nu, alpha2D, cs2, M_star);
@@ -709,10 +711,10 @@ int main() {
             count += 1;
             t += dt;
             if (count < 200) {
-                dt_CFL = std::min(dyn.get_CFL_limit(g, Ws_d, Ws_g), 1.1*dt); // Calculate new CFL condition time-step 
+                dt_CFL = std::min(dyn.get_CFL_limit(g, Ws_d, Ws_g, CO), 1.1*dt); // Calculate new CFL condition time-step 
             }
             else {
-                dt_CFL = dyn.get_CFL_limit(g, Ws_d, Ws_g);
+                dt_CFL = dyn.get_CFL_limit(g, Ws_d, Ws_g, CO);
             }
 
             if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start).count()/3600. > 29.) {
@@ -721,6 +723,7 @@ int main() {
                 write_prims(dir, "restart", g, Ws_d, Ws_g, Sig_g);
                 write_temp(dir, "restart", g, T, J) ;
                 COchem.write_mol(dir,"restart");
+                COchem.write_restart_file(dir, t_chem, dt_1percchem);
                 return 0;
             }
 

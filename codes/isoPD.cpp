@@ -175,7 +175,7 @@ int main() {
     double v_frag = 1000.; // Fragmentation threshold
 
     std::cout << "Number of dust species: "<< n_spec << "\n";
-    SizeGrid sizes(a0, a1, n_spec, rho_p) ;
+    SizeGrid sizes(g, a0, a1, n_spec, rho_p) ;
 
     write_grids(dir, &g, &sizes); // Write grids to file
 
@@ -347,7 +347,7 @@ int main() {
             // Gas updates
 
             update_gas_sigma(g, Sig_g, dt, nu, gas_boundary, gas_floor);
-            compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, Ws_d, gas_floor);
+            compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, Ws_d, gas_floor, floor);
             calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor);  
             compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);
 
@@ -363,8 +363,8 @@ int main() {
             count += 1;
             t += dt;
 
-            if (count < 1000) {
-                dt_CFL = std::min(dyn.get_CFL_limit(g, Ws_d, Ws_g), 1.025*dt); // Calculate new CFL condition time-step 
+            if (count < 200) {
+                dt_CFL = std::min(dyn.get_CFL_limit(g, Ws_d, Ws_g), 1.1*dt); // Calculate new CFL condition time-step 
             }
             else {
                 dt_CFL = dyn.get_CFL_limit(g, Ws_d, Ws_g);

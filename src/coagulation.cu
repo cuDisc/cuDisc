@@ -179,8 +179,8 @@ __device__ __host__
 KernelResult BirnstielKernelIce<use_full_stokes>::operator()(int i, int j, int k1, int k2) const {
 
     // Step 0: Compute the geometric cross-section
-    Ice ice1 = _sizes.ice(i,j,k1);
-    Ice ice2 = _sizes.ice(i,j,k2);
+    Grain ice1 = _sizes.grain_props(i,j,k1);
+    Grain ice2 = _sizes.grain_props(i,j,k2);
 
     RealType a1 = ice1.a ;
     RealType a2 = ice2.a ;
@@ -248,9 +248,8 @@ __device__ __host__
 KernelResult BirnstielKernelVertIntIce<use_full_stokes>::operator()(int i, int j, int k1, int k2) const {
 
     // Step 0: Compute the geometric cross-section
-
-    Ice ice1 = _sizes.ice(i,j,k1);
-    Ice ice2 = _sizes.ice(i,j,k2);
+    Grain ice1 = _sizes.grain_props(i,j,k1);
+    Grain ice2 = _sizes.grain_props(i,j,k2);
 
     RealType a1 = ice1.a ;
     RealType a2 = ice2.a ;
