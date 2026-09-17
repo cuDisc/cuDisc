@@ -689,6 +689,27 @@ __global__ void _initialize_active_cells(GridRef g, Field3DConstRef<Prims> w_dus
 
 }
 
+// Specialisation for type double
+
+__global__ void _initialize_active_cells(GridRef g, FieldConstRef<double> w, FieldConstRef<Prims> w_gas, Field3DRef<int> active, double floor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
+            for (int k=kidx; k<active.Nd; k+=kstride) {
+                active(i,j,k) = w(i,j) > (floor * w_gas(i,j).rho);
+            }
+        }
+    }
+
+}
+
 __global__
 void _update_active_cells(GridRef g, Field3DRef<Prims> w_dust,
                           FieldConstRef<Prims> w_gas, Field3DRef<int> active,
@@ -754,6 +775,66 @@ __global__ void _zero_inactive_fluxes(GridRef g, Field3DRef<Quants> fluxR, Field
 
 }
 
+void DustDynamics::donor_cell_update(
+        Grid& g, Field3D<Prims>& w, const Field<Prims>& w_gas,
+        Field3D<Quants>& q, Field3D<Quants>& fluxR, Field3D<Quants>& fluxZ,
+        Field3D<int>& active, dim3 blocks, dim3 threads)
+{
+    _set_boundaries<<<blocks,threads>>>(g, w, _boundary);
+    check_CUDA_errors("_set_boundaries") ;
+    _calc_conserved<<<blocks,threads>>>(g, q, w);
+    check_CUDA_errors("_calc_conserved") ;
+
+    if (_DoDiffusion)
+        _calc_donor_flux<true><<<blocks,threads>>>(g, w, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor, _boundary);
+    else
+        _calc_donor_flux<false><<<blocks,threads>>>(g, w, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor, _boundary);
+    check_CUDA_errors("_calc_donor_flux") ;
+
+    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
+    check_CUDA_errors("_set_boundary_flux") ;
+    _zero_inactive_fluxes<<<blocks,threads>>>(g, fluxR, fluxZ, active);
+    check_CUDA_errors("_zero_inactive_fluxes") ;
+}
+
+void DustDynamics::van_leer_update(
+        Grid& g, Field3D<Prims>& w, const Field<Prims>& w_gas,
+        Field3D<Quants>& fluxR, Field3D<Quants>& fluxZ,
+        Field3D<int>& active, dim3 blocks, dim3 threads)
+{
+    _set_boundaries<<<blocks,threads>>>(g, w, _boundary);
+    check_CUDA_errors("_set_boundaries") ;
+
+    if (_DoDiffusion)
+        _calc_diff_flux_vl<true><<<blocks,threads>>>(g, w, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor, _boundary);
+    else
+        _calc_diff_flux_vl<false><<<blocks,threads>>>(g, w, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor, _boundary);
+    check_CUDA_errors("_calc_diff_flux_vl") ;
+
+    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
+    check_CUDA_errors("_set_boundary_flux") ;
+    _zero_inactive_fluxes<<<blocks,threads>>>(g, fluxR, fluxZ, active);
+    check_CUDA_errors("_zero_inactive_fluxes") ;
+}
+
+template<bool apply_sources>
+void DustDynamics::update_quants_and_sources(Grid& g, Field3D<Prims>& w, Field3D<Quants>& q_mids, Field3D<Quants>& q, const Field<Prims>& w_gas,
+                                            double dt, Field3D<Quants>& fluxR, Field3D<Quants>& fluxZ,
+                                            Field3D<int>& active, dim3 blocks, dim3 threads) {
+
+    _update_quants<<<blocks,threads>>>(g, q_mids, q, dt, fluxR, fluxZ);
+    check_CUDA_errors("_update_quants") ;
+    if (apply_sources)
+        _sources.source_exp(g, w, q_mids, active, dt);
+    _calc_prim<<<blocks,threads>>>(g, q_mids, w);
+    check_CUDA_errors("_calc_prim") ; 
+    _fix_negative_density<<<blocks,threads>>>(g, w, w_gas, _floor);
+    check_CUDA_errors("_fix_negative_density") ;
+    if (apply_sources)
+        _sources.source_imp(g, w, active, dt);
+
+}
+
 
 void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas, double dt) {
 
@@ -772,12 +853,6 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
 
     dim3 threads(16,8,4) ;
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (q.Nd+3)/4) ;
-    //dim3 blocks(4,4,4) ;
-
-    _set_boundaries<<<blocks,threads>>>(g, w_dust, _boundary);
-    check_CUDA_errors("_set_boundaries") ;
-    _calc_conserved<<<blocks,threads>>>(g, q, w_dust);
-    check_CUDA_errors("_calc_conserved") ;
 
     if (!_active) {
         _active = std::make_unique<Field3D<int>>(g.NR+2*g.Nghost,
@@ -788,59 +863,17 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     }
     Field3D<int>& active = *_active;
 
-    // Calc donor cell flux
-    if (_DoDiffusion) {
-        _calc_donor_flux<true><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor, _boundary);
-        check_CUDA_errors("_calc_donor_flux") ;
-    }
-    else {
-        _calc_donor_flux<false><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor, _boundary);
-        check_CUDA_errors("_calc_donor_flux") ;
-    }
+    // Donor-cell stage
+    donor_cell_update(g, w_dust, w_gas, q, fluxR, fluxZ, active, blocks, threads);
 
     // Update quantities a half time step and and source terms.
-    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
-    check_CUDA_errors("_set_boundary_flux") ;
-    _zero_inactive_fluxes<<<blocks,threads>>>(g, fluxR, fluxZ, active);
-    check_CUDA_errors("_zero_inactive_fluxes") ;
-    _update_quants<<<blocks,threads>>>(g, q_mids, q, dt/2., fluxR, fluxZ);
-    check_CUDA_errors("_update_quants") ;
-    _sources.source_exp(g, w_dust, q_mids, active, dt/2.);
-    _calc_prim<<<blocks,threads>>>(g, q_mids, w_dust);
-    check_CUDA_errors("_calc_prim") ; 
-    _fix_negative_density<<<blocks,threads>>>(g, w_dust, w_gas, _floor);
-    check_CUDA_errors("_fix_negative_density") ;
-    _sources.source_imp(g, w_dust, active, dt/2.);
+    update_quants_and_sources(g, w_dust, q_mids, q, w_gas, 0.5*dt, fluxR, fluxZ, active, blocks, threads);
 
-    
-    _set_boundaries<<<blocks,threads>>>(g, w_dust, _boundary);
-    check_CUDA_errors("_set_boundaries") ;
-
-    // Compute fluxes with Van Leer
-    if (_DoDiffusion) {
-        _calc_diff_flux_vl<true><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor, _boundary);
-        check_CUDA_errors("_calc_diff_flux_vl") ;
-    }
-    else {
-        _calc_diff_flux_vl<false><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor, _boundary);
-        check_CUDA_errors("_calc_diff_flux_vl") ;
-    }
+    // Van Leer stage
+    van_leer_update(g, w_dust, w_gas, fluxR, fluxZ, active, blocks, threads);
 
     // Update quantities a full time step and and source terms.
-
-    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
-    check_CUDA_errors("_set_boundary_flux") ;
-    _zero_inactive_fluxes<<<blocks,threads>>>(g, fluxR, fluxZ, active);
-    check_CUDA_errors("_zero_inactive_fluxes") ;
-    // set_flux_to_zero<<<blocks,threads>>>(g, fluxR);
-    _update_quants<<<blocks,threads>>>(g, q_mids, q, dt, fluxR, fluxZ);
-    check_CUDA_errors("_update_quants") ;
-    _sources.source_exp(g, w_dust, q_mids, active, dt);
-    _calc_prim<<<blocks, threads>>>(g, q_mids, w_dust);
-    check_CUDA_errors("_calc_prim") ; 
-    _sources.source_imp(g, w_dust, active, dt);
-    _fix_negative_density<<<blocks,threads>>>(g, w_dust, w_gas, _floor);
-    check_CUDA_errors("_fix_negative_density") ;
+    update_quants_and_sources(g, w_dust, q_mids, q, w_gas, dt, fluxR, fluxZ, active, blocks, threads);
 
     constexpr double reactivation_factor = 1.1;
     _update_active_cells<<<blocks,threads>>>(g, w_dust, w_gas, active,
@@ -901,8 +934,8 @@ void _compute_CFL_diff(GridRef g, Field3DConstRef<Prims> w, FieldConstRef<Prims>
 }
 
 __global__
-void _compute_CFL_diff(GridRef g, Field3DConstRef<Prims> w, FieldConstRef<Prims> w_gas, FieldRef<double> vap, FieldRef<double> CFL_grid, Field3DConstRef<double> D,
-                        double CFL_adv, double CFL_diff, double floor) {
+void _compute_CFL_diff(GridRef g, Field3DConstRef<Prims> w, FieldConstRef<Prims> w_gas, FieldRef<double> CFL_grid, Field3DConstRef<double> D,
+                        Field3DConstRef<int> active, Field3DConstRef<int> active_vap, double CFL_adv, double CFL_diff) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -912,39 +945,39 @@ void _compute_CFL_diff(GridRef g, Field3DConstRef<Prims> w, FieldConstRef<Prims>
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
             double CFL_k = 1e308;
-            if (vap(i,j) > 10.*w_gas(i,j).rho*1e-100*floor) {
 
-                double dtR = abs(g.dRe(i)/w_gas(i,j).v_R);
-                double dtZ = abs(g.dZe(i,j)/w_gas(i,j).v_Z);
+            if (!active_vap(i,j,0)) { continue; }
+
+            double dtR = abs(g.dRe(i)/w_gas(i,j).v_R);
+            double dtZ = abs(g.dZe(i,j)/w_gas(i,j).v_Z);
+
+            double CFL_RZmin = min(dtR, dtZ);
+            CFL_k = min(CFL_k, CFL_adv*CFL_RZmin);
+
+            if (D(i,j,0) != 0) {
+                dtR = abs(g.dRe(i)*g.dRe(i) * w_gas(i,j).rho / D(i,j,0));
+                dtZ = abs(g.dZe(i,j)*g.dZe(i,j) * w_gas(i,j).rho / D(i,j,0));
+
+                CFL_RZmin = min(dtR, dtZ);
+                CFL_k = min(CFL_k, CFL_diff*CFL_RZmin);
+            }
+            
+            for (int k=0; k<w.Nd; k++) {
+
+                if (!active(i,j,k)) { continue; }
+
+                double dtR = abs(g.dRe(i)/w(i,j,k).v_R);
+                double dtZ = abs(g.dZe(i,j)/w(i,j,k).v_Z);
 
                 double CFL_RZmin = min(dtR, dtZ);
                 CFL_k = min(CFL_k, CFL_adv*CFL_RZmin);
 
-                if (D(i,j,0) != 0) {
-                    dtR = abs(g.dRe(i)*g.dRe(i) * w_gas(i,j).rho / D(i,j,0));
-                    dtZ = abs(g.dZe(i,j)*g.dZe(i,j) * w_gas(i,j).rho / D(i,j,0));
+                if (D(i,j,k) != 0) {
+                    dtR = abs(g.dRe(i)*g.dRe(i) * w_gas(i,j).rho / D(i,j,k));
+                    dtZ = abs(g.dZe(i,j)*g.dZe(i,j) * w_gas(i,j).rho / D(i,j,k));
 
                     CFL_RZmin = min(dtR, dtZ);
                     CFL_k = min(CFL_k, CFL_diff*CFL_RZmin);
-                }
-            }
-            for (int k=0; k<w.Nd; k++) {
-
-                if (w(i,j,k).rho > 10.*w_gas(i,j).rho*floor) {
-
-                    double dtR = abs(g.dRe(i)/w(i,j,k).v_R);
-                    double dtZ = abs(g.dZe(i,j)/w(i,j,k).v_Z);
-
-                    double CFL_RZmin = min(dtR, dtZ);
-                    CFL_k = min(CFL_k, CFL_adv*CFL_RZmin);
-
-                    if (D(i,j,k) != 0) {
-                        dtR = abs(g.dRe(i)*g.dRe(i) * w_gas(i,j).rho / D(i,j,k));
-                        dtZ = abs(g.dZe(i,j)*g.dZe(i,j) * w_gas(i,j).rho / D(i,j,k));
-
-                        CFL_RZmin = min(dtR, dtZ);
-                        CFL_k = min(CFL_k, CFL_diff*CFL_RZmin);
-                    }
                 }
             }
             CFL_grid(i,j) = CFL_k;
@@ -993,7 +1026,31 @@ double DustDynamics::get_CFL_limit(const Grid& g, const Field3D<Prims>& w, const
     Field<double> CFL_grid = create_field<double>(g);
     set_all(g, CFL_grid, std::numeric_limits<double>::max());
 
-    _compute_CFL_diff<<<blocks,threads>>>(g, w, w_gas, mol.vap, CFL_grid, _D, _CFL_adv, _CFL_diff, _floor);
+    if (!_active) {
+        _active = std::make_unique<Field3D<int>>(g.NR+2*g.Nghost,
+                                                  g.Nphi+2*g.Nghost,
+                                                  w.Nd);
+        dim3 active_threads(16,8,4) ;
+        dim3 active_blocks((g.NR + 2*g.Nghost+15)/16,
+                           (g.Nphi + 2*g.Nghost+7)/8,
+                           (w.Nd+3)/4) ;
+        _initialize_active_cells<<<active_blocks,active_threads>>>(g, w, w_gas, *_active, _floor);
+        check_CUDA_errors("initialize_active_cells") ;
+    }
+
+    if (!_active_vap) {
+        _active_vap = std::make_unique<Field3D<int>>(g.NR+2*g.Nghost,
+                                                    g.Nphi+2*g.Nghost,
+                                                    1);
+        dim3 threads_vap(16,32,1) ;
+        dim3 blocks_vap((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+31)/32, 1) ;
+
+        _initialize_active_cells<<<blocks_vap,threads_vap>>>(g, mol.vap, w_gas, *_active_vap, 1e-100*_floor);
+        check_CUDA_errors("initialize_active_cells") ;
+    }
+
+    _compute_CFL_diff<<<blocks,threads>>>(g, w, w_gas, CFL_grid, _D, 
+                                            *_active, *_active_vap, _CFL_adv, _CFL_diff);
     check_CUDA_errors("_compute_CFL_diff") ;
     Reduction::scan_R_min(g, CFL_grid);
 
@@ -1333,13 +1390,6 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     _init_tracer_prims<<<blocks2D,threads2D>>>(g, w_dust, w_gas, w_trac, w_trac_vap, mol.ice, mol);
     check_CUDA_errors("_init_tracer_prims") ;
 
-    // Calc dust donor fluxes
-
-    _set_boundaries<<<blocks,threads>>>(g, w_dust, _boundary);
-    check_CUDA_errors("_set_boundaries") ;
-    _calc_conserved<<<blocks,threads>>>(g, q, w_dust);
-    check_CUDA_errors("_calc_conserved") ;
-
     if (!_active) {
         _active = std::make_unique<Field3D<int>>(g.NR+2*g.Nghost,
                                                   g.Nphi+2*g.Nghost,
@@ -1349,44 +1399,13 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     }
     Field3D<int>& active = *_active;
 
-    // Calc donor cell flux
-    if (_DoDiffusion) {
-        _calc_donor_flux<true><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor, _boundary);
-        check_CUDA_errors("_calc_donor_flux") ;
-    }
-    else {
-        _calc_donor_flux<false><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor, _boundary);
-        check_CUDA_errors("_calc_donor_flux") ;
-    }
+    // Donor-cell stage for dust and tracer
 
-    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
-    check_CUDA_errors("_set_boundary_flux") ;
-    _zero_inactive_fluxes<<<blocks,threads>>>(g, fluxR, fluxZ, active);
-    check_CUDA_errors("_zero_inactive_fluxes") ;
-
-    // Calc tracer donor fluxes
-
-    _set_boundaries<<<blocks,threads>>>(g, w_trac, _boundary);
-    check_CUDA_errors("_set_boundaries") ;
-    _calc_conserved<<<blocks,threads>>>(g, q_trac, w_trac);
-    check_CUDA_errors("_calc_conserved") ;
-
-    // Calc donor cell flux
-    if (_DoDiffusion) {
-        _calc_donor_flux<true><<<blocks,threads>>>(g, w_trac, w_gas, _cs, fluxR_trac, fluxZ_trac, _D, _gas_floor, _boundary);
-        check_CUDA_errors("_calc_donor_flux") ;
-    }
-    else {
-        _calc_donor_flux<false><<<blocks,threads>>>(g, w_trac, w_gas, _cs, fluxR_trac, fluxZ_trac, _D, _gas_floor, _boundary);
-        check_CUDA_errors("_calc_donor_flux") ;
-    }
+    donor_cell_update(g, w_dust, w_gas, q, fluxR, fluxZ, active, blocks, threads);
+    donor_cell_update(g, w_trac, w_gas, q_trac, fluxR_trac, fluxZ_trac, active, blocks, threads);
 
     // Update quantities a half time step and and source terms.
-    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR_trac, fluxZ_trac);
-    check_CUDA_errors("_set_boundary_flux") ;
-    _zero_inactive_fluxes<<<blocks,threads>>>(g, fluxR_trac, fluxZ_trac, active);
-    check_CUDA_errors("_zero_inactive_fluxes") ;
-    
+
     _update_quants<<<blocks,threads>>>(g, q_mids, q, q_mids_trac, q_trac, dt/2., fluxR, fluxZ, fluxR_trac, fluxZ_trac);
     check_CUDA_errors("_update_quants") ;
 
@@ -1410,46 +1429,16 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     _copy_dust_vels<<<blocks,threads>>>(g, w_dust, w_trac, q_mids_trac);
     check_CUDA_errors("_copy_dust_vels") ; 
 
-    // Compute dust fluxes with Van Leer
-    if (_DoDiffusion) {
-        _calc_diff_flux_vl<true><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor, _boundary);
-        check_CUDA_errors("_calc_diff_flux_vl") ;
-    }
-    else {
-        _calc_diff_flux_vl<false><<<blocks,threads>>>(g, w_dust, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor, _boundary);
-        check_CUDA_errors("_calc_diff_flux_vl") ;
-    }
-
-    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR, fluxZ);
-    check_CUDA_errors("_set_boundary_flux") ;
-    _zero_inactive_fluxes<<<blocks,threads>>>(g, fluxR, fluxZ, active);
-    check_CUDA_errors("_zero_inactive_fluxes") ;
-
-    // Calc tracer VL fluxes
-
     _fix_negative_density<<<blocks,threads>>>(g, w_trac, w_gas, 1e-100*_floor);
     check_CUDA_errors("_fix_negative_density") ;
-    
-    _set_boundaries<<<blocks,threads>>>(g, w_trac, _boundary);
-    check_CUDA_errors("_set_boundaries") ;
 
-    if (_DoDiffusion) {
-        _calc_diff_flux_vl<true><<<blocks,threads>>>(g, w_trac, w_gas, _cs, fluxR_trac, fluxZ_trac, _D, _gas_floor, _boundary);
-        check_CUDA_errors("_calc_diff_flux_vl") ;
-    }
-    else {
-        _calc_diff_flux_vl<false><<<blocks,threads>>>(g, w_trac, w_gas, _cs, fluxR_trac, fluxZ_trac, _D, _gas_floor, _boundary);
-        check_CUDA_errors("_calc_diff_flux_vl") ;
-    }
+    // Van Leer stage for dust and tracer
+
+    van_leer_update(g, w_dust, w_gas, fluxR, fluxZ, active, blocks, threads);
+    van_leer_update(g, w_trac, w_gas, fluxR_trac, fluxZ_trac, active, blocks, threads);
 
     // Update tracer quantities a full time step
 
-    _set_boundary_flux<<<blocks,threads>>>(g, _boundary, fluxR_trac, fluxZ_trac);
-    check_CUDA_errors("_set_boundary_flux") ;
-    _zero_inactive_fluxes<<<blocks,threads>>>(g, fluxR_trac, fluxZ_trac, active);
-    check_CUDA_errors("_zero_inactive_fluxes") ;
-
-    // _update_quants<<<blocks,threads>>>(g, q_mids_trac, q_trac, dt, fluxR, fluxZ);
     _update_quants<<<blocks,threads>>>(g, q_mids, q, q_mids_trac, q_trac, dt, fluxR, fluxZ, fluxR_trac, fluxZ_trac);
     check_CUDA_errors("_update_quants") ;
 
@@ -1476,8 +1465,6 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
                                              _floor, reactivation_factor);
     check_CUDA_errors("_update_active_cells") ;
 
-
-
     // Vap update
 
     Field3D<Quants> q_mids_vap = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, 1);
@@ -1486,70 +1473,22 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     Field3D<Quants> fluxZ_vap = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, 1);
     Field3D<Quants> fluxR_vap = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, 1);
 
-    _set_boundaries<<<blocks_vap, threads_vap>>>(g, w_trac_vap, _boundary);
-    check_CUDA_errors("_set_boundaries") ;
-    _calc_conserved<<<blocks_vap, threads_vap>>>(g, q_vap, w_trac_vap);
-    check_CUDA_errors("_calc_conserved") ;
-
     if (!_active_vap) {
         _active_vap = std::make_unique<Field3D<int>>(g.NR+2*g.Nghost,
                                                     g.Nphi+2*g.Nghost,
                                                     1);
-        _initialize_active_cells<<<blocks_vap,threads_vap>>>(g, w_dust, w_gas, *_active_vap, 1e-100*_floor);
+        _initialize_active_cells<<<blocks_vap,threads_vap>>>(g, w_trac_vap, w_gas, *_active_vap, 1e-100*_floor);
         check_CUDA_errors("initialize_active_cells") ;
     }
     Field3D<int>& active_vap = *_active_vap;
 
-    // Calc donor cell flux
-    if (_DoDiffusion) {
-        _calc_donor_flux<true><<<blocks_vap, threads_vap>>>(g, w_trac_vap, w_gas, _cs, fluxR_vap, fluxZ_vap, _D, _gas_floor, _boundary);
-        check_CUDA_errors("_calc_donor_flux") ;
-    }
-    else {
-        _calc_donor_flux<false><<<blocks_vap, threads_vap>>>(g, w_trac_vap, w_gas, _cs, fluxR_vap, fluxZ_vap, _D, _gas_floor, _boundary);
-        check_CUDA_errors("_calc_donor_flux") ;
-    }
+    donor_cell_update(g, w_trac_vap, w_gas, q_vap, fluxR_vap, fluxZ_vap, active_vap, blocks_vap, threads_vap);
 
-    // Update quantities a half time step and and source terms.
-    _set_boundary_flux<<<blocks_vap,threads_vap>>>(g, _boundary, fluxR_vap, fluxZ_vap);
-    check_CUDA_errors("_set_boundary_flux") ;
-    _zero_inactive_fluxes<<<blocks_vap,threads_vap>>>(g, fluxR_vap, fluxZ_vap, active_vap);
-    check_CUDA_errors("_zero_inactive_fluxes") ;
-    _update_quants<<<blocks_vap, threads_vap>>>(g, q_mids_vap, q_vap, dt/2., fluxR_vap, fluxZ_vap);
-    check_CUDA_errors("_update_quants") ;
+    update_quants_and_sources<false>(g, w_trac_vap, q_mids_vap, q_vap, w_gas, 0.5*dt, fluxR_vap, fluxZ_vap, active_vap, blocks_vap, threads_vap);
 
-    _calc_prim<<<blocks_vap, threads_vap>>>(g, q_mids_vap, w_trac_vap);
-    check_CUDA_errors("_calc_prim") ;
-    _fix_negative_density<<<blocks_vap,threads_vap>>>(g, w_trac_vap, w_gas, 1e-100*_floor);
-    check_CUDA_errors("_fix_negative_density") ;
+    van_leer_update(g, w_trac_vap, w_gas, fluxR_vap, fluxZ_vap, active_vap, blocks_vap, threads_vap);
 
-    _set_boundaries<<<blocks_vap, threads_vap>>>(g, w_trac_vap, _boundary);
-    check_CUDA_errors("_set_boundaries") ;
-
-    // Compute fluxes with Van Leer
-    if (_DoDiffusion) {
-        _calc_diff_flux_vl<true><<<blocks_vap, threads_vap>>>(g, w_trac_vap, w_gas, _cs, fluxR_vap, fluxZ_vap, _D, _gas_floor, _boundary);
-        check_CUDA_errors("_calc_diff_flux_vl") ;
-    }
-    else {
-        _calc_diff_flux_vl<false><<<blocks_vap, threads_vap>>>(g, w_trac_vap, w_gas, _cs, fluxR_vap, fluxZ_vap, _D, _gas_floor, _boundary);
-        check_CUDA_errors("_calc_diff_flux_vl") ;
-    }
-
-    // Update quantities a full time step and and source terms.
-
-    _set_boundary_flux<<<blocks_vap, threads_vap>>>(g, _boundary, fluxR_vap, fluxZ_vap);
-    check_CUDA_errors("_set_boundary_flux") ;
-    _zero_inactive_fluxes<<<blocks_vap,threads_vap>>>(g, fluxR_vap, fluxZ_vap, active_vap);
-    check_CUDA_errors("_zero_inactive_fluxes") ;
-
-    _update_quants<<<blocks_vap, threads_vap>>>(g, q_mids_vap, q_vap, dt, fluxR_vap, fluxZ_vap);
-    check_CUDA_errors("_update_quants") ;
-
-    _calc_prim<<<blocks_vap, threads_vap>>>(g, q_mids_vap, w_trac_vap);
-    check_CUDA_errors("_calc_prim") ;
-    _fix_negative_density<<<blocks_vap,threads_vap>>>(g, w_trac_vap, w_gas, 1e-100*_floor);
-    check_CUDA_errors("_fix_negative_density") ;
+    update_quants_and_sources<false>(g, w_trac_vap, q_mids_vap, q_vap, w_gas, 0.5*dt, fluxR_vap, fluxZ_vap, active_vap, blocks_vap, threads_vap);
 
     _update_tracer_vap<<<blocks2D, threads2D>>>(g, w_trac_vap, mol);
     check_CUDA_errors("_update_tracer_vap") ;

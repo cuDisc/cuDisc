@@ -95,6 +95,25 @@ class DustDynamics {
         // double get_CFL_limit_debug(const Grid& g, const Field3D<Quants>& q, const Field3D<double>& D) ;
 
     private:
+        // Donor-cell stage: sets boundaries on w, computes conserved quantities q,
+        // computes donor-cell fluxes, applies boundary/inactive flux masking.
+        void donor_cell_update(
+            Grid& g, Field3D<Prims>& w, const Field<Prims>& w_gas,
+            Field3D<Quants>& q, Field3D<Quants>& fluxR, Field3D<Quants>& fluxZ,
+            Field3D<int>& active, dim3 blocks, dim3 threads) ;
+    
+        // Van Leer stage: sets boundaries on w, computes Van Leer fluxes,
+        // applies boundary/inactive flux masking. Does NOT call _update_quants.
+        void van_leer_update(
+            Grid& g, Field3D<Prims>& w, const Field<Prims>& w_gas,
+            Field3D<Quants>& fluxR, Field3D<Quants>& fluxZ,
+            Field3D<int>& active, dim3 blocks, dim3 threads) ;
+
+        // Quants and source update
+        template<bool apply_sources=true>
+        void update_quants_and_sources(Grid& g, Field3D<Prims>& w, Field3D<Quants>& q_mids, Field3D<Quants>& q, const Field<Prims>& w_gas,
+            double dt, Field3D<Quants>& fluxR, Field3D<Quants>& fluxZ,
+            Field3D<int>& active, dim3 blocks, dim3 threads) ;
 
 
         bool _DoDiffusion = true ;
