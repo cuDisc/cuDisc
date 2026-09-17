@@ -180,28 +180,6 @@ __global__ void _wg_from_rho(GridRef g, FieldRef<double> rho, FieldRef<Prims> w_
 
 }
 
-// __global__ void _check_dust(GridRef g, FieldRef<double> rho, FieldRef<Quants> w_g, Field3DRef<Quants> q_d) {
-
-//     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
-//     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-//     int istride = gridDim.x * blockDim.x ;
-//     int jstride = gridDim.y * blockDim.y ;
-
-//     for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
-//         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) { 
-//             if (w_g(i,j).rho/rho(i,j) > 100. || w_g(i,j).rho/rho(i,j) < 0.01) {
-//                 for (int k=0; k<q_d.Nd; k++) {
-//                     q_d(i,j,k).rho = 1.e-40;
-//                     q_d(i,j,k).mom_R = 0.;
-//                     q_d(i,j,k).amom_phi = 0.;
-//                     q_d(i,j,k).mom_Z = 0.;
-//                 }
-//             }
-//         }
-//     }
-
-// }
-
 void compute_hydrostatic_equilibrium(const Star& star, const Grid& g, Field<Prims>& w_g, 
                                      const Field<double>& cs2, const CudaArray<double>& Sigma, double gasfloor) {
     
@@ -240,15 +218,60 @@ void compute_hydrostatic_equilibrium(const Star& star, const Grid& g, Field<Prim
     _wg_from_rho<<<blocks,threads>>>(g, rho, w_g, gasfloor);  
 }
 
-void compute_hydrostatic_equilibrium(const Star& star, const Grid& g, Field<Prims>& w_g, 
-                                     const Field<double>& cs2, const CudaArray<double>& Sigma, Field3D<Prims>& /*q_d*/, double gasfloor) {
+
+__global__ void _unfloor_dust(GridRef g, FieldRef<Prims> w_g, Field3DRef<Prims> w_d, double floor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) { 
+            for (int k=kidx; k<w_d.Nd; k+=kstride) {
+                w_d(i,j,k).rho -= floor*w_g(i,j).rho;
+            }
+        }
+    }
+
+}
+__global__ void _refloor_dust(GridRef g, FieldRef<Prims> w_g, Field3DRef<Prims> w_d, double floor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) { 
+            for (int k=kidx; k<w_d.Nd; k+=kstride) {
+                w_d(i,j,k).rho += floor*w_g(i,j).rho;
+            }
+        }
+    }
+
+}
+
+void compute_hydrostatic_equilibrium(const Star& star, const Grid& g, Field<Prims>& w_g, const Field<double>& cs2, 
+                                     const CudaArray<double>& Sigma, Field3D<Prims>& w_d, double gasfloor, double floor) {
     
     Field<double> rho = create_field<double>(g);
     
     dim3 threads(32,32,1);
     dim3 blocks((g.NR+2*g.Nghost+31)/32, (g.Nphi+2*g.Nghost+31)/32 );
 
+    dim3 threads3D(32,16,2);
+    dim3 blocks3D((g.NR+2*g.Nghost+31)/32, (g.Nphi+2*g.Nghost+15)/16, (w_d.Nd+1)/2);
+
+    _unfloor_dust<<<blocks3D,threads3D>>>(g, w_g, w_d, floor);
+    check_CUDA_errors("_unfloor_dust");
+
     _rho_from_wg<<<blocks,threads>>>(g, rho, w_g, gasfloor);
+    check_CUDA_errors("_rho_from_wg");
 
     if (g.Nghost > 64) {
         std::string msg = 
@@ -275,9 +298,10 @@ void compute_hydrostatic_equilibrium(const Star& star, const Grid& g, Field<Prim
     // Step 4: Multiply rho by normalization 
     normalize_density(g, rho, Sigma, norm) ;
 
-    // _check_dust<<<blocks,threads>>>(g, rho, w_g, q_d);
-
     _wg_from_rho<<<blocks,threads>>>(g, rho, w_g, gasfloor);  
+    check_CUDA_errors("_wg_from_rho");
+    _refloor_dust<<<blocks3D,threads3D>>>(g, w_g, w_d, floor);
+    check_CUDA_errors("_refloor_dust");
 }
 
 
@@ -428,6 +452,7 @@ void compute_hydrostatic_equilibrium(const Star& star, const Grid& g, Field<Prim
     Field<double> SigmaZ = create_field<double>(g);
     set_all(g, SigmaZ, 0.);
     _calc_Sigma<<<blocks,threads>>>(g, w_g, SigmaZ, gasfloor);
+    check_CUDA_errors("_calc_Sigma");
     Reduction::scan_Z_sum(g, SigmaZ);
 
     Field<double> SigmaVapZ0 = create_field<double>(g);
@@ -435,10 +460,131 @@ void compute_hydrostatic_equilibrium(const Star& star, const Grid& g, Field<Prim
     set_all(g, SigmaVapZ0, 0.);
     set_all(g, SigmaVapZ1, 0.);
     _calc_Sigma<<<blocks,threads>>>(g, mol.vap, SigmaVapZ0, gasfloor);
+    check_CUDA_errors("_calc_Sigma");
     Reduction::scan_Z_sum(g, SigmaVapZ0);
 
     _calc_Sigvap_new<<<blocks,threads>>>(g, SigmaZ0, SigmaZ, SigmaVapZ0, SigmaVapZ1);
+    check_CUDA_errors("_calc_Sigvap_new");
 
     _calc_rho_vap<<<1,1024>>>(g, w_g, SigmaVapZ1, mol.vap, gasfloor, floor);
+    check_CUDA_errors("_calc_rho_vap");
     _renormalise_vap<<<1,1024>>>(g, SigmaVapZ0, mol.vap);
+    check_CUDA_errors("_renormalise_vap");
 }
+
+
+__global__ void _unfloor_dustice(GridRef g, FieldRef<Prims> w_g, Field3DRef<Prims> w_d, Field3DRef<double> ice, double floor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) { 
+            for (int k=kidx; k<w_d.Nd; k+=kstride) {
+                w_d(i,j,k).rho -= floor*w_g(i,j).rho;
+                ice(i,j,k) -= 1e-100*floor*w_g(i,j).rho;   
+            }
+        }
+    }
+
+}
+__global__ void _refloor_dustice(GridRef g, FieldRef<Prims> w_g, Field3DRef<Prims> w_d, Field3DRef<double> ice, double floor) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) { 
+            for (int k=kidx; k<w_d.Nd; k+=kstride) {
+                w_d(i,j,k).rho += floor*w_g(i,j).rho;
+                ice(i,j,k) += 1e-100*floor*w_g(i,j).rho;
+            }
+        }
+    }
+
+}
+
+void compute_hydrostatic_equilibrium(const Star& star, const Grid& g, Field<Prims>& w_g, const Field<double>& cs2, 
+                                     const CudaArray<double>& Sigma, Field3D<Prims>& w_d, Molecule& mol, double gasfloor, double floor) {
+    
+    Field<double> rho = create_field<double>(g);
+    
+    dim3 threads(32,32,1);
+    dim3 blocks((g.NR+2*g.Nghost+31)/32, (g.Nphi+2*g.Nghost+31)/32 );
+
+    dim3 threads3D(32,16,2);
+    dim3 blocks3D((g.NR+2*g.Nghost+31)/32, (g.Nphi+2*g.Nghost+15)/16, (w_d.Nd+1)/2);
+
+    _unfloor_dustice<<<blocks3D,threads3D>>>(g, w_g, w_d, mol.ice, floor);
+    check_CUDA_errors("_unfloor_dustice");
+
+    _rho_from_wg<<<blocks,threads>>>(g, rho, w_g, gasfloor);
+    check_CUDA_errors("_rho_from_wg");
+
+    Field<double> SigmaZ0 = create_field<double>(g);
+    set_all(g, SigmaZ0, 0.);
+    _calc_Sigma<<<blocks,threads>>>(g, rho, SigmaZ0, gasfloor);
+    check_CUDA_errors("_calc_Sigma");
+    Reduction::scan_Z_sum(g, SigmaZ0);
+
+
+    if (g.Nghost > 64) {
+        std::string msg = 
+            "compute_hydrostatic_equilibrium only works for Nghost <= 16" ;
+        throw std::invalid_argument(msg);
+    }
+
+    CodeTiming::BlockTimer timing_block = 
+        timer->StartNewTimer("compute_hydrostatic_equilibrium") ;
+
+    // Step 1: Setup the finite difference factors for hydrostatic equilibrium
+    setup_hydrostatic_matrix(star, g, cs2, rho) ;
+    
+    // Step 2: Solve the relation using parallel scan
+    Reduction::scan_Z_mul(g, rho) ;
+    convert_pressure_to_density(g, cs2, rho) ;
+
+    // Step 3 compute the normalizations:
+    zero_midplane_boundary(g, rho) ;
+
+    CudaArray<double> norm = make_CudaArray<double>(g.NR + 2*g.Nghost) ;
+    Reduction::volume_integrate_Z(g, rho, norm) ;
+
+    // Step 4: Multiply rho by normalization 
+    normalize_density(g, rho, Sigma, norm) ;
+    _wg_from_rho<<<blocks,threads>>>(g, rho, w_g, gasfloor); 
+    check_CUDA_errors("_wg_from_rho");
+    _refloor_dustice<<<blocks3D,threads3D>>>(g, w_g, w_d, mol.ice, floor);
+    check_CUDA_errors("_refloor_dustice"); 
+
+    Field<double> SigmaZ = create_field<double>(g);
+    set_all(g, SigmaZ, 0.);
+    _calc_Sigma<<<blocks,threads>>>(g, w_g, SigmaZ, gasfloor);
+    check_CUDA_errors("_calc_Sigma");
+    Reduction::scan_Z_sum(g, SigmaZ);
+
+    Field<double> SigmaVapZ0 = create_field<double>(g);
+    Field<double> SigmaVapZ1 = create_field<double>(g);
+    set_all(g, SigmaVapZ0, 0.);
+    set_all(g, SigmaVapZ1, 0.);
+    _calc_Sigma<<<blocks,threads>>>(g, mol.vap, SigmaVapZ0, gasfloor);
+    check_CUDA_errors("_calc_Sigma");
+    Reduction::scan_Z_sum(g, SigmaVapZ0);
+
+    _calc_Sigvap_new<<<blocks,threads>>>(g, SigmaZ0, SigmaZ, SigmaVapZ0, SigmaVapZ1);
+    check_CUDA_errors("_calc_Sigvap_new");
+
+    _calc_rho_vap<<<1,1024>>>(g, w_g, SigmaVapZ1, mol.vap, gasfloor, floor);
+    check_CUDA_errors("_calc_rho_vap");
+    _renormalise_vap<<<1,1024>>>(g, SigmaVapZ0, mol.vap);
+    check_CUDA_errors("_renormalise_vap");
+}
+
