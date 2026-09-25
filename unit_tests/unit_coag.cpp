@@ -34,7 +34,7 @@ void set_up(Grid& g, Field<Prims>& wg, Field<double>& cs, Field3D<Prims>& qd, Si
     for (int i=0; i<g.NR+2*g.Nghost; i++) {
         for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
             for (int k=0; k<qd.Nd; k++) {    
-                qd(i,j,k).rho = std::pow(sizes.centre_size(k)/sizes.centre_size(0), 0.5) * std::exp(-std::pow(sizes.centre_size(k)/0.02, 10.));
+                qd(i,j,k).rho = std::pow(sizes.grain_props(i,j,k).a/sizes.grain_props(i,j,0).a, 0.5) * std::exp(-std::pow(sizes.grain_props(i,j,k).a/0.02, 10.));
             }
         }
     }
@@ -117,17 +117,19 @@ int main() {
     Field<double> T = create_field<double>(g); // Temperature
     Field<double> cs = create_field<double>(g); // Sound speed
     Field<double> alpha2D = create_field<double>(g);
+    Field<double> mu2D = create_field<double>(g);
 
     for (int i=0; i<g.NR+2*g.Nghost; i++) {
         for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
             alpha2D(i,j) = alpha;
+            mu2D(i,j) = mu;
         }
     }
 
     set_up(g, Ws_g, cs, Ws_d, sizes);
 
     // Set up coagulation kernel
-    BirnstielKernel kernel = BirnstielKernel(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu, 1.);
+    BirnstielKernel kernel = BirnstielKernel(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu2D, 1.);
     kernel.set_fragmentation_threshold(100.);
     BS32Integration<CoagulationRate<decltype(kernel), SimpleErosion>>
         coagulation_integrate(

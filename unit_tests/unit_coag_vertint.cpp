@@ -31,7 +31,7 @@ void set_up(Grid& g, Field<Prims1D>& wg, Field<double>& cs, Field3D<Prims1D>& qd
     for (int i=0; i<g.NR+2*g.Nghost; i++) {
         for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
             for (int k=0; k<qd.Nd; k++) {    
-                qd(i,j,k).Sig = std::pow(sizes.centre_size(k)/sizes.centre_size(0), 0.5) * std::exp(-std::pow(sizes.centre_size(k)/0.02, 10.));
+                qd(i,j,k).Sig = std::pow(sizes.grain_props(i,j,k).a/sizes.grain_props(i,j,0).a, 0.5) * std::exp(-std::pow(sizes.grain_props(i,j,k).a/0.02, 10.));
             }
         }
     }

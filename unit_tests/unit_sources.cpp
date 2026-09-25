@@ -56,7 +56,7 @@ void set_up_dust(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, Field3D<double>&
             double rho_tot = 0;
             for (int k=0; k<qd.Nd; k++) {
                 // Initialise dust with MRN profile and exponential cut off at 0.1 micron
-                qd(i,j,k).rho = std::pow(sizes.centre_size(k)/sizes.centre_size(0), 0.5) * std::exp(-std::pow(sizes.centre_size(k)/1., 10.));
+                qd(i,j,k).rho = std::pow(sizes.grain_props(i,j,k).a/sizes.grain_props(i,j,0).a, 0.5) * std::exp(-std::pow(sizes.grain_props(i,j,k).a/1., 10.));
                 D(i,j,k) = wg(i,j).rho * (alpha * cs(i,j) * cs(i,j) / std::sqrt(GMsun/std::pow(g.Rc(i), 3.))) / Sc ;
                 rho_tot += qd(i,j,k).rho;
             }
@@ -188,6 +188,7 @@ int main() {
     Field<double> cs = create_field<double>(g); // Sound speed
     Field<double> cs2 = create_field<double>(g); // Sound speed squared
     Field<double> alpha2D = create_field<double>(g); // alpha 2D
+    Field<double> mu2D = create_field<double>(g); // alpha 2D
     Field3D<double> D = create_field3D<double>(g, n_spec); // Dust diffusion constant 
 
     // Set up initial dust and gas variables
@@ -203,6 +204,7 @@ int main() {
     for (int i=0; i<g.NR + 2*g.Nghost; i++) {
         for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
             alpha2D(i,j) = alpha;
+            mu2D(i,j) = mu;
         }
     }
 
@@ -212,7 +214,7 @@ int main() {
 
     // Initialise diffusion-advection solver
 
-    Sources src(T, Ws_g, sizes, floor, M_star, mu);
+    Sources src(T, Ws_g, sizes, floor, M_star, mu2D);
     DustDynamics dyn(D, cs, src, 0.4, 0.2, floor, gas_floor);
 
     // Set up boundary conditions

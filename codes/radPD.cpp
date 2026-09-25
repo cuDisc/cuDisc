@@ -64,7 +64,7 @@ void set_up_dust(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, Field3D<double>&
             double rho_tot = 0;
             for (int k=0; k<qd.Nd; k++) {
                 // Initialise dust with MRN profile and exponential cut off at 0.1 micron
-                qd(i,j,k).rho = std::pow(sizes.centre_size(k)/sizes.centre_size(0), 0.5) * std::exp(-std::pow(sizes.centre_size(k)/1e-5, 10.));
+                qd(i,j,k).rho = std::pow(sizes.grain_props(i,j,k).a/sizes.grain_props(i,j,0).a, 0.5) * std::exp(-std::pow(sizes.grain_props(i,j,k).a/1e-5, 10.));
                 D(i,j,k) = wg(i,j).rho * (alpha * cs(i,j) * cs(i,j) / std::sqrt(GMsun/std::pow(g.Rc(i), 3.))) / Sc ;
                 rho_tot += qd(i,j,k).rho;
             }
@@ -264,6 +264,12 @@ int main(int argc, char* argv[]) {
     
     double mu = 2.4, M_star = 1., T_star=4500., R_star = 1.7*Rsun, Cv = 2.5*R_gas/mu;;
     double L_star = 4.*M_PI*sigma_SB*std::pow(T_star, 4.)*std::pow(R_star, 2.);
+    Field<double> mu2D = create_field<double>(g);
+    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
+        for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
+            mu2D(i,j) = mu;
+        }
+    }
 
     // Create star
 
@@ -324,7 +330,7 @@ int main(int argc, char* argv[]) {
 
     // Set up coagulation kernel, storing the fragmentation velocity
 
-    BirnstielKernel kernel = BirnstielKernel(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu, M_star);
+    BirnstielKernel kernel = BirnstielKernel(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu2D, M_star);
     kernel.set_fragmentation_threshold(v_frag);
 
     // Setup the integrator
@@ -364,7 +370,7 @@ int main(int argc, char* argv[]) {
 
     // Initialise diffusion-advection solver
 
-    Sources src(T, Ws_g, sizes, floor, M_star, mu);
+    Sources src(T, Ws_g, sizes, floor, M_star, mu2D);
     DustDynamics dyn(D, cs, src, 0.4, 0.2, floor, gas_floor);
 
     double dt_CFL = dyn.get_CFL_limit(g, Ws_d, Ws_g);

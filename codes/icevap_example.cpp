@@ -73,13 +73,8 @@ void set_up_gas(Grid& g, CudaArray<double>& Sig_g, CudaArray<double>& nu, Field<
 
 }
     
-void init_dust(Grid& g, Field3D<Prims>& wd, Field<Prims>& wg, CudaArray<double>& Sig_g, SizeGrid& sizes, Field<double>& cs, CudaArray<double>& nu, double Mstar, double u_f, double d_to_g, double gfloor, double floor) {
+void init_dust(Grid& g, Field3D<Prims>& wd, Field<Prims>& wg, CudaArray<double>& Sig_g, SizeGrid& sizes, Field<double>& cs, CudaArray<double>& nu, double Mstar, double d_to_g, double floor) {
 
-    auto dtg = [d_to_g](double R) {
-        return d_to_g;
-    };
-
-    double Sc = 1.;
     CudaArray<double> P = make_CudaArray<double>(g.NR+2*g.Nghost);
 
     for (int i=0; i<g.NR+2*g.Nghost+1; i++) {
@@ -107,14 +102,14 @@ void init_dust(Grid& g, Field3D<Prims>& wd, Field<Prims>& wg, CudaArray<double>&
         double Sig_kktot = 0.;
         double Om = std::sqrt(GMsun*Mstar/(g.Rc(i)*g.Rc(i)*g.Rc(i)));
 
-        double a_frag = std::max(1e-5,0.5* 2./(M_PI) * Sig_g[i]/(sizes.solid_density()*Om*nu[i]) * std::pow(u_f, 2.));
+        // double a_frag = std::max(1e-5,0.5* 2./(M_PI) * Sig_g[i]/(sizes.solid_density()*Om*nu[i]) * std::pow(u_f, 2.));
 
         double dlnPdlnR = (log(P[i+1]) - log(P[i])) / (log(g.Re(i+1)) - log(g.Re(i))); 
         double eta = - cs(i,2)*cs(i,2)/(Om*Om*g.Rc(i)*g.Rc(i)) * dlnPdlnR;
-        double a_drift = std::max(1e-5, 0.5*(2*(dtg(g.Rc(i))*Sig_g[i])/(M_PI*sizes.solid_density())) * ((Om*Om*g.Rc(i)*g.Rc(i))/(cs(i,2)*cs(i,2))) * (1./std::abs(dlnPdlnR)));
+        // double a_drift = std::max(1e-5, 0.5*(2*(d_to_g*Sig_g[i])/(M_PI*sizes.solid_density())) * ((Om*Om*g.Rc(i)*g.Rc(i))/(cs(i,2)*cs(i,2))) * (1./std::abs(dlnPdlnR)));
 
         for (int k=0; k<wd.Nd; k++) {
-            Sig_kk[k] = std::pow(sizes.centre_size(k)/sizes.centre_size(0), 0.5) * std::exp(-std::pow(sizes.centre_size(k)/(1e-4),5.));
+            Sig_kk[k] = std::pow(sizes.grain_props(i,2,k).a/sizes.grain_props(i,2,0).a, 0.5) * std::exp(-std::pow(sizes.grain_props(i,2,k).a/(1e-4),5.));
             Sig_kktot += Sig_kk[k];
         }
 
@@ -122,7 +117,7 @@ void init_dust(Grid& g, Field3D<Prims>& wd, Field<Prims>& wg, CudaArray<double>&
             double Sig_k=0;
             wd(i,g.Nghost,k).rho = 1.e-2;
             for (int j=g.Nghost; j<g.Nphi + g.Nghost-1; j++) {
-                double St = std::max(1e-5,sizes.solid_density() * sizes.centre_size(k) / (wg(i,j).rho*1.59577*cs(i,j)) * Om);
+                double St = std::max(1e-5,sizes.solid_density() * sizes.grain_props(i,j,k).a / (wg(i,j).rho*1.59577*cs(i,j)) * Om);
                 wd(i,j+1,k).rho = std::exp(std::log(wg(i,j+1).rho * (wd(i,j,k).rho/wg(i,j).rho)*(1.-g.dZc(i,j)*St*Om*g.Zc(i,j)/nu[i])));  
                 if (wd(i,j+1,k).rho != wd(i,j+1,k).rho) {wd(i,j+1,k).rho = 0.;}
                 Sig_k += 2.*wd(i,j,k).rho*g.dZe(i,j);
@@ -130,7 +125,7 @@ void init_dust(Grid& g, Field3D<Prims>& wd, Field<Prims>& wg, CudaArray<double>&
             Sig_k += 2.*wd(i,g.Nphi + g.Nghost-1,k).rho*g.dZe(i,g.Nphi + g.Nghost-1);
 
             for (int j=g.Nghost; j<g.Nphi + g.Nghost; j++) {
-                wd(i,j,k).rho *= dtg(g.Rc(i)) * Sig_g[i] * (Sig_kk[k]/Sig_kktot)/ Sig_k;//* std::exp(-std::pow(1.*au/g.Rc(i),.8));
+                wd(i,j,k).rho *= d_to_g * Sig_g[i] * (Sig_kk[k]/Sig_kktot)/ Sig_k;//* std::exp(-std::pow(1.*au/g.Rc(i),.8));
                 if (wd(i,j,k).rho != wd(i,j,k).rho) {wd(i,j,k).rho = 0.;}
             }
             
@@ -141,7 +136,7 @@ void init_dust(Grid& g, Field3D<Prims>& wd, Field<Prims>& wg, CudaArray<double>&
 
             for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
                 // Set initial dust velocities through standard drift velocity equations
-                double St = sizes.solid_density() * sizes.centre_size(k) / (wg(i,j).rho*1.59577*cs(i,j)) * Om;
+                double St = sizes.solid_density() * sizes.grain_props(i,j,k).a / (wg(i,j).rho*1.59577*cs(i,j)) * Om;
                 wd(i,j,k).v_R   = (wg(i,j).v_R - eta * Om*g.Rc(i) * St) / (1 + St*St) ;
                 wd(i,j,k).v_phi = Om*g.Rc(i); 
                 wd(i,j,k).v_Z = - Om * St * g.Zc(i,j); 
@@ -345,7 +340,7 @@ int main() {
     calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor);   
     compute_alpha(g, nu, alpha2D, cs2, M_star);
 
-    init_dust(g, Ws_d, Ws_g, Sig_g, sizes, cs, nu, M_star, v_frag, 0.01, gas_floor, floor);
+    init_dust(g, Ws_d, Ws_g, Sig_g, sizes, cs, nu, M_star, 0.01, floor);
 
     for (int i=g.Nghost; i<g.NR + g.Nghost; i++) {
         for (int j=g.Nghost; j<g.Nphi + g.Nghost; j++) { 
@@ -367,8 +362,9 @@ int main() {
 
     // Initialise coag solver
 
-    BirnstielKernelIce kernel = BirnstielKernelIce(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu2D, M_star);
-    kernel.set_fragmentation_thresholds(v_frag,v_frag);
+    BirnstielKernel kernel = BirnstielKernel(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu2D, M_star);
+    kernel.set_fragmentation_threshold(v_frag);
+    kernel.set_icy_fragmentation_threshold(v_frag);
     BS32Integration<CoagulationRate<decltype(kernel), SimpleErosion>>
         coagulation_integrate(
             create_coagulation_rate(
@@ -381,7 +377,8 @@ int main() {
 
     // Initialise temperature solver
 
-    FLD_Solver FLD(10, 1e-5, 5000);
+    FLD_Solver FLD(10, 1e-5, 1000);
+    // FLD.set_precond_level(1);
 
     FLD.set_boundaries(BoundaryFlags::open_R_inner | 
                        BoundaryFlags::open_R_outer | 
@@ -444,7 +441,7 @@ int main() {
         compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);
         compute_nu(g, nu, cs2, M_star, alpha);
 
-        update_sizegrid(g, sizes, Ws_d, CO.ice);
+        sizes.update_sizes(Ws_g, Ws_d, CO.ice);
 
         calculate_total_rhokappa(g, sizes, Ws_d, Ws_g, rho_tot, opacs, rhok_abs, rhok_sca, CO);
         compute_stellar_UV_field(star, g, rhok_abs, rhok_sca, F_UV);
@@ -469,7 +466,7 @@ int main() {
             
             std::cout << "Iteration: " << n << "\n" ;  
 
-            init_dust(g, Ws_d, Ws_g, Sig_g, sizes, cs, nu, M_star, v_frag, 0.01, gas_floor, floor);
+            init_dust(g, Ws_d, Ws_g, Sig_g, sizes, cs, nu, M_star, 0.01, floor);
 
             calculate_total_rhokappa(g, sizes, Ws_d, Ws_g, rho_tot, opacs, rhok_abs, rhok_sca, CO);
 
@@ -576,6 +573,7 @@ int main() {
         dt_CFL = 1; 
         t_coag=0*year;
         dt_1percchem = 1*year;
+        
     }
 
     double dt_temp_max = 5000*year;
@@ -612,7 +610,7 @@ int main() {
 
                 std::cout << "Coag step at count = " << count << "\n";
                 double dt_coag_0 = dt_coag;
-                coagulation_integrate.integrate_tracers(g, Ws_d, Ws_g, CO, (t+dt)-t_coag, dt_coag, floor) ;
+                coagulation_integrate.integrate_tracers(g, Ws_d, Ws_g, CO, sizes, (t+dt)-t_coag, dt_coag, floor) ;
                 if (dt_coag > 0.) {    
                     t_coag = t+dt;
                 }

@@ -45,7 +45,7 @@ void init_density_structure(const Grid& g, Field3D<double>& rho, SizeGrid& sizes
         double h = (10*au) * std::pow(g.Rc(i)/R0, 1.125) ;
         tau += rho_0 * g.dRe(i) * kappa_810 ;
         for (int k=0; k<100; k++) {
-            double St = sizes.centre_size(k)*0.05 * (g.Rc(i)/au);
+            double St = sizes.grain_props(i,g.Nghost,k).a*0.05 * (g.Rc(i)/au);
             double hd = h * std::sqrt(1/(1+St/1e-3));
             for (int j = 0; j < g.Nphi + 2*g.Nghost; j++) {
                 rho(i,j,k) = rho_0 * std::exp(-0.5 * std::pow(g.Zc(i,j)/hd, 2)) ;
@@ -69,9 +69,9 @@ void init_dust(Grid& g, Field3D<double>& rho, double Mtot, SizeGrid& sizes) {
 
             for (int k=0; k<100; k++) {
 
-                double St = sizes.centre_size(k)*0.05 * (g.Rc(i)/au);
+                double St = sizes.grain_props(i,j,k).a*0.05 * (g.Rc(i)/au);
                 double hd = h * std::sqrt(1/(1+St/1e-3));
-                double fk = std::pow(sizes.centre_size(k)/sizes.centre_size(0), 0.5) * std::exp(-std::pow(sizes.centre_size(k)/0.5, 5.));
+                double fk = std::pow(sizes.grain_props(i,j,k).a/sizes.grain_props(i,j,0).a, 0.5) * std::exp(-std::pow(sizes.grain_props(i,j,k).a/0.5, 5.));
 
                 rho(i,j,k) = fk * Sigtot/(std::sqrt(2*M_PI)*hd) * std::exp(-(g.Zc(i,j)*g.Zc(i,j)/(2.*hd*hd)));
 

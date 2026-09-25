@@ -44,9 +44,9 @@ void init_dust(Grid& g, Field3D<double>& rho, double Mtot, SizeGrid& sizes) {
 
             for (int k=0; k<100; k++) {
 
-                double St = sizes.centre_size(k)*0.05 * (g.Rc(i)/au);
+                double St = sizes.grain_props(i,j,k).a*0.05 * (g.Rc(i)/au);
                 double hd = h * std::sqrt(1/(1+St/1e-3));
-                double fk = std::pow(sizes.centre_size(k)/sizes.centre_size(0), 0.5) * std::exp(-std::pow(sizes.centre_size(k)/0.5, 5.));
+                double fk = std::pow(sizes.grain_props(i,j,k).a/sizes.grain_props(i,j,0).a, 0.5) * std::exp(-std::pow(sizes.grain_props(i,j,k).a/0.5, 5.));
 
                 rho(i,j,k) = fk * Sigtot/(std::sqrt(2*M_PI)*hd) * std::exp(-(g.Zc(i,j)*g.Zc(i,j)/(2.*hd*hd)));
 

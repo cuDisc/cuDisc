@@ -62,7 +62,7 @@ void set_up_dust(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, Field3D<double>&
             double rho_tot = 0;
             for (int k=0; k<qd.Nd; k++) {
                 // Initialise dust with MRN profile and exponential cut off at 0.1 micron
-                qd(i,j,k).rho = std::pow(sizes.centre_size(k)/sizes.centre_size(0), 0.5) * std::exp(-std::pow(sizes.centre_size(k)/1e-5, 10.));
+                qd(i,j,k).rho = std::pow(sizes.grain_props(i,j,k).a/sizes.grain_props(i,j,0).a, 0.5) * std::exp(-std::pow(sizes.grain_props(i,j,k).a/1e-5, 10.));
                 D(i,j,k) = wg(i,j).rho * (alpha * cs(i,j) * cs(i,j) / std::sqrt(GMsun/std::pow(g.Rc(i), 3.))) / Sc ;
                 rho_tot += qd(i,j,k).rho;
             }
@@ -145,7 +145,7 @@ void cs2_to_cs(Grid& g, Field<double> &cs, Field<double> &cs2) {
 
 int main() {
 
-    std::filesystem::path dir = std::string("./codes/outputs/isoPD");
+    std::filesystem::path dir = std::string("./codes/outputs/isoPD/");
     std::filesystem::create_directories(dir);
 
     // Set up spatial grid 
@@ -237,7 +237,7 @@ int main() {
 
     // Set up coagulation kernel, storing the fragmentation velocity
 
-    BirnstielKernel kernel(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu, M_star);
+    BirnstielKernel kernel(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu2D, M_star);
     kernel.set_fragmentation_threshold(v_frag);
 
     // Setup the integrator
@@ -267,7 +267,7 @@ int main() {
 
     // Initialise diffusion-advection solver
 
-    Sources src(T, Ws_g, sizes, floor, M_star, mu);
+    Sources src(T, Ws_g, sizes, floor, M_star, mu2D);
     DustDynamics dyn(D, cs, src, 0.4, 0.2, floor, gas_floor);
 
     double dt_CFL = dyn.get_CFL_limit(g, Ws_d, Ws_g);

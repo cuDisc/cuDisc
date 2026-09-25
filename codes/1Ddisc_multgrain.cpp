@@ -46,7 +46,7 @@ void set_up(Grid& g, Field3D<Prims1D>& W_d, Field<Prims1D>& W_g, SizeGrid& sizes
     for (int i=0; i<g.NR+2*g.Nghost; i++) {
         double Sig_tot = 0;
         for (int k=0; k<W_d.Nd; k++) {
-            W_d(i,g.Nghost,k).Sig = std::pow(sizes.centre_size(k)/sizes.centre_size(0), 0.5) * std::exp(-std::pow(sizes.centre_size(k)/1e-5, 10.));
+            W_d(i,g.Nghost,k).Sig = std::pow(sizes.grain_props(i,g.Nghost,k).a/sizes.grain_props(i,g.Nghost,0).a, 0.5) * std::exp(-std::pow(sizes.grain_props(i,g.Nghost,k).a/1e-5, 10.));
             Sig_tot += W_d(i,g.Nghost,k).Sig;
             Mdtot += 2.*M_PI*g.Rc(i)*W_d(i,g.Nghost,k).Sig*g.dRe(i);
             W_d(i,g.Nghost,k).v_R = W_g(i,g.Nghost).v_R;
