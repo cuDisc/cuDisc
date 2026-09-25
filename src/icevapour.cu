@@ -33,7 +33,7 @@ double nu_i(MoleculeRef mol, double N_s) {
 template<typename Te>
 __host__ __device__
 ChemRate R_d_jac(MoleculeRef mol, Field3DRef<double> ice_grain, double N_s, FieldConstRef<double>& T, Field3DRef<Grain>& grains, 
-                    Field3DRef<Te>& W, const RealType* a, const RealType* m, int i, int j, int k) {
+                    Field3DRef<Te>& W, const RealType* m, int i, int j, int k) {
 
     ChemRate Rd;
     
@@ -59,7 +59,7 @@ ChemRate R_d_jac(MoleculeRef mol, Field3DRef<double> ice_grain, double N_s, Fiel
 
 __host__ __device__
 ChemRate R_d_ph_jac(MoleculeRef mol, Field3DRef<double> ice_grain, double N_s, FieldConstRef<double>& T, Field3DRef<Grain>& grains, 
-                    Field3DRef<Prims>& W, const RealType* a, const RealType* m, Field3DConstRef<double> J, FieldRef<Prims> Wg, 
+                    Field3DRef<Prims>& W, const RealType* m, Field3DConstRef<double> J, FieldRef<Prims> Wg, 
                     FieldRef<double>& F_UV, int Jbin_idx, double* lam_bins, double area_tot, int i, int j, int k) {
 
     ChemRate Rd;
@@ -138,7 +138,7 @@ ChemRate R_ph_jac(MoleculeRef mol, Field3DRef<double> ice_grain, double N_s, Fie
 
 
 __host__ __device__
-ChemRate R_a_jac(MoleculeRef mol, FieldConstRef<double> T, Field3DRef<Prims>& W, Field3DRef<Grain>& grains, const RealType* m, const RealType* a, int i, int j, int k) {
+ChemRate R_a_jac(MoleculeRef mol, FieldConstRef<double> T, Field3DRef<Prims>& W, Field3DRef<Grain>& grains, const RealType* m,int i, int j, int k) {
     
     double v_th = std::sqrt(8.*k_B*T(i,j)/(M_PI*mol.m_mol));
 
@@ -152,7 +152,7 @@ ChemRate R_a_jac(MoleculeRef mol, FieldConstRef<double> T, Field3DRef<Prims>& W,
 }
 
 __host__ __device__
-ChemRate R_a_jac(GridRef g, MoleculeRef mol, FieldConstRef<double> T, Field3DRef<Prims1D>& W, FieldRef<Prims1D>& W_g, Field3DRef<Grain>& grains, const RealType* m, const RealType* a, double mu, double alpha, double GMstar, int i, int j, int k) {
+ChemRate R_a_jac(GridRef g, MoleculeRef mol, FieldConstRef<double> T, Field3DRef<Prims1D>& W, FieldRef<Prims1D>& W_g, Field3DRef<Grain>& grains, const RealType* m, double mu, double alpha, double GMstar, int i, int j, int k) {
     
     double v_th = std::sqrt(8.*k_B*T(i,j)/(M_PI*mol.m_mol));
 
@@ -183,6 +183,27 @@ __global__ void _update_sizegrid(GridRef g, Field3DRef<Grain> grains, Field3DRef
                 double rho_1 = (rho_grains(i,j,k)/(W(i,j,k)[0] * rho_mi) + 1./rho_ms);
                 grains(i,j,k).a = pow((3.*m[k]/(4.*M_PI)) * rho_1, 1./3.);
                 grains(i,j,k).rho = (rho_grains(i,j,k) + W(i,j,k)[0]) / (W(i,j,k)[0] * rho_1);
+            } 
+        }
+    }
+
+}
+
+__global__ void _update_sizegrid(GridRef g, Field3DRef<Grain> grains, Field3DRef<double> rho_d, Field3DRef<double> rho_grains, const RealType* m, RealType rho_ms, RealType rho_mi) {
+
+    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int istride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
+            for (int k=kidx; k<rho_d.Nd; k+=kstride) {
+                double rho_1 = ((rho_grains(i,j,k))/((rho_d(i,j,k)+1e-200) * rho_mi) + 1./rho_ms);
+                grains(i,j,k).a = pow((3.*m[k]/(4.*M_PI)) * rho_1, 1./3.);
+                grains(i,j,k).rho = ((rho_grains(i,j,k)) + (rho_d(i,j,k)+1e-200)) / ((rho_d(i,j,k)+1e-200) * rho_1);
             } 
         }
     }
@@ -232,7 +253,7 @@ __global__ void _update_sizegrid(GridRef g, Field3DRef<Grain> grains, Field3DRef
 }
 
 
-__global__ void _implicit_update(GridRef g, Field3DRef<Prims> W, FieldRef<Prims> Wg, FieldConstRef<double> T, Field3DConstRef<double> J, Field3DRef<Grain> grains, const RealType* a, 
+__global__ void _implicit_update(GridRef g, Field3DRef<Prims> W, FieldRef<Prims> Wg, FieldConstRef<double> T, Field3DConstRef<double> J, Field3DRef<Grain> grains,
                                     const RealType* m, double N_s, MoleculeRef mol, Field3DRef<double> rhos, Field3DRef<double> rhos_0, FieldRef<double> F_UV, int Jbin_idx, double* lam_bins, double dt) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
@@ -252,8 +273,8 @@ __global__ void _implicit_update(GridRef g, Field3DRef<Prims> W, FieldRef<Prims>
 
             for (int k=0; k < ndust; k++) {
                 
-                ChemRate R_a = R_a_jac(mol, T, W, grains, m,a,i,j,k);
-                ChemRate R_d = R_d_ph_jac(mol, rhos, N_s, T, grains, W, a, m, J, Wg, F_UV, Jbin_idx, lam_bins, area_tot, i,j,k);
+                ChemRate R_a = R_a_jac(mol, T, W, grains, m, i, j, k);
+                ChemRate R_d = R_d_ph_jac(mol, rhos, N_s, T, grains, W, m, J, Wg, F_UV, Jbin_idx, lam_bins, area_tot, i,j,k);
                 A += (R_d.rate) * dt * rhos_0(i,j,k) / (1. + (R_d.rate) * dt);
                 B += R_a.rate * dt / (1. + (R_d.rate) * dt);
             }
@@ -262,8 +283,8 @@ __global__ void _implicit_update(GridRef g, Field3DRef<Prims> W, FieldRef<Prims>
 
             for (int k=0; k < ndust; k++) {
 
-                ChemRate R_a = R_a_jac(mol, T, W, grains, m,a, i,j,k);
-                ChemRate R_d = R_d_ph_jac(mol, rhos, N_s, T, grains, W, a, m, J, Wg, F_UV, Jbin_idx, lam_bins, area_tot, i,j,k);
+                ChemRate R_a = R_a_jac(mol, T, W, grains, m, i, j, k);
+                ChemRate R_d = R_d_ph_jac(mol, rhos, N_s, T, grains, W, m, J, Wg, F_UV, Jbin_idx, lam_bins, area_tot, i,j,k);
 
                 rhos(i,j,k) = (rhos_0(i,j,k) + R_a.rate * dt * rhos(i,j,ndust))  / (1. + (R_d.rate) * dt);
 
@@ -274,7 +295,7 @@ __global__ void _implicit_update(GridRef g, Field3DRef<Prims> W, FieldRef<Prims>
 
 }
 
-__global__ void _implicit_update(GridRef g, Field3DRef<Prims1D> W, FieldRef<Prims1D> Wg, FieldConstRef<double> T, Field3DRef<Grain> grains, const RealType* a, 
+__global__ void _implicit_update(GridRef g, Field3DRef<Prims1D> W, FieldRef<Prims1D> Wg, FieldConstRef<double> T, Field3DRef<Grain> grains,
                                     const RealType* m, double N_s, MoleculeRef mol, Field3DRef<double> rhos, Field3DRef<double> rhos_0, double mu, double alpha, double GMstar, double dt) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
@@ -290,8 +311,8 @@ __global__ void _implicit_update(GridRef g, Field3DRef<Prims1D> W, FieldRef<Prim
 
             for (int k=0; k < ndust; k++) {
                 
-                ChemRate R_a = R_a_jac(g, mol, T, W, Wg, grains, m, a, mu, alpha, GMstar, i,j,k);
-                ChemRate R_d = R_d_jac(mol, rhos, N_s, T, grains, W, a, m, i,j,k);
+                ChemRate R_a = R_a_jac(g, mol, T, W, Wg, grains, m, mu, alpha, GMstar, i,j,k);
+                ChemRate R_d = R_d_jac(mol, rhos, N_s, T, grains, W, m, i,j,k);
                 // ChemRate R_phd = R_ph_jac(mol, rhos, N_s, J, Wg, W, m, grains, Jbin_idx, lam_bins, i,j,k);
                 A += (R_d.rate) * dt * rhos_0(i,j,k) / (1. + (R_d.rate) * dt);
                 B += R_a.rate * dt / (1. + (R_d.rate) * dt);
@@ -301,8 +322,8 @@ __global__ void _implicit_update(GridRef g, Field3DRef<Prims1D> W, FieldRef<Prim
 
             for (int k=0; k < ndust; k++) {
 
-                ChemRate R_a = R_a_jac(g, mol, T, W, Wg, grains, m, a, mu, alpha, GMstar, i,j,k);
-                ChemRate R_d = R_d_jac(mol, rhos, N_s, T, grains, W, a, m, i,j,k);
+                ChemRate R_a = R_a_jac(g, mol, T, W, Wg, grains, m, mu, alpha, GMstar, i,j,k);
+                ChemRate R_d = R_d_jac(mol, rhos, N_s, T, grains, W, m, i,j,k);
                 // ChemRate R_phd = R_ph_jac(mol, rhos, N_s, J, Wg, W, m, grains, Jbin_idx, lam_bins, i,j,k);
 
                 rhos(i,j,k) = (rhos_0(i,j,k) + R_a.rate * dt * rhos(i,j,ndust))  / (1. + (R_d.rate) * dt);
@@ -491,7 +512,7 @@ void IceVapChem::imp_update(double dt, double& dt_chem) {
 
         _copy_rhos<<<blocks2,threads2>>>(_g, rhos, rhos_1);
 
-        _implicit_update<<<blocks,threads>>>(_g, Field3DRef<Prims>(W_nofloor), _Wg, _T, _J, _sizes.grain_props, _sizes.grain_sizes(), _sizes.grain_masses(), N_s, _mol, rhos, rhos_0, _F_UV, _Jbin_idx, _bins.bands.get(), dt);
+        _implicit_update<<<blocks,threads>>>(_g, Field3DRef<Prims>(W_nofloor), _Wg, _T, _J, _sizes.grain_props, _sizes.grain_masses(), N_s, _mol, rhos, rhos_0, _F_UV, _Jbin_idx, _bins.bands.get(), dt);
 
         get_tol<<<blocks,threads>>>(rhos, rhos_1, _g, _W.Nd, err, _floor, _Wg);
         Reduction::scan_R_sum(_g,err);
@@ -546,7 +567,7 @@ void IceVapChem1D::imp_update(double dt, double& dt_chem) {
 
         _copy_rhos<<<blocks2,threads2>>>(_g, Sigs, Sigs_1);
 
-        _implicit_update<<<blocks,threads>>>(_g, Field3DRef<Prims1D>(W_nofloor), _Wg, _T, _sizes.grain_props, _sizes.grain_sizes(), _sizes.grain_masses(), N_s, _mol, Sigs, Sigs_0, _mu, _alpha, _GMstar, dt);
+        _implicit_update<<<blocks,threads>>>(_g, Field3DRef<Prims1D>(W_nofloor), _Wg, _T, _sizes.grain_props, _sizes.grain_masses(), N_s, _mol, Sigs, Sigs_0, _mu, _alpha, _GMstar, dt);
 
         get_tol<<<blocks2,threads2>>>(Sigs, Sigs_1, _g, _W.Nd, err, _floor, _Wg);
         Reduction::scan_R_sum(_g,err);
@@ -568,32 +589,58 @@ void IceVapChem1D::imp_update(double dt, double& dt_chem) {
     copy_final_values<<<blocks,threads>>>(_g, Sigs, _mol, _floor, _Wg);
 }
 
-
-void update_sizegrid(Grid& g, SizeGridIce& sizes, Field3D<Quants>& Qd, Field3D<Quants>& ice) {
-
-    dim3 threads3(16,16,4) ;
-    dim3 blocks3((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+15)/16, (Qd.Nd + 3)/4);
-
-    _update_sizegrid<<<blocks3,threads3>>>(g, sizes.grain_props, Qd, ice, sizes.grain_masses(), sizes.solid_density(), sizes.ice_density());
-}
-
-void update_sizegrid(Grid& g, SizeGridIce& sizes, Field3D<Prims>& Qd, Field3D<double>& ice) {
+template<typename Wt, typename Rt>
+void SizeGridIce::launch_update_sizegrid(Field3D<Wt>& W, Field3D<Rt>& rho_other) {
 
     dim3 threads3(16,16,4) ;
-    dim3 blocks3((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+15)/16, (Qd.Nd + 3)/4);
+    dim3 blocks3((_g.NR + 2*_g.Nghost+15)/16,(_g.Nphi + 2*_g.Nghost+15)/16, (W.Nd + 3)/4);
 
-    _update_sizegrid<<<blocks3,threads3>>>(g, sizes.grain_props, Field3DRef<Prims>(Qd), ice, sizes.grain_masses(), sizes.solid_density(), sizes.ice_density());
+    _update_sizegrid<<<blocks3,threads3>>>(_g, grain_props, Field3DRef<Wt>(W), Field3DRef<Rt>(rho_other),
+                                            grain_masses(), solid_density(), ice_density());
     cudaDeviceSynchronize();
 }
 
-void update_sizegrid(Grid& g, SizeGridIce& sizes, Field3D<Prims1D>& Qd, Field3D<Prims1D>& ice) {
-
-    dim3 threads3(32,1,32) ;
-    dim3 blocks3((g.NR + 2*g.Nghost+31)/32,(g.Nphi + 2*g.Nghost), (Qd.Nd + 31)/32);
-
-    _update_sizegrid<<<blocks3,threads3>>>(g, sizes.grain_props, Field3DRef<Prims1D>(Qd), Field3DRef<Prims1D>(ice), sizes.grain_masses(), sizes.solid_density(), sizes.ice_density());
-    cudaDeviceSynchronize();
+void SizeGridIce::update_sizes(const Field<Prims>& Wg, Field3D<Quants>& Qd, Field3D<Quants>& Qd_ice) {
+    launch_update_sizegrid(Qd, Qd_ice);
 }
+
+void SizeGridIce::update_sizes(Field<Prims1D>& Wg, Field3D<Prims1D>& Wd, Field3D<Prims1D>& Wd_ice) {
+    launch_update_sizegrid(Wd, Wd_ice);
+}
+
+void SizeGridIce::update_sizes(Field<Prims>& Wg, Field3D<Prims>& Wd, Field3D<double>& rho_i) {
+    launch_update_sizegrid(Wd, rho_i);
+}
+
+void SizeGridIce::update_sizes(Field<Prims1D>& Wg, Field3D<Prims1D>& Wd, Field3D<double>& rho_i) {
+    launch_update_sizegrid(Wd, rho_i);
+}
+
+void SizeGridIce::update_sizes(Field<double>& Wg, Field3D<double>& rho_d, Field3D<double>& rho_i) {
+    launch_update_sizegrid(rho_d, rho_i);
+}
+
+void SizeGridIce::update_sizes(Field<Prims1D>& Wg, Field3D<double>& rho_d, Field3D<double>& rho_i) {
+    launch_update_sizegrid(rho_d, rho_i);
+}
+
+void SizeGridIce::update_sizes(Field<Prims>& Wg, Field3D<double>& rho_d, Field3D<double>& rho_i) {
+    launch_update_sizegrid(rho_d, rho_i);
+}
+
+
+void SizeGridIce::update_sizes(Field<Prims>& /*Wg*/, Field3D<Prims>& /*Wd*/) {
+    // No molecule: nothing to update for an ice-tracking size grid without ice data.
+}
+
+void SizeGridIce::update_sizes(const Field<Prims>& /*Wg*/, Field3D<Quants>& /*Wd*/) {
+    // No molecule: nothing to update for an ice-tracking size grid without ice data.
+}
+
+void SizeGridIce::update_sizes(Field<Prims1D>& /*Wg*/, Field3D<Prims1D>& /*Wd*/) {
+    // No molecule: nothing to update for an ice-tracking size grid without ice data.
+}
+
 
 
 // Latent heat calculation
@@ -623,14 +670,10 @@ void IceVapChem::add_latent_heating(double L_latent, Field<double>& heating) {
     add_latent_heating_device<<<blocks, threads>>>(_g, L_latent, _drhovdt, heating) ;
 }
 
-
-template __global__ void _update_sizegrid<Prims>(GridRef g, Field3DRef<Grain> grains, Field3DRef<Prims> W, Field3DRef<double> rho_grains, const RealType* m, RealType rho_ms, RealType rho_mi);
-template __global__ void _update_sizegrid<Prims1D>(GridRef g, Field3DRef<Grain> grains, Field3DRef<Prims1D> W, Field3DRef<double> rho_grains, const RealType* m, RealType rho_ms, RealType rho_mi);
-
 template __host__ __device__ ChemRate R_d_jac<Prims>(MoleculeRef mol, Field3DRef<double> ice_grain, double N_s, FieldConstRef<double>& T, Field3DRef<Grain>& grains, 
-                    Field3DRef<Prims>& W, const RealType* a, const RealType* m, int i, int j, int k);
+                    Field3DRef<Prims>& W, const RealType* m, int i, int j, int k);
 template __host__ __device__ ChemRate R_d_jac<Prims1D>(MoleculeRef mol, Field3DRef<double> ice_grain, double N_s, FieldConstRef<double>& T, Field3DRef<Grain>& grains, 
-                    Field3DRef<Prims1D>& W, const RealType* a, const RealType* m, int i, int j, int k);
+                    Field3DRef<Prims1D>& W, const RealType* m, int i, int j, int k);
 
 template __global__ void copy_initial_values<Prims>(GridRef g, Field3DRef<double> rhos, MoleculeRef mol, Field3DRef<Prims> w_nof, Field3DRef<Prims> w, FieldRef<Prims> wg, double floor);
 template __global__ void copy_initial_values<Prims1D>(GridRef g, Field3DRef<double> rhos, MoleculeRef mol, Field3DRef<Prims1D> w_nof, Field3DRef<Prims1D> w, FieldRef<Prims1D> wg, double floor);
@@ -640,3 +683,9 @@ template __global__ void copy_final_values<Prims1D>(GridRef g, Field3DRef<double
 
 template __global__ void get_tol(Field3DRef<double> rhos, Field3DRef<double> rhos_0, GridRef g, int ngrains, FieldRef<double> err, double floor, FieldRef<Prims> wg);
 template __global__ void get_tol(Field3DRef<double> rhos, Field3DRef<double> rhos_0, GridRef g, int ngrains, FieldRef<double> err, double floor, FieldRef<Prims1D> wg);
+
+template void SizeGridIce::launch_update_sizegrid<Quants,Quants>(Field3D<Quants>&, Field3D<Quants>&);
+template void SizeGridIce::launch_update_sizegrid<Prims1D,Prims1D>(Field3D<Prims1D>&, Field3D<Prims1D>&);
+template void SizeGridIce::launch_update_sizegrid<double,double>(Field3D<double>&, Field3D<double>&);
+template void SizeGridIce::launch_update_sizegrid<Prims,double>(Field3D<Prims>&, Field3D<double>&);
+template void SizeGridIce::launch_update_sizegrid<Prims1D,double>(Field3D<Prims1D>&, Field3D<double>&);

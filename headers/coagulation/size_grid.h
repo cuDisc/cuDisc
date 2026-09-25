@@ -10,6 +10,11 @@
 #include "grid.h"
 #include "cuda_array.h"
 
+struct Prims;
+struct Prims1D;
+struct Quants;
+class Molecule;
+
 #ifdef REAL_TYPE
 using RealType = REAL_TYPE ;
 #else
@@ -38,7 +43,6 @@ public:
         stride(Nbins),
         _mass_e(make_CudaArray<RealType>(Nbins+1)),
         _mass_c(make_CudaArray<RealType>(Nbins)),
-        _a_c(make_CudaArray<RealType>(Nbins)),
         rho_d(rho_daux),
         num_bins(Nbins)
     {
@@ -50,7 +54,6 @@ public:
         for (int idx = 0; idx < Nbins; ++idx) {
             _mass_e[idx+1] = 4*M_PI*rho_d/3 * std::exp(3*(l_min + (idx + 1)*dl)) ;
             _mass_c[idx] = 0.5 * (_mass_e[idx] + _mass_e[idx+1]) ;
-            _a_c[idx] = std::pow(3./4./M_PI*_mass_c[idx]/rho_d,1./3.);
         }
 
         init_grain_field() ;
@@ -61,13 +64,11 @@ public:
         stride(Nbins),
         _mass_e(make_CudaArray<RealType>(Nbins+1)),
         _mass_c(make_CudaArray<RealType>(Nbins)),
-        _a_c(make_CudaArray<RealType>(Nbins)),
         rho_d(rho_daux),
         num_bins(Nbins)
     {
         for (int idx = 0; idx < Nbins; ++idx) {
             _mass_c[idx] = 4*M_PI*rho_d/3 * std::pow(a[idx], 3.) ;
-            _a_c[idx] = a[idx];
         }
         for (int idx = 0; idx < Nbins-1; ++idx) {
             _mass_e[idx+1] = 0.5 * (_mass_c[idx] + _mass_c[idx+1]) ;
@@ -78,6 +79,7 @@ public:
         init_grain_field() ;
     }
 
+    virtual ~SizeGrid() = default ;
 
     int size() const {
         return num_bins ;
@@ -99,14 +101,7 @@ public:
         return _mass_e[idx] ;
     }
 
-    RealType centre_size(int idx) const {
-        return _a_c[idx];
-    }
-
     // Provide access to arrays for convenience
-    const RealType* grain_sizes() const {
-        return _a_c.get() ;
-    }
     const RealType* grain_masses() const {
         return _mass_c.get() ;
     }
@@ -122,9 +117,9 @@ public:
     int grid_index(RealType mass) const {
         return std::distance(_mass_e.get(),
                              std::lower_bound(_mass_e.get(), 
-                      		                  _mass_e.get()+num_bins+1,
-                      		                  mass)
-                      	     ) ;
+                                                _mass_e.get()+num_bins+1,
+                                                mass)
+                               ) ;
     }
 
     void write_ASCII(std::string filename) {
@@ -148,20 +143,47 @@ public:
     // Per-cell grain properties field (size + density), shared by SizeGrid and SizeGridIce
     Field3D<Grain> grain_props = create_field3D<Grain>(_g, stride);
 
+    // Recompute grain size/density from the current dust/ice densities.
+    // Wg/Wd are passed so subclasses have access to t_stop (needed for
+    // compaction/porosity). No-op by default: a plain SizeGrid has a fixed
+    // grain size/density set at construction.
+
+    // general
+
+    virtual void update_sizes(Field<Prims>& /*Wg*/, Field3D<Prims>& /*Wd*/) {}
+    virtual void update_sizes(Field<Prims1D>& /*Wg*/, Field3D<Prims1D>& /*Wd*/) {}
+
+    // dyn specialisation
+    
+    virtual void update_sizes(const Field<Prims>& /*Wg*/, Field3D<Quants>& /*Wd*/) {}
+    virtual void update_sizes(const Field<Prims>& /*Wg*/, Field3D<Quants>& /*Wd*/, Field3D<Quants>& /*Wd_ice*/) {}
+
+    // dyn1D specialisation
+
+    virtual void update_sizes(Field<Prims1D>& /*Wg*/, Field3D<Prims1D>& /*Wd*/, Field3D<Prims1D>& /*Wd_ice*/) {}
+
+    // Coag specialisation
+
+    virtual void update_sizes(Field<double>& /*Wg*/, Field3D<double>& /*rho_d*/, Field3D<double>& /*rho_i*/) {}
+    virtual void update_sizes(Field<Prims1D>& /*Wg*/, Field3D<double>& /*rho_d*/, Field3D<double>& /*rho_i*/) {}
+    virtual void update_sizes(Field<Prims>& /*Wg*/, Field3D<double>& /*rho_d*/, Field3D<double>& /*rho_i*/) {}
+    virtual void update_sizes(Field<Prims>& /*Wg*/, Field3D<Prims>& /*Wd*/, Field3D<double>& /*rho_i*/) {}
+    virtual void update_sizes(Field<Prims1D>& /*Wg*/, Field3D<Prims1D>& /*Wd*/, Field3D<double>& /*rho_i*/) {}
+
 private:
 
     void init_grain_field() {
         for (int i=0; i<_g.NR+2*_g.Nghost; i++) {
             for (int j=0; j<_g.Nphi+2*_g.Nghost; j++) {
                 for (int k=0; k<num_bins; k++) {
-                    grain_props(i,j,k).a = centre_size(k);
+                    grain_props(i,j,k).a = std::pow(3./4./M_PI*_mass_c[k]/rho_d, 1./3.);
                     grain_props(i,j,k).rho = rho_d;
                 }
             }
         }
     }
 
-    CudaArray<RealType> _mass_e, _mass_c, _a_c ;
+    CudaArray<RealType> _mass_e, _mass_c ;
 
     RealType rho_d=1;
     int num_bins;
@@ -182,6 +204,14 @@ class SizeGridIce : public SizeGrid {
 
         friend class SizeGridIceRef;
 
+        // Shared launch logic for update_sizes: W holds the dust density/state,
+        // rho_other holds the ice-mass field (or a Molecule's ice field).
+        template<typename Wt, typename Rt>
+        void launch_update_sizegrid(Field3D<Wt>& W, Field3D<Rt>& rho_other) ;
+
+        template<typename Wt>
+        void launch_update_sizegrid_mol(Field3D<Wt>& W, Molecule& mol) ;
+
     public:
 
         SizeGridIce(Grid& g, RealType a_min, RealType a_max, int Nbins, RealType rho_daux, RealType rho_m_ice) : 
@@ -195,6 +225,30 @@ class SizeGridIce : public SizeGrid {
         RealType ice_density() const {
             return _rho_m_ice;
         }
+
+        // Recompute grain size/density from dust + ice densities.
+
+        // general
+
+        void update_sizes(Field<Prims>& Wg, Field3D<Prims>& Wd) override ;
+        void update_sizes(Field<Prims1D>& Wg, Field3D<Prims1D>& Wd) override ;
+
+        // dyn specialisation
+
+        void update_sizes(const Field<Prims>& Wg, Field3D<Quants>& Wd) override ;
+        void update_sizes(const Field<Prims>& Wg, Field3D<Quants>& Wd, Field3D<Quants>& Wd_ice) override ;
+
+        // dyn1D specialisation
+
+        void update_sizes(Field<Prims1D>& Wg, Field3D<Prims1D>& Wd, Field3D<Prims1D>& Wd_ice) override ;
+
+        // Coag specialisation
+
+        void update_sizes(Field<double>& Wg, Field3D<double>& rho_d, Field3D<double>& rho_i) override ;
+        void update_sizes(Field<Prims1D>& Wg, Field3D<double>& rho_d, Field3D<double>& rho_i) override ;
+        void update_sizes(Field<Prims>& Wg, Field3D<double>& rho_d, Field3D<double>& rho_i) override ;
+        void update_sizes(Field<Prims>& Wg, Field3D<Prims>& Wd, Field3D<double>& rho_i) override ;
+        void update_sizes(Field<Prims1D>& Wg, Field3D<Prims1D>& Wd, Field3D<double>& rho_i) override ;
 
 } ;
 

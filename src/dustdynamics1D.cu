@@ -10,7 +10,7 @@
 
 template<bool full_stokes>
 __global__
-void _calc_dust_vel(GridRef g, Field3DRef<Prims1D> W_d, FieldRef<Prims1D> W_g, FieldConstRef<double> cs, double GMstar, RealType rho_m, const RealType* a, Field3DRef<double> D, double mu, double alpha, double /*floor*/) {
+void _calc_dust_vel(GridRef g, Field3DRef<Prims1D> W_d, FieldRef<Prims1D> W_g, FieldConstRef<double> cs, double GMstar, RealType rho_m, Field3DRef<Grain> grain_props, Field3DRef<double> D, double mu, double alpha, double /*floor*/) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
@@ -23,7 +23,7 @@ void _calc_dust_vel(GridRef g, Field3DRef<Prims1D> W_d, FieldRef<Prims1D> W_g, F
         for (int k=kidx; k<W_d.Nd; k+=kstride) {
 
             double Om = sqrt(GMstar/g.Rc(i))/g.Rc(i);
-            double St = calc_t_s<full_stokes>(W_d(i,j,k), W_g(i,j), a[k], rho_m, cs(i,j), mu, Om) * Om;
+            double St = calc_t_s<full_stokes>(W_d(i,j,k), W_g(i,j), grain_props(i,j,k).a, rho_m, cs(i,j), mu, Om) * Om;
 
             double _alpha = D(i,j,k) * Om / (cs(i,j)*cs(i,j) * W_g(i,j).Sig);
             
@@ -64,7 +64,7 @@ void _calc_dust_vel(GridRef g, Field3DRef<Prims1D> W_d, FieldRef<Prims1D> W_g, F
 
 template<bool full_stokes>
 __global__
-void _calc_dust_vel(GridRef g, GridRef g2D, Field3DRef<Prims1D> W_d, FieldRef<Prims1D> W_g, FieldRef<Prims> W_g2D, FieldConstRef<double> cs, double GMstar, RealType rho_m, const RealType* a, Field3DRef<double> D, double mu, double alpha, double /*floor*/) {
+void _calc_dust_vel(GridRef g, GridRef g2D, Field3DRef<Prims1D> W_d, FieldRef<Prims1D> W_g, FieldRef<Prims> W_g2D, FieldConstRef<double> cs, double GMstar, RealType rho_m, Field3DRef<Grain> grain_props, Field3DRef<double> D, double mu, double alpha, double /*floor*/) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
@@ -77,7 +77,7 @@ void _calc_dust_vel(GridRef g, GridRef g2D, Field3DRef<Prims1D> W_d, FieldRef<Pr
         for (int k=kidx; k<W_d.Nd; k+=kstride) {
 
             double Om = sqrt(GMstar/g.Rc(i))/g.Rc(i);
-            double St = calc_t_s<full_stokes>(W_d(i,j,k), W_g(i,j), a[k], rho_m, cs(i,j), mu, Om) * Om;
+            double St = calc_t_s<full_stokes>(W_d(i,j,k), W_g(i,j), grain_props(i,j,k).a, rho_m, cs(i,j), mu, Om) * Om;
 
             double _alpha = D(i,j,k) * Om / (cs(i,j)*cs(i,j) * W_g(i,j).Sig);
             
@@ -104,7 +104,7 @@ void calculate_dust_vel(Grid& g, Field3D<Prims1D>& W_d, Field<Prims1D>& W_g,
     dim3 threads2D(32,1,16) ;
     dim3 blocks2D((g.NR + 2*g.Nghost+31)/32,1,(W_d.Nd+15)/16) ;
 
-    _calc_dust_vel<full_stokes><<<blocks2D, threads2D>>>(g, W_d, W_g, cs, star.GM, sizes.solid_density(), sizes.grain_sizes(), D, mu, alpha, floor);
+    _calc_dust_vel<full_stokes><<<blocks2D, threads2D>>>(g, W_d, W_g, cs, star.GM, sizes.solid_density(), sizes.grain_props, D, mu, alpha, floor);
     check_CUDA_errors("_calc_dust_vel");
 
 }
@@ -128,7 +128,7 @@ void calculate_dust_vel(Grid& g, Grid& g2D, Field3D<Prims1D>& W_d, Field<Prims1D
     dim3 threads2D(32,1,16) ;
     dim3 blocks2D((g.NR + 2*g.Nghost+31)/32,1,(W_d.Nd+15)/16) ;
 
-    _calc_dust_vel<full_stokes><<<blocks2D, threads2D>>>(g, g2D, W_d, W_g, W_g2D, cs, star.GM, sizes.solid_density(), sizes.grain_sizes(), D, mu, alpha, floor);
+    _calc_dust_vel<full_stokes><<<blocks2D, threads2D>>>(g, g2D, W_d, W_g, W_g2D, cs, star.GM, sizes.solid_density(), sizes.grain_props, D, mu, alpha, floor);
     check_CUDA_errors("_calc_dust_vel");
 
 }
@@ -627,7 +627,7 @@ void DustDyn1D<use_full_stokes>::operator() (Grid& g, Field3D<Prims1D>& W_d, Fie
     check_CUDA_errors("_update_mid_Sig");
     cudaDeviceSynchronize();
 
-    update_sizegrid(g, sizes, W_d_mid, W_trac_mid);
+    sizes.update_sizes(W_g, W_d_mid, W_trac_mid);
 
     if (use_full_stokes) {
         calculate_dust_vel<true>(g, W_d_mid, W_g, _cs, _star, sizes, _D, _mu, _alpha, _floor);
@@ -655,7 +655,7 @@ void DustDyn1D<use_full_stokes>::operator() (Grid& g, Field3D<Prims1D>& W_d, Fie
     check_CUDA_errors("_update_Sig");
     cudaDeviceSynchronize();
 
-    update_sizegrid(g, sizes, W_d, W_trac);
+    sizes.update_sizes(W_g, W_d, W_trac);
 
     if (use_full_stokes) {
         calculate_dust_vel<true>(g, W_d, W_g, _cs, _star, sizes, _D, _mu, _alpha, _floor);

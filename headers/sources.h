@@ -36,7 +36,7 @@ class Sources : public SourcesBase {
 
     public:
 
-        Sources(const Field<double>& T, const Field<Prims>& w_gas, const SizeGrid& s, double floor, double Mstar=1., double mu=2.4) :
+        Sources(const Field<double>& T, const Field<Prims>& w_gas, const SizeGrid& s, double floor, double Mstar, const Field<double>& mu) :
             _Mstar(Mstar), _mu(mu), _sizes(s), _T(T), _w_gas(w_gas), _floor(floor) {};
 
         void source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u,
@@ -47,7 +47,7 @@ class Sources : public SourcesBase {
     private:
 
         double _Mstar;
-        double _mu; 
+        FieldConstRef<double> _mu; 
         const SizeGrid& _sizes;
         FieldConstRef<double> _T;
         FieldConstRef<Prims> _w_gas;
@@ -59,7 +59,7 @@ class SourcesRad : public SourcesBase {
 
     public:
 
-        SourcesRad(const Field<double>& T, const Field<Prims>& w_gas, const Field3D<double>& f_rad, const SizeGrid& s, double floor, double Mstar=1., double mu=2.4) :
+        SourcesRad(const Field<double>& T, const Field<Prims>& w_gas, const Field3D<double>& f_rad, const SizeGrid& s, double floor, double Mstar, const Field<double>& mu) :
             _Mstar(Mstar), _mu(mu), _sizes(s), _T(T), _w_gas(w_gas), _f_rad(f_rad), _floor(floor){};
 
         void source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u,
@@ -70,7 +70,7 @@ class SourcesRad : public SourcesBase {
     private:
 
         double _Mstar;
-        double _mu; 
+        FieldConstRef<double> _mu; 
         const SizeGrid& _sizes;
         FieldConstRef<double> _T;
         FieldConstRef<Prims> _w_gas;

@@ -141,7 +141,7 @@ class CuzziOpacs {
         CuzziOpacs(SizeGrid& sizes, int _n_lam) : n_a(sizes.size()), n_lam(_n_lam) {
             
             for (int i=0; i<n_a; i++) {
-                a_ptr[i] = static_cast<double>(sizes.centre_size(i)); 
+                a_ptr[i] = static_cast<double>(std::pow(3./4./M_PI*sizes.centre_mass(i)/sizes.solid_density(), 1./3.)); 
             }
             lam_ptr = make_CudaArray<double>(n_lam);
             k_abs_ptr = make_CudaArray<double>(n_a*n_lam);

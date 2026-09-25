@@ -346,7 +346,8 @@ void CuzziOpacs<CompMix>::calc_opacs(SizeGrid& sizes, double por) {
         // std::cout << n.n << ", ";
 
         for (int k=0; k<sizes.size(); k++) {
-            double x = 2.*M_PI*sizes.centre_size(k)/(lam(i)/1.e4);
+            double a_grain = std::pow(3./4./M_PI*sizes.centre_mass(k)/sizes.solid_density(), 1./3.);
+            double x = 2.*M_PI*a_grain/(lam(i)/1.e4);
 
             double Q_a = std::min(1.,12.*x*eps.k/((eps.n+2.)*(eps.n+2.)+eps.k*eps.k));
             double Q_s, g;
@@ -369,7 +370,7 @@ void CuzziOpacs<CompMix>::calc_opacs(SizeGrid& sizes, double por) {
 
             Q_s = std::min(Q_s,1.);
 
-            x = 0.75/(sizes.centre_size(k)*rho_av);
+            x = 0.75/(a_grain*rho_av);
 
             g_ptr[k*n_lam + i] = g;
             k_abs_ptr[k*n_lam + i] = x*Q_a;
@@ -925,7 +926,7 @@ void CuzziOpacs<CompMix>::calc_mie_opacs(SizeGrid& sizes, double por) {
         // ----------------------------------------------------------------
         for (int k = 0; k < sizes.size(); k++) {
 
-            double a_grain = sizes.centre_size(k);   // grain radius in cm
+            double a_grain = std::pow(3./4./M_PI*sizes.centre_mass(k)/sizes.solid_density(), 1./3.);  // grain radius in cm
 
             // Size parameter
             double x_param = 2.0 * M_PI * a_grain / lam_cm;

@@ -53,137 +53,11 @@ __device__ __host__
 KernelResult BirnstielKernel<use_full_stokes>::operator()(int i, int j, int k1, int k2) const {
 
     // Step 0: Compute the geometric cross-section
+    Grain grain1 = _sizes.grain_props(i,j,k1);
+    Grain grain2 = _sizes.grain_props(i,j,k2);
 
-    RealType a1 = _grain_sizes[k1] ;
-    RealType a2 = _grain_sizes[k2] ;
-
-    RealType xsec = M_PI * (a1 + a2)*(a1 + a2) ;
-
-    // Step 1: Compute the turbulent velocity:
-    //   1a. Get the Stokes number (a*tmp)
-    RealType rho = _wg(i,j).rho, cs = _cs(i,j), R = _g.Rc(i) ;
-
-    RealType Omega = sqrt(_GMstar/R)/R;
-    RealType mfp = _mu * m_p / (rho * 2.e-15);
-    RealType tmp; 
-    
-    a1 = calc_t_s<use_full_stokes>(_wd(i,j,k1), _wg(i,j), a1, _rho_grain, cs, _mu) * Omega;
-    a2 = calc_t_s<use_full_stokes>(_wd(i,j,k2), _wg(i,j), a2, _rho_grain, cs, _mu) * Omega;
-
-    RealType sqrtRe = sqrt(_alpha_t(i,j) * cs / Omega / mfp);
-
-    //   1b: Compute the turbulent velocity
-    RealType v_turb = _alpha_t(i,j) * cs*cs * Vrel_sqd_OC07(a1, a2, 1/sqrtRe) ;
-
-    // Protect against NaN at low gas density
-    if (rho == 0) v_turb = 0 ;
-
-    //   1c: Compute brownian motion
-
-    tmp = 4.2592967532662155e-24 * (_mu * (_grain_masses[k1] + _grain_masses[k2]) / (_grain_masses[k1]*_grain_masses[k2])) * cs*cs; //4.261679179e-24f
-
-    v_turb += tmp;
-    
-    // Step 2: Add the laminar components in quadrature
-    tmp = _wd(i,j,k1).v_R - _wd(i,j,k2).v_R;
-    v_turb += tmp*tmp ;
-
-    tmp = _wd(i,j,k1).v_Z - _wd(i,j,k2).v_Z ;
-    v_turb += tmp*tmp ;
-
-    tmp = _wd(i,j,k1).v_phi - _wd(i,j,k2).v_phi ;
-    v_turb += tmp*tmp ;
-
-    v_turb = sqrt(v_turb) ;
-
-    // Step 3: Compute the kernel
-    KernelResult result ;
-    
-    result.K = xsec * v_turb ;
-
-    result.p_frag = (1.5*(_v_frag/v_turb)*(_v_frag/v_turb) + 1.) * exp(-1.5*(_v_frag/v_turb)*(_v_frag/v_turb)); // From https://iopscience.iop.org/article/10.3847/1538-4357/ac7d58/pdf
-    result.p_coag = 1. - result.p_frag;
-
-    // result.p_coag = max(0.0, min(1.0, 10*(1-v_turb/_v_frag))) ;
-    // result.p_frag = 1 - result.p_coag ;
-
-    return result ;
-}
-
-template<bool use_full_stokes>
-__device__ __host__
-KernelResult BirnstielKernelVertInt<use_full_stokes>::operator()(int i, int j, int k1, int k2) const {
-
-    // Step 0: Compute the geometric cross-section
-
-    RealType a1 = _grain_sizes[k1] ;
-    RealType a2 = _grain_sizes[k2] ;
-
-    RealType xsec = M_PI * (a1 + a2)*(a1 + a2) ;
-
-    // Step 1: Compute the turbulent velocity:
-    //   1a. Get the Stokes number (a*tmp)
-    RealType Sig_g = _wg(i,j).Sig, cs = _cs(i,j), R = _g.Rc(i) ;
-
-    RealType Omega = sqrt(_GMstar/R)/R;
-    RealType mfp = 2.5066f * (cs/Omega) * _mu * m_p / (Sig_g * 2.e-15);
-    RealType tmp;
-
-    a1 = calc_t_s<use_full_stokes>(_wd(i,j,k1), _wg(i,j), a1, _rho_grain, cs, _mu, Omega) * Omega;
-    a2 = calc_t_s<use_full_stokes>(_wd(i,j,k2), _wg(i,j), a2, _rho_grain, cs, _mu, Omega) * Omega;
-
-    RealType sqrtRe = sqrt(_alpha_t(i,j) * cs / Omega / mfp);
-
-    // RealType sqrtRe = sqrt(_alpha_t(i,j) * Sig_g / (2.*_mu * m_p)  * 2.e-15);
-
-    //   1b: Compute the turbulent velocity
-    RealType v_turb = _alpha_t(i,j) * cs*cs * Vrel_sqd_OC07(a1, a2, 1/sqrtRe) ;//_vrels(k1,k2)*_vrels(k1,k2); // 
-
-    // Protect against NaN at low gas density
-    if (Sig_g == 0) v_turb = 0 ;
-
-    //   1c: Compute brownian motion
-
-    tmp = 4.2592967532662155e-24 * (_mu * (_grain_masses[k1] + _grain_masses[k2]) / (_grain_masses[k1]*_grain_masses[k2])) * cs*cs; //4.261679179e-24f
-
-    v_turb += tmp;
-    
-    // Step 2: Add the laminar components in quadrature
-    tmp = _wd(i,j,k1).v_R - _wd(i,j,k2).v_R;
-    v_turb += tmp*tmp ;
-
-    tmp = _wd(i,j,k1).v_phi - _wd(i,j,k2).v_phi ;
-    v_turb += tmp*tmp ;
-
-    // Step 3: Compute the kernel
-    KernelResult result ;
-    
-    double Hp2 = cs*cs*R/_GMstar *R*R;
-    double h12 = Hp2 /(1 + a1/_alpha_t(i,j)); 
-    double h22 = Hp2 /(1 + a2/_alpha_t(i,j));
-
-    tmp = pow(sqrt(h12)*MIN(a1,0.5) - sqrt(h22)*MIN(a2, 0.5), 2.)/(R*R) * _GMstar/(R);
-    v_turb += tmp;
-    v_turb = sqrt(v_turb) ;
-
-    result.K = xsec * v_turb * 1./sqrt(2.*M_PI*(h12+h22));
-
-    result.p_frag = (1.5*(_v_frag/v_turb)*(_v_frag/v_turb) + 1.) * exp(-1.5*(_v_frag/v_turb)*(_v_frag/v_turb)); // From https://iopscience.iop.org/article/10.3847/1538-4357/ac7d58/pdf
-    result.p_coag = 1. - result.p_frag;
-
-    return result ;
-}
-
-template<bool use_full_stokes>
-__device__ __host__
-KernelResult BirnstielKernelIce<use_full_stokes>::operator()(int i, int j, int k1, int k2) const {
-
-    // Step 0: Compute the geometric cross-section
-    Grain ice1 = _sizes.grain_props(i,j,k1);
-    Grain ice2 = _sizes.grain_props(i,j,k2);
-
-    RealType a1 = ice1.a ;
-    RealType a2 = ice2.a ;
+    RealType a1 = grain1.a ;
+    RealType a2 = grain2.a ;
 
     RealType xsec = M_PI * (a1 + a2)*(a1 + a2) ;
 
@@ -195,8 +69,8 @@ KernelResult BirnstielKernelIce<use_full_stokes>::operator()(int i, int j, int k
     RealType mfp = _mu(i,j) * m_p / (rho * 2.e-15);
     RealType tmp;
     
-    a1 = calc_t_s<use_full_stokes>(_wd(i,j,k1), _wg(i,j), a1, ice1.rho, cs, _mu(i,j)) * Omega;
-    a2 = calc_t_s<use_full_stokes>(_wd(i,j,k2), _wg(i,j), a2, ice2.rho, cs, _mu(i,j)) * Omega;
+    a1 = calc_t_s<use_full_stokes>(_wd(i,j,k1), _wg(i,j), a1, grain1.rho, cs, _mu(i,j)) * Omega;
+    a2 = calc_t_s<use_full_stokes>(_wd(i,j,k2), _wg(i,j), a2, grain2.rho, cs, _mu(i,j)) * Omega;
 
     RealType sqrtRe = sqrt(_alpha_t(i,j) * cs / Omega / mfp);
 
@@ -208,8 +82,8 @@ KernelResult BirnstielKernelIce<use_full_stokes>::operator()(int i, int j, int k
 
     //   1c: Compute brownian motion
 
-    RealType m1 = 4.188790205f *  pow(ice1.a, 3.) * ice1.rho;
-    RealType m2 = 4.188790205f *  pow(ice2.a, 3.) * ice2.rho;
+    RealType m1 = 4.188790205f *  pow(grain1.a, 3.) * grain1.rho;
+    RealType m2 = 4.188790205f *  pow(grain2.a, 3.) * grain2.rho;
 
     tmp = 4.2592967532662155e-24 * (_mu(i,j) * (m1 + m2) / (m1*m2)) * cs*cs; //4.261679179e-24f
 
@@ -232,12 +106,12 @@ KernelResult BirnstielKernelIce<use_full_stokes>::operator()(int i, int j, int k
     
     result.K = xsec * v_turb ;
 
-    // RealType i_to_t_rat1 = 1. - _sizes.base_mass(k1)/m1;
-    // RealType i_to_t_rat2 = 1. - _sizes.base_mass(k2)/m2;
+    RealType i_to_t_rat1 = 1. - _sizes.base_mass(k1)/m1;
+    RealType i_to_t_rat2 = 1. - _sizes.base_mass(k2)/m2;
 
-    // RealType _v_frag = _v_frag_b + (_v_frag_i-_v_frag_b) * min(1., 5.*i_to_t_rat1 + 5.*i_to_t_rat2);
+    RealType _v_frag = _v_frag_b + (_v_frag_i-_v_frag_b) * min(1., 5.*i_to_t_rat1 + 5.*i_to_t_rat2);
 
-    result.p_frag = (1.5*(_v_frag_b/v_turb)*(_v_frag_b/v_turb) + 1.) * exp(-1.5*(_v_frag_b/v_turb)*(_v_frag_b/v_turb)); // From https://iopscience.iop.org/article/10.3847/1538-4357/ac7d58/pdf
+    result.p_frag = (1.5*(_v_frag/v_turb)*(_v_frag/v_turb) + 1.) * exp(-1.5*(_v_frag/v_turb)*(_v_frag/v_turb)); // From https://iopscience.iop.org/article/10.3847/1538-4357/ac7d58/pdf
     result.p_coag = 1. - result.p_frag;
 
     return result ;
@@ -245,14 +119,14 @@ KernelResult BirnstielKernelIce<use_full_stokes>::operator()(int i, int j, int k
 
 template<bool use_full_stokes>
 __device__ __host__
-KernelResult BirnstielKernelVertIntIce<use_full_stokes>::operator()(int i, int j, int k1, int k2) const {
+KernelResult BirnstielKernelVertInt<use_full_stokes>::operator()(int i, int j, int k1, int k2) const {
 
     // Step 0: Compute the geometric cross-section
-    Grain ice1 = _sizes.grain_props(i,j,k1);
-    Grain ice2 = _sizes.grain_props(i,j,k2);
+    Grain grain1 = _sizes.grain_props(i,j,k1);
+    Grain grain2 = _sizes.grain_props(i,j,k2);
 
-    RealType a1 = ice1.a ;
-    RealType a2 = ice2.a ;
+    RealType a1 = grain1.a ;
+    RealType a2 = grain2.a ;
 
     RealType xsec = M_PI * (a1 + a2)*(a1 + a2) ;
 
@@ -264,8 +138,8 @@ KernelResult BirnstielKernelVertIntIce<use_full_stokes>::operator()(int i, int j
     RealType mfp = 2.5066f * (cs/Omega) * _mu * m_p / (Sig_g * 2.e-15);
     RealType tmp;
 
-    a1 = calc_t_s<use_full_stokes>(_wd(i,j,k1), _wg(i,j), a1, ice1.rho, cs, _mu, Omega) * Omega;
-    a2 = calc_t_s<use_full_stokes>(_wd(i,j,k2), _wg(i,j), a2, ice2.rho, cs, _mu, Omega) * Omega;
+    a1 = calc_t_s<use_full_stokes>(_wd(i,j,k1), _wg(i,j), a1, grain1.rho, cs, _mu, Omega) * Omega;
+    a2 = calc_t_s<use_full_stokes>(_wd(i,j,k2), _wg(i,j), a2, grain2.rho, cs, _mu, Omega) * Omega;
 
     RealType sqrtRe = sqrt(_alpha_t(i,j) * cs / Omega / mfp);
 
@@ -279,8 +153,8 @@ KernelResult BirnstielKernelVertIntIce<use_full_stokes>::operator()(int i, int j
 
     //   1c: Compute brownian motion
 
-    RealType m1 = 4.188790205f *  pow(ice1.a, 3.) * ice1.rho;
-    RealType m2 = 4.188790205f *  pow(ice2.a, 3.) * ice2.rho;
+    RealType m1 = 4.188790205f *  pow(grain1.a, 3.) * grain1.rho;
+    RealType m2 = 4.188790205f *  pow(grain2.a, 3.) * grain2.rho;
 
     tmp = 4.2592967532662155e-24 * (_mu * (m1 + m2) / (m1*m2)) * cs*cs; //4.261679179e-24f
 
@@ -491,13 +365,7 @@ __global__ void _compute_coagulation_rate(_CoagulationRateHelper<Kernel,Fragment
                 }
         }
     }
-    // if (iR==52 && iZ==2 && s0 == 20) {
-    //     double ratesum=0;
-    //     for (int k=0; k<coag.size; k++) {
-    //         ratesum += rate(52,2,k); 
-    //     }
-    //     printf("%g\n", ratesum);
-    // }
+
 }
 
 template<class Kernel, class Fragments>
@@ -556,11 +424,5 @@ template class CoagulationRate<BirnstielKernel<true>,SimpleErosion> ;
 
 template class CoagulationRate<BirnstielKernelVertInt<false>,SimpleErosion> ;
 template class CoagulationRate<BirnstielKernelVertInt<true>,SimpleErosion> ;
-
-template class CoagulationRate<BirnstielKernelIce<false>,SimpleErosion> ;
-template class CoagulationRate<BirnstielKernelIce<true>,SimpleErosion> ;
-
-template class CoagulationRate<BirnstielKernelVertIntIce<false>,SimpleErosion> ;
-template class CoagulationRate<BirnstielKernelVertIntIce<true>,SimpleErosion> ;
 
 template class CoagulationRate<ConstantKernel,SimpleErosion> ;

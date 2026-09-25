@@ -247,7 +247,7 @@ class DSHARP_opacs {
         void generate_a(SizeGrid& sizes) {
 
             for (int i=0; i<n_a; i++) {
-                a_ptr[i] = static_cast<double>(sizes.centre_size(i)); 
+                a_ptr[i] = static_cast<double>(std::pow(3./4./M_PI*sizes.centre_mass(i)/sizes.solid_density(), 1./3.)); 
             }
         }
 

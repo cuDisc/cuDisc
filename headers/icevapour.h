@@ -280,8 +280,4 @@ class IceVapChem1D {
 
 };
 
-void update_sizegrid(Grid& g, SizeGridIce& sizes, Field3D<Quants>& Qd, Field3D<Quants>& Qice);
-void update_sizegrid(Grid& g, SizeGridIce& sizes, Field3D<Prims>& Qd, Field3D<double>& Qice);
-void update_sizegrid(Grid& g, SizeGridIce& sizes, Field3D<Prims1D>& Qd, Field3D<Prims1D>& ice);
-
 #endif// _CUDISC_ICEVAPOUR_H

@@ -61,10 +61,10 @@ class TimeIntegration {
   int integrate_debug(Grid& g, Field3D<T>& ws, Field<T>& wg, double tmax, double& dt_coag, double floor) const ;
 
   template<typename T>
-  int integrate_tracers(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const ;
+  int integrate_tracers(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, SizeGridIce& sizes, double tmax, double& dt_coag, double floor) const ;
   
   template<typename T>
-  int integrate_tracers_debug(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const ;
+  int integrate_tracers_debug(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, SizeGridIce& sizes, double tmax, double& dt_coag, double floor) const ;
 
 protected:
 
@@ -89,7 +89,7 @@ private:
                         double floor) const ;
 
   template<bool debug, typename T>
-  int integrate_tracers_impl(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, double tmax,
+  int integrate_tracers_impl(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, SizeGridIce& sizes, double tmax,
                      double& dt_coag, double floor) const ;
 
   template<bool debug, typename T>

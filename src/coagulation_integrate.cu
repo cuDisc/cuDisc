@@ -673,7 +673,7 @@ double TimeIntegration::take_step_tracers_debug(Grid& g, Field3D<double>& y, Fie
 }
 
 template<bool debug, typename T>
-int TimeIntegration::integrate_tracers_impl(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, double tmax,
+int TimeIntegration::integrate_tracers_impl(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, SizeGridIce& sizes, double tmax,
                                                 double& dt_coag, double floor) const {
     double dt = dt_coag ;
     if (dt_coag < tmax && dt_coag > _SAFETY*tmax)
@@ -716,6 +716,7 @@ int TimeIntegration::integrate_tracers_impl(Grid& g, Field3D<T>& ws, Field<T>& w
                 std::cout << "i index = " << idxs[0] << ", j index = " << idxs[1] << "\n";
             }
         }
+        sizes.update_sizes(wg, rhos, rhos_tr);
     }
     
     if (dt > 0.) {
@@ -732,6 +733,7 @@ int TimeIntegration::integrate_tracers_impl(Grid& g, Field3D<T>& ws, Field<T>& w
     else {
         std::cout << "Coag. failed (dt = " << t/year <<", i index = " << idxs[0] << ", j index = " << idxs[1] << ") - try again next step\n";
         dt_coag = dt;
+        sizes.update_sizes(wg, ws, mol.ice);
         return count ;
     }
 }
@@ -759,15 +761,15 @@ __global__ void _check_active(GridRef g, FieldRef<T> wg, Field3DRef<double> rhos
 }
 
 template<typename T>
-int TimeIntegration::integrate_tracers(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol,
+int TimeIntegration::integrate_tracers(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, SizeGridIce& sizes,
                                double tmax, double& dt_coag, double floor) const {
-    return integrate_tracers_impl<false>(g, ws, wg, mol, tmax, dt_coag, floor);
+    return integrate_tracers_impl<false>(g, ws, wg, mol, sizes, tmax, dt_coag, floor);
 }
 
 template<typename T>
-int TimeIntegration::integrate_tracers_debug(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol,
+int TimeIntegration::integrate_tracers_debug(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, SizeGridIce& sizes, 
                                      double tmax, double& dt_coag, double floor) const {
-    return integrate_tracers_impl<true>(g, ws, wg, mol, tmax, dt_coag, floor);
+    return integrate_tracers_impl<true>(g, ws, wg, mol, sizes, tmax, dt_coag, floor);
 }
 
 
@@ -775,20 +777,12 @@ template class Rk2Integration<CoagulationRate<BirnstielKernel<true>,SimpleErosio
 template class Rk2Integration<CoagulationRate<BirnstielKernel<false>,SimpleErosion>> ;
 template class Rk2Integration<CoagulationRate<BirnstielKernelVertInt<false>,SimpleErosion>> ;
 template class Rk2Integration<CoagulationRate<BirnstielKernelVertInt<true>,SimpleErosion>> ;
-template class Rk2Integration<CoagulationRate<BirnstielKernelVertIntIce<false>,SimpleErosion>> ;
-template class Rk2Integration<CoagulationRate<BirnstielKernelVertIntIce<true>,SimpleErosion>> ;
-template class Rk2Integration<CoagulationRate<BirnstielKernelIce<false>,SimpleErosion>> ;
-template class Rk2Integration<CoagulationRate<BirnstielKernelIce<true>,SimpleErosion>> ;
 template class Rk2Integration<CoagulationRate<ConstantKernel,SimpleErosion>> ;
 
 template class BS32Integration<CoagulationRate<BirnstielKernel<true>,SimpleErosion>> ;
 template class BS32Integration<CoagulationRate<BirnstielKernel<false>,SimpleErosion>> ;
 template class BS32Integration<CoagulationRate<BirnstielKernelVertInt<false>,SimpleErosion>> ;
 template class BS32Integration<CoagulationRate<BirnstielKernelVertInt<true>,SimpleErosion>> ;
-template class BS32Integration<CoagulationRate<BirnstielKernelVertIntIce<false>,SimpleErosion>> ;
-template class BS32Integration<CoagulationRate<BirnstielKernelVertIntIce<true>,SimpleErosion>> ;
-template class BS32Integration<CoagulationRate<BirnstielKernelIce<false>,SimpleErosion>> ;
-template class BS32Integration<CoagulationRate<BirnstielKernelIce<true>,SimpleErosion>> ;
 template class BS32Integration<CoagulationRate<ConstantKernel,SimpleErosion>> ;
 
 
@@ -796,13 +790,13 @@ template int TimeIntegration::integrate_debug<Prims>(Grid& g, Field3D<Prims>& ws
 template int TimeIntegration::integrate_debug<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, double tmax, double& dt_coag, double floor) const;
 template int TimeIntegration::integrate_debug<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, double tmax, double& dt_coag, double floor) const;
 
-template int TimeIntegration::integrate_tracers<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const;
-template int TimeIntegration::integrate_tracers<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const;
-template int TimeIntegration::integrate_tracers<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const;
+template int TimeIntegration::integrate_tracers<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, Molecule& mol, SizeGridIce& sizes, double tmax, double& dt_coag, double floor) const;
+template int TimeIntegration::integrate_tracers<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, Molecule& mol, SizeGridIce& sizes, double tmax, double& dt_coag, double floor) const;
+template int TimeIntegration::integrate_tracers<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, Molecule& mol, SizeGridIce& sizes, double tmax, double& dt_coag, double floor) const;
 
-template int TimeIntegration::integrate_tracers_debug<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const;
-template int TimeIntegration::integrate_tracers_debug<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const;
-template int TimeIntegration::integrate_tracers_debug<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, Molecule& mol, double tmax, double& dt_coag, double floor) const;
+template int TimeIntegration::integrate_tracers_debug<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, Molecule& mol, SizeGridIce& sizes, double tmax, double& dt_coag, double floor) const;
+template int TimeIntegration::integrate_tracers_debug<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, Molecule& mol, SizeGridIce& sizes, double tmax, double& dt_coag, double floor) const;
+template int TimeIntegration::integrate_tracers_debug<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, Molecule& mol, SizeGridIce& sizes, double tmax, double& dt_coag, double floor) const;
 
 template int TimeIntegration::integrate<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, double tmax, double& dt_coag, double floor) const;
 template int TimeIntegration::integrate<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, double tmax, double& dt_coag, double floor) const;

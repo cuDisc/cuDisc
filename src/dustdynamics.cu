@@ -1411,7 +1411,7 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
 
     // Update sizegrid for half-time quantities
 
-    update_sizegrid(g, sizes, q_mids, q_mids_trac);
+    sizes.update_sizes(w_gas, q_mids, q_mids_trac);
 
     // Update sources
 
@@ -1444,7 +1444,7 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
 
     // Update sizegrid for full-time quantities
 
-    update_sizegrid(g, sizes, q_mids, q_mids_trac);
+    sizes.update_sizes(w_gas, q_mids, q_mids_trac);
 
     // Update sources
 
