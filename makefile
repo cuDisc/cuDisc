@@ -34,6 +34,7 @@ ifeq ($(HIP_MODE),1)
 	CFLAGS := $(CFLAGS) $(HIP_ARGS) $(HIP_INCLUDE) -DOPAC_DIR=\"$(OPAC_DIR)\" 
 else	
     CUDA_HOME = /usr/local/cuda-12.0
+	# CUDA_HOME = /uollinapps/v2/24-25/uol/packages/el8/linux-rocky8-x86_64_v3/gcc-8.5.0/cuda-12.0.1-bdbrsixhxmrfs5m24rdkgykcymiwyfwt
     GPU_COMPILER = nvcc
 
 	ARCH = --generate-code arch=compute_60,code=sm_60 \
@@ -47,7 +48,7 @@ else
 
     GPU_FLAGS    = -O3 -g --std=c++17 -Wno-deprecated-gpu-targets $(ARCH) -DOPAC_DIR=\"$(OPAC_DIR)\" 
     GPU_INCLUDE  = -I./$(HEADER_DIR) -I$(CUDA_HOME)/include
-    GPU_LIBS     = -L$(CUDA_HOME)/lib64 -lcudart -lcublas -lcusparse
+    GPU_LIBS     = -L$(CUDA_HOME)/lib64 -lcudart -lcublas -lcusparse# -lstdc++fs
 	CFLAGS := $(CFLAGS) -I$(CUDA_HOME)/include -DOPAC_DIR=\"$(OPAC_DIR)\" 
 endif
 
@@ -57,21 +58,20 @@ endif
 COAG_HEADERS := coagulation.h kernels.h fragments.h size_grid.h integration.h
 COAG_HEADERS := $(addprefix coagulation/, $(COAG_HEADERS))
 HEADERS := grid.h field.h cuda_array.h reductions.h utils.h matrix_types.h scan.h \
-           stellar_irradiation.h planck.h opacity.h constants.h FLD.h FLD_device.h \
-           pcg_solver.h radmc3d_utils.h star.h timing.h bins.h advection.h \
-           diffusion_device.h sources.h gas1d.h DSHARP_opacs.h file_io.h errorfuncs.h \
-           dustdynamics.h dustdynamics1D.h van_leer.h drag_const.h \
-		   interpolate.h flags.h matrix_utils.h super_stepping.h hydrostatic.h $(COAG_HEADERS)
+	stellar_irradiation.h planck.h opacity.h constants.h FLD.h  FLD_device.h \
+	pcg_solver.h radmc3d_utils.h star.h timing.h bins.h advection.h \
+	diffusion_device.h sources.h gas1d.h DSHARP_opacs.h file_io.h errorfuncs.h \
+	dustdynamics.h dustdynamics1D.h van_leer.h drag_const.h icevapour.h cuzzi_opacs.h \
+	interpolate.h flags.h matrix_utils.h super_stepping.h hydrostatic.h density_view.h $(COAG_HEADERS)
 
 HEADERS := $(addprefix $(HEADER_DIR)/, $(HEADERS))
 
 OBJ := grid.o integrate_z.o scan.o scan3d.o zero_bounds.o copy.o \
-       hydrostatic.o pcg_solver.o stellar_irradiation.o FLD_mono.o FLD_multi.o \
-       jacobi.o ILU_precond.o gmres.o block_jacobi.o sparse_utils.o \
-       radmc3d_utils.o timing.o star.o bins.o check_tol.o advection.o diffusion.o \
-       coagulation.o coagulation_init.o coagulation_integrate.o super_stepping.o \
-       sources.o gas1d.o DSHARP_opacs.o dustdynamics.o dustdynamics1D.o
-
+	hydrostatic.o pcg_solver.o stellar_irradiation.o FLD_mono.o FLD_multi.o \
+	jacobi.o ILU_precond.o gmres.o block_jacobi.o sparse_utils.o \
+	radmc3d_utils.o timing.o star.o bins.o check_tol.o advection.o diffusion.o \
+	coagulation.o coagulation_init.o coagulation_integrate.o  super_stepping.o \
+	sources.o gas1d.o DSHARP_opacs.o dustdynamics.o dustdynamics1D.o icevapour.o cuzzi_opacs.o
 
 OBJ := $(addprefix $(BUILD_DIR)/, $(OBJ))
 

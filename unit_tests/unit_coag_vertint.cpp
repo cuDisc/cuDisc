@@ -31,7 +31,7 @@ void set_up(Grid& g, Field<Prims1D>& wg, Field<double>& cs, Field3D<Prims1D>& qd
     for (int i=0; i<g.NR+2*g.Nghost; i++) {
         for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
             for (int k=0; k<qd.Nd; k++) {    
-                qd(i,j,k).Sig = std::pow(sizes.centre_size(k)/sizes.centre_size(0), 0.5) * std::exp(-std::pow(sizes.centre_size(k)/0.02, 10.));
+                qd(i,j,k).Sig = std::pow(sizes.grain_props(i,j,k).a/sizes.grain_props(i,j,0).a, 0.5) * std::exp(-std::pow(sizes.grain_props(i,j,k).a/0.02, 10.));
             }
         }
     }
@@ -54,10 +54,6 @@ double Sig_bench[100] = {0.00188614, 0.00106862, 0.000888368, 0.000839277, 0.000
 
 
 int main() {
-
-
-    std::filesystem::path dir = std::string("./codes/outputs/unit_coag_vertint");
-    std::filesystem::create_directories(dir);
 
     std::cout << "Test coag vertically-integrated... ";
     std::cout.flush() ;
@@ -82,9 +78,7 @@ int main() {
     double rho_p = 1.6;
     double a0 = 5e-5 ; // Grain size lower bound in cm
     double a1 = 0.1   ;  // Grain size upper bound in cm
-    SizeGrid sizes(a0, a1, n_spec, rho_p) ;
-
-    write_grids(dir, &g, &sizes);
+    SizeGrid sizes(g, a0, a1, n_spec, rho_p) ;
 
     // Disc & Star parameters
     

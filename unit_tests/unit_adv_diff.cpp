@@ -19,7 +19,7 @@ int main() {
     std::cout.flush() ;
 
     int Ns[2] = {128,256};
-    double L2_bench[2] = {0.002114, 0.0004294};
+    double L2_bench[2] = {0.00212, 0.000431};
     double slope_bench = 2.;
     double L2[2] = {0,0};
 

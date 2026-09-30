@@ -38,17 +38,33 @@ class TimeIntegration {
 
 
   template<typename T>
-  double take_step(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess) const ;
+  double take_step(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess,
+                   Field<bool>& active, double floor) const ;
+
+  template<typename T>
+  double take_step_debug(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess,
+                         int* idxs, Field<bool>& active, double floor) const ;
+
+  template<typename T>
+  double take_step_tracers(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess, 
+                            Field3D<double>& tracers, Field<bool>& active, double floor) const ;
   
   template<typename T>
-  double take_step_debug(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess, int* idxs) const ;
-  
+  double take_step_tracers_debug(Grid& g, Field3D<double>& y, Field<T>& wg, double& dtguess, 
+                                  Field3D<double>& tracers, int* idxs, Field<bool>& active, double floor) const ;
+                         
+
   template<typename T>
   int integrate(Grid& g, Field3D<T>& ws, Field<T>& wg, double tmax, double& dt_coag, double floor = 1.e-40) const ;
 
   template<typename T>
   int integrate_debug(Grid& g, Field3D<T>& ws, Field<T>& wg, double tmax, double& dt_coag, double floor) const ;
 
+  template<typename T>
+  int integrate_tracers(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, SizeGrid& sizes, double tmax, double& dt_coag, double floor) const ;
+  
+  template<typename T>
+  int integrate_tracers_debug(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, SizeGrid& sizes, double tmax, double& dt_coag, double floor) const ;
 
 protected:
 
@@ -60,9 +76,27 @@ protected:
    * This function must be provided by child classes.
    */
   virtual void do_step(double dt, Grid& g, const Field3D<double>& rho,
-		       Field3D<double>& rho_new, Field3D<double>& error) const = 0 ;
+		       Field3D<double>& rho_new, Field3D<double>& error, Field<bool>& active) const = 0 ;
 
 private:
+  template<bool debug, typename T>
+  int integrate_impl(Grid& g, Field3D<T>& ws, Field<T>& wg, double tmax,
+                     double& dt_coag, double floor) const ;
+
+  template<bool debug, typename T>
+  double take_step_impl(Grid& g, Field3D<double>& y, Field<T>& wg,
+                        double& dtguess, int* idxs, Field<bool>& active,
+                        double floor) const ;
+
+  template<bool debug, typename T>
+  int integrate_tracers_impl(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, SizeGrid& sizes, double tmax,
+                     double& dt_coag, double floor) const ;
+
+  template<bool debug, typename T>
+  double take_step_tracers_impl(Grid& g, Field3D<double>& y, Field<T>& wg,
+                        double& dtguess, Field3D<double>& tracers, int* idxs, Field<bool>& active,
+                        double floor) const ;
+
   double _rel_tol, _abs_tol ;
 
   static constexpr double _MAX_FACTOR = 10. ;
@@ -87,7 +121,7 @@ class Rk2Integration :
 
   protected:
     virtual void do_step(double dt, Grid& g, const Field3D<double>& rho,
-	                     Field3D<double>& rho_new, Field3D<double>& error) const ;
+	                     Field3D<double>& rho_new, Field3D<double>& error, Field<bool>& active) const ;
 
 } ;
 template<class Rate>
@@ -104,7 +138,7 @@ class BS32Integration :
 
   protected:
     virtual void do_step(double dt, Grid& g, const Field3D<double>& rho,
-	                     Field3D<double>& rho_new, Field3D<double>& error) const ;
+	                     Field3D<double>& rho_new, Field3D<double>& error, Field<bool>& active) const ;
 } ;
 
 #endif//_CUDISC_HEADERS_COAGULATION_INTEGRATION_H_

@@ -44,9 +44,9 @@ void init_dust(Grid& g, Field3D<double>& rho, double Mtot, SizeGrid& sizes) {
 
             for (int k=0; k<100; k++) {
 
-                double St = sizes.centre_size(k)*0.05 * (g.Rc(i)/au);
+                double St = sizes.grain_props(i,j,k).a*0.05 * (g.Rc(i)/au);
                 double hd = h * std::sqrt(1/(1+St/1e-3));
-                double fk = std::pow(sizes.centre_size(k)/sizes.centre_size(0), 0.5) * std::exp(-std::pow(sizes.centre_size(k)/0.5, 5.));
+                double fk = std::pow(sizes.grain_props(i,j,k).a/sizes.grain_props(i,j,0).a, 0.5) * std::exp(-std::pow(sizes.grain_props(i,j,k).a/0.5, 5.));
 
                 rho(i,j,k) = fk * Sigtot/(std::sqrt(2*M_PI)*hd) * std::exp(-(g.Zc(i,j)*g.Zc(i,j)/(2.*hd*hd)));
 
@@ -140,7 +140,7 @@ int main() {
     int n_spec = 100;
     double a0 = 1e-5 ; // Grain size lower bound in cm
     double a1 = 1.   ;  // Grain size upper bound in cm
-    SizeGrid sizes(a0, a1, n_spec, 3.5) ;
+    SizeGrid sizes(g, a0, a1, n_spec, 3.5) ;
 
     double Cv = 2.5*R_gas/2.4;
 
@@ -197,7 +197,7 @@ int main() {
         Field<double> oldT = create_field<double>(g);
         copy_field(g, T, oldT); 
         
-        std::cout << "Iteration: " << n << "\n" ;  
+        std::cout << "Iteration: " << n << "\n"; 
 
         rho_kappa_abs_binned = bins.bin_planck(g, rho_kappa_abs, T);
         bin_central(g, rho_kappa_sca, rho_kappa_sca_binned, num_wavelengths, n_bands);

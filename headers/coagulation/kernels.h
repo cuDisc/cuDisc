@@ -23,13 +23,12 @@ struct vec3 {
 template<bool use_full_stokes=false>
 class BirnstielKernel {
   public:
-    BirnstielKernel(Grid&g, SizeGrid& sizes, const Field3D<Prims>& wd,
+    BirnstielKernel(Grid&g, SizeGrid& sizes, const Field3D<Prims>& wd, 
                     const Field<Prims>& wg, const Field<double>& sound_speed, 
-                    const Field<double>& alpha, double mu, double Mstar=1)
-      : _g(g), _cs(sound_speed), _grain_sizes(sizes.grain_sizes()), _grain_masses(sizes.grain_masses()),
+                    const Field<double>& alpha, const Field<double>& mu, double Mstar=1)
+      : _g(g), _cs(sound_speed), _sizes(sizes),
         _wd(wd), _wg(wg),
-        _alpha_t(alpha), _GMstar(Mstar*GMsun), _mu(mu),
-        _rho_grain(sizes.solid_density())
+        _alpha_t(alpha), _mu(mu) , _GMstar(Mstar*GMsun)
     { } ;
 
     // Compute the kernel for cell i,j and species k1 and k2.
@@ -44,22 +43,25 @@ class BirnstielKernel {
     int Nphi() const {
         return _g.Nphi + 2*_g.Nghost ;
     }
-
-    void set_fragmentation_threshold(double v_frag) {
-        _v_frag = v_frag ;
+    
+    void set_fragmentation_threshold(double v_frag_base) {
+        _v_frag_b = v_frag_base ;
+    }
+    void set_icy_fragmentation_threshold(double v_frag_ice) {
+        _v_frag_i = v_frag_ice ;
     }
 
   private:
     GridRef _g ;
     FieldConstRef<double> _cs ;
-    const RealType* _grain_sizes ;
-    const RealType* _grain_masses ;
+    SizeGridRef _sizes;
     Field3DConstRef<Prims> _wd ;
     FieldConstRef<Prims> _wg ;
     FieldConstRef<double> _alpha_t ;
+    FieldConstRef<double> _mu ;
 
-    RealType _GMstar, _mu;
-    RealType _v_frag=1e3, _rho_grain ;
+    RealType _GMstar;
+    RealType _v_frag_b=1000., _v_frag_i=1000.;
 
 } ;
 
@@ -69,10 +71,9 @@ class BirnstielKernelVertInt {
     BirnstielKernelVertInt(Grid&g, SizeGrid& sizes, const Field3D<Prims1D>& wd,
                     const Field<Prims1D>& wg, const Field<double>& sound_speed, 
                     const Field<double>& alpha, double mu, double Mstar=1)
-      : _g(g), _cs(sound_speed), _grain_sizes(sizes.grain_sizes()), _grain_masses(sizes.grain_masses()),
-        _wd(wd), _wg(wg),
-        _alpha_t(alpha), _GMstar(Mstar*GMsun), _mu(mu),
-        _rho_grain(sizes.solid_density())
+      : _g(g), _cs(sound_speed), _sizes(sizes),
+      _wd(wd), _wg(wg),
+      _alpha_t(alpha), _GMstar(Mstar*GMsun), _mu(mu)
     { } ;
 
     // Compute the kernel for cell i,j and species k1 and k2.
@@ -88,24 +89,25 @@ class BirnstielKernelVertInt {
         return _g.Nphi + 2*_g.Nghost ;
     }
 
-    void set_fragmentation_threshold(double v_frag) {
-        _v_frag = v_frag ;
+    void set_fragmentation_threshold(double v_frag_base) {
+      _v_frag_b = v_frag_base ;
+    }
+    void set_icy_fragmentation_threshold(double v_frag_ice) {
+      _v_frag_i = v_frag_ice ;
     }
 
   private:
     GridRef _g ;
     FieldConstRef<double> _cs ;
-    const RealType* _grain_sizes ;
-    const RealType* _grain_masses ;
+    SizeGridRef _sizes;
     Field3DConstRef<Prims1D> _wd ;
     FieldConstRef<Prims1D> _wg ;
     FieldConstRef<double> _alpha_t ;
 
     RealType  _GMstar, _mu;
-    RealType _v_frag=1e3, _rho_grain ;
+    RealType _v_frag_b=1000., _v_frag_i=1000.;
 
 } ;
-
 
 class ConstantKernel {
   public:

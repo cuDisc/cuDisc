@@ -10,7 +10,7 @@
 #include "coagulation/integration.h"
 #include "file_io.h"
 
-void setup_IC(Grid &g, SizeGrid& sizes, Field3D<double>& rho) {
+void setup_IC(Grid &g, SizeGrid& sizes, Field3D<double>& rho, Field<double>& wg) {
     int N = sizes.size() ;
 
     // An exponential distribution in (N/m) (approx)
@@ -30,9 +30,11 @@ void setup_IC(Grid &g, SizeGrid& sizes, Field3D<double>& rho) {
 
     // Normalization
     for (int i=0; i < g.NR + 2*g.Nghost; i++)
-        for (int j=0; j < g.NR + 2*g.Nghost; j++) 
+        for (int j=0; j < g.NR + 2*g.Nghost; j++) {
+            wg(i,j) = 1. ;
             for (int k = 0; k < N; ++k)
                 rho(i,j,k) /= allm ;
+        }
 }
 
 void save_grid(Grid& g, Field3D<double>& rho, std::string filename) {
@@ -72,13 +74,14 @@ int main() {
     // Setup a size distribution
     double a0 = std::pow(3e-6/(4*M_PI), 1/3.) ;
     double a1 = std::pow(3e+9/(4*M_PI), 1/3.) ;
-    SizeGrid sizes(a0, a1, 150) ;
+    SizeGrid sizes(g, a0, a1, 150) ;
 
     write_grids(dir, &g, &sizes);
 
     // Generate the initial conditions
     Field3D<double> rho = create_field3D<double>(g, 150) ;
-    setup_IC(g, sizes, rho) ;
+    Field<double> wg = create_field<double>(g) ;
+    setup_IC(g, sizes, rho, wg) ;
 
     Field<double> rho_g = create_field<double>(g) ;
     set_all(g,rho_g,1);
@@ -86,7 +89,8 @@ int main() {
     // Create the kernel/rates
     BS32Integration<CoagulationRate<ConstantKernel, SimpleErosion>>
         coagulation_integrate(
-            create_coagulation_rate(sizes, ConstantKernel(g), SimpleErosion())
+            create_coagulation_rate(sizes, ConstantKernel(g), SimpleErosion()),
+            0.01,1e-10,false
         ) ;
 
     // Run the test
@@ -94,10 +98,10 @@ int main() {
     std::vector<double> t_out = {0., 1., 10., 100., 1000.} ;
     double t = 0;
     int Nout = 0 ;
-    double dt = 0;
+    double dt_coag = 0;
     for (auto ti : t_out) {
         if (ti > t) 
-            coagulation_integrate.integrate(g, rho, rho_g, ti-t, dt) ;
+            coagulation_integrate.integrate(g, rho, wg, ti-t, dt_coag) ;
         t = ti ;
 
         // Save to file:

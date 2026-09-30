@@ -47,7 +47,7 @@ void init_density_structure(const Grid& g, Field3D<double>& rho, SizeGrid& sizes
         double h = (10*au) * std::pow(g.Rc(i)/R0, 1.125) ;
         tau += rho_0 * g.dRe(i) * kappa_810 ;
         for (int k=0; k<100; k++) {
-            double St = sizes.centre_size(k)*0.05 * (g.Rc(i)/au);
+            double St = sizes.grain_props(i,g.Nghost,k).a*0.05 * (g.Rc(i)/au);
             double hd = h * std::sqrt(1/(1+St/1e-3));
             for (int j = 0; j < g.Nphi + 2*g.Nghost; j++) {
                 rho(i,j,k) = rho_0 * std::exp(-0.5 * std::pow(g.Zc(i,j)/hd, 2)) ;
@@ -71,9 +71,9 @@ void init_dust(Grid& g, Field3D<double>& rho, double Mtot, SizeGrid& sizes) {
 
             for (int k=0; k<100; k++) {
 
-                double St = sizes.centre_size(k)*0.05 * (g.Rc(i)/au);
+                double St = sizes.grain_props(i,j,k).a*0.05 * (g.Rc(i)/au);
                 double hd = h * std::sqrt(1/(1+St/1e-3));
-                double fk = std::pow(sizes.centre_size(k)/sizes.centre_size(0), 0.5) * std::exp(-std::pow(sizes.centre_size(k)/0.5, 5.));
+                double fk = std::pow(sizes.grain_props(i,j,k).a/sizes.grain_props(i,j,0).a, 0.5) * std::exp(-std::pow(sizes.grain_props(i,j,k).a/0.5, 5.));
 
                 rho(i,j,k) = fk * Sigtot/(std::sqrt(2*M_PI)*hd) * std::exp(-(g.Zc(i,j)*g.Zc(i,j)/(2.*hd*hd)));
 
@@ -211,7 +211,7 @@ int main() {
         int n_spec = 100;
         double a0 = 1e-5 ; // Grain size lower bound in cm
         double a1 = 1.   ;  // Grain size upper bound in cm
-        SizeGrid sizes(a0, a1, n_spec, 3.5) ;
+        SizeGrid sizes(g, a0, a1, n_spec, 3.5) ;
 
         double Cv = 100* 2.5*R_gas/2.4;
 
@@ -282,7 +282,7 @@ int main() {
             double dt_inittemp = 0;
             if (n==0) { dt_inittemp = 0; }
 
-            FLD.solve_multi_band(g, dt_inittemp, Cv, rho_kappa_abs_binned, rho_kappa_sca_binned, rhotot, heating, binned_scattering, bins.edges, T, J);
+            FLD.solve_multi_band(g, dt_inittemp, Cv, rho_kappa_abs_binned, rho_kappa_sca_binned, rhotot, heating, binned_scattering, bins.edges, T, J, true);
 
             std::cout << "T:" << T(1,1) << " " << T(30, 2) 
                       << " "<< T(1, g.Nphi) << " " <<  T(g.NR, g.Nphi)

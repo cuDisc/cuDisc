@@ -62,7 +62,7 @@ void set_up_dust(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, Field3D<double>&
             double rho_tot = 0;
             for (int k=0; k<qd.Nd; k++) {
                 // Initialise dust with MRN profile and exponential cut off at 0.1 micron
-                qd(i,j,k).rho = std::pow(sizes.centre_size(k)/sizes.centre_size(0), 0.5) * std::exp(-std::pow(sizes.centre_size(k)/1e-5, 10.));
+                qd(i,j,k).rho = std::pow(sizes.grain_props(i,j,k).a/sizes.grain_props(i,j,0).a, 0.5) * std::exp(-std::pow(sizes.grain_props(i,j,k).a/1e-5, 10.));
                 D(i,j,k) = wg(i,j).rho * (alpha * cs(i,j) * cs(i,j) / std::sqrt(GMsun/std::pow(g.Rc(i), 3.))) / Sc ;
                 rho_tot += qd(i,j,k).rho;
             }
@@ -145,7 +145,7 @@ void cs2_to_cs(Grid& g, Field<double> &cs, Field<double> &cs2) {
 
 int main() {
 
-    std::filesystem::path dir = std::string("./codes/outputs/isoPD");
+    std::filesystem::path dir = std::string("./codes/outputs/isoPD/");
     std::filesystem::create_directories(dir);
 
     // Set up spatial grid 
@@ -170,12 +170,12 @@ int main() {
 
     double rho_p = 1.6;
     double a0 = 1e-5 ; // Grain size lower bound in cm
-    double a1 = 10.   ;  // Grain size upper bound in cm
+    double a1 = 100.   ;  // Grain size upper bound in cm
     int n_spec = 7.*3.*std::log10(a1/a0) + 1;
-    double v_frag = 100.; // Fragmentation threshold
+    double v_frag = 1000.; // Fragmentation threshold
 
     std::cout << "Number of dust species: "<< n_spec << "\n";
-    SizeGrid sizes(a0, a1, n_spec, rho_p) ;
+    SizeGrid sizes(g, a0, a1, n_spec, rho_p) ;
 
     write_grids(dir, &g, &sizes); // Write grids to file
 
@@ -183,6 +183,9 @@ int main() {
     
     double mu = 2.4, M_star = 1., alpha = 1.e-3, T_star=4500., R_star = 1.7*Rsun;
     double L_star = 4.*M_PI*sigma_SB*std::pow(T_star, 4.)*std::pow(R_star, 2.);
+
+    Field<double> mu2D = create_field<double>(g); // mu 2D
+    set_all(g, mu2D, mu);
 
     // Create star
 
@@ -212,7 +215,7 @@ int main() {
         
     int gas_boundary = BoundaryFlags::open_R_inner | BoundaryFlags::open_R_outer | BoundaryFlags::open_Z_outer;
     double gas_floor = 1e-100;
-    double floor = 1.e-10;
+    double floor = 1.e-12;
 
     compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, gas_floor);
     calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor);   
@@ -234,7 +237,7 @@ int main() {
 
     // Set up coagulation kernel, storing the fragmentation velocity
 
-    BirnstielKernel kernel = BirnstielKernel(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu, M_star);
+    BirnstielKernel kernel(g, sizes, Ws_d, Ws_g, cs, alpha2D, mu2D, M_star);
     kernel.set_fragmentation_threshold(v_frag);
 
     // Setup the integrator
@@ -252,8 +255,8 @@ int main() {
     // Choose times to store data
     
     double t = 0, dt;
-    const int ntimes = 4;  
-    double ts[ntimes] = {10*year, 100*year, 1000*year, 1e4*year};
+    const int ntimes = 7;  
+    double ts[ntimes] = {1*year, 10*year, 100*year, 1000*year, 2000*year, 5000*year, 1e4*year};
 
     std::ofstream f_times((dir / "2Dtimes.txt"));
     f_times << 0. << "\n";
@@ -264,7 +267,7 @@ int main() {
 
     // Initialise diffusion-advection solver
 
-    Sources src(T, Ws_g, sizes, floor, M_star, mu);
+    Sources src(T, Ws_g, sizes, floor, M_star, mu2D);
     DustDynamics dyn(D, cs, src, 0.4, 0.2, floor, gas_floor);
 
     double dt_CFL = dyn.get_CFL_limit(g, Ws_d, Ws_g);
@@ -302,6 +305,7 @@ int main() {
         std::cout << "Restart params: " << count << " " << t/year << " " << dt_CFL/year << "\n";
 
         read_restart_prims(dir, Ws_d, Ws_g, Sig_g);
+        dyn.read_active(g, dir);
 
         compute_cs2(g,T,cs2,mu);
         cs2_to_cs(g, cs, cs2);
@@ -343,7 +347,7 @@ int main() {
             // Gas updates
 
             update_gas_sigma(g, Sig_g, dt, nu, gas_boundary, gas_floor);
-            compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, Ws_d, gas_floor);
+            compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, Ws_d, gas_floor, floor);
             calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor);  
             compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);
 
@@ -359,8 +363,8 @@ int main() {
             count += 1;
             t += dt;
 
-            if (count < 1000) {
-                dt_CFL = std::min(dyn.get_CFL_limit(g, Ws_d, Ws_g), 1.025*dt); // Calculate new CFL condition time-step 
+            if (count < 200) {
+                dt_CFL = std::min(dyn.get_CFL_limit(g, Ws_d, Ws_g), 1.1*dt); // Calculate new CFL condition time-step 
             }
             else {
                 dt_CFL = dyn.get_CFL_limit(g, Ws_d, Ws_g);
@@ -371,6 +375,7 @@ int main() {
             //     std::cout << "Writing restart at t = " << t/year << " years.\n" ;
             //     write_restart_file(dir / ("restart_params.dat"), count, t, dt_CFL, t_coag, t_temp, dt_coag, dt_1perc, dummy);
             //     write_restart_prims(dir, g, Ws_d, Ws_g, Sig_g);  
+            //     dyn.write_active(g, dir);
             //     return 0;
             // } 
 

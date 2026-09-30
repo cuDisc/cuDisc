@@ -8,6 +8,7 @@
 #include <fstream>
 #include "field.h"
 #include "DSHARP_opacs.h"
+#include "cuzzi_opacs.h"
 #include "bins.h"
 #include "dustdynamics1D.h"
 
@@ -33,6 +34,23 @@ void write_grids(std::filesystem::path folder, Grid* g, SizeGrid* s, DSHARP_opac
     }
 }
 
+template<typename T>
+void write_grids(std::filesystem::path folder, Grid* g, SizeGrid* s, CuzziOpacs<T>* o = nullptr, WavelengthBinner* b = nullptr) {
+
+    if ((o != nullptr && b == nullptr) || (o == nullptr && b != nullptr)) {
+        throw std::runtime_error("One of bins or opacity grids missing - both are required.\n"); 
+    }
+
+    g->write_grid(folder);
+    s->write_grid(folder);
+
+    if (o != nullptr) {
+        o->write_interp(folder);
+    }
+    if (b != nullptr) {
+        b->write_wle(folder);
+    }
+}
 
 
 /* write_prims
@@ -136,11 +154,11 @@ void write_prims1D(std::filesystem::path folder, out_type out, Grid &g, Field3D<
     f.write((char*) &NR, sizeof(int));
     f.write((char*) &nspec, sizeof(int));
     for (int i=0; i<g.NR+2*g.Nghost; i++) {
-        for (int k=0; k<2; k++) {
+        for (int k=0; k<4; k++) {
             f.write((char*) &wg(i,g.Nghost)[k], sizeof(double));
         }
         for (int k=0; k<wd.Nd; k++) {
-            for (int l=0; l<2; l++) {
+            for (int l=0; l<4; l++) {
                 f.write((char*) &wd(i,g.Nghost,k)[l], sizeof(double));
             }
         }
@@ -212,11 +230,11 @@ void read_prims1D(std::filesystem::path folder, out_type out, Field3D<Prims1D>& 
     f.read((char*) &NR, sizeof(int));
     f.read((char*) &nspec, sizeof(int));
     for (int i=0; i<NR; i++) {
-        for (int k=0; k<2; k++) {
+        for (int k=0; k<4; k++) {
             f.read((char*) &wg(i,2)[k], sizeof(double));
         }
         for (int k=0; k<nspec; k++) {
-            for (int l=0; l<2; l++) {
+            for (int l=0; l<4; l++) {
                 f.read((char*) &wd(i,2,k)[l], sizeof(double));
             }
         }
@@ -545,6 +563,44 @@ void write_restart_file(std::string filename, int count, double t, double dt, do
     f.close();
 }
 
+void write_restart_file(std::string filename, int count, double t, double dt, double t_coag, double dt_coag, double t_temp, double dt_1perc, double t_chem, double dt_1percchem) {
+
+    std::ofstream f(filename, std::ios::binary);
+
+    f.write((char*) &count, sizeof(int));
+    f.write((char*) &t, sizeof(double));
+    f.write((char*) &dt, sizeof(double));
+    f.write((char*) &t_coag, sizeof(double));
+    f.write((char*) &dt_coag, sizeof(double));
+    f.write((char*) &t_temp, sizeof(double));
+    f.write((char*) &dt_1perc, sizeof(double));
+    f.write((char*) &t_chem, sizeof(double));
+    f.write((char*) &dt_1percchem, sizeof(double));
+
+    f.close();
+}
+
+void write_restart_file(std::string filename, int count, double t, double dt, double t_i, double dt_i, double t_coag_i, double dt_coag_i, double t_coag_o, double dt_coag_o, double t_temp, double dt_1perc, double t_chem, double dt_1percchem) {
+
+    std::ofstream f(filename, std::ios::binary);
+
+    f.write((char*) &count, sizeof(int));
+    f.write((char*) &t, sizeof(double));
+    f.write((char*) &dt, sizeof(double));
+    f.write((char*) &t_i, sizeof(double));
+    f.write((char*) &dt_i, sizeof(double));
+    f.write((char*) &t_coag_i, sizeof(double));
+    f.write((char*) &dt_coag_i, sizeof(double));
+    f.write((char*) &t_coag_o, sizeof(double));
+    f.write((char*) &dt_coag_o, sizeof(double));
+    f.write((char*) &t_temp, sizeof(double));
+    f.write((char*) &dt_1perc, sizeof(double));
+    f.write((char*) &t_chem, sizeof(double));
+    f.write((char*) &dt_1percchem, sizeof(double));
+
+    f.close();
+}
+
 void read_restart_file(std::string filename, int& count, double& t, double& dt, double& t_coag, double& t_temp, double& dt_coag, double& dt_1perc, double& t_interp) {
 
     std::ifstream f(filename, std::ios::binary);
@@ -557,6 +613,23 @@ void read_restart_file(std::string filename, int& count, double& t, double& dt, 
     f.read((char*) &dt_coag, sizeof(double));
     f.read((char*) &dt_1perc, sizeof(double));
     f.read((char*) &t_interp, sizeof(double));
+
+    f.close();
+}
+
+void read_restart_file(std::string filename, int& count, double& t, double& dt, double& t_coag, double& dt_coag, double& t_temp, double& dt_1perc, double& t_chem, double& dt_1percchem) {
+
+    std::ifstream f(filename, std::ios::binary);
+
+    f.read((char*) &count, sizeof(int));
+    f.read((char*) &t, sizeof(double));
+    f.read((char*) &dt, sizeof(double));
+    f.read((char*) &t_coag, sizeof(double));
+    f.read((char*) &dt_coag, sizeof(double));
+    f.read((char*) &t_temp, sizeof(double));
+    f.read((char*) &dt_1perc, sizeof(double));
+    f.read((char*) &t_chem, sizeof(double));
+    f.read((char*) &dt_1percchem, sizeof(double));
 
     f.close();
 }
@@ -576,6 +649,26 @@ void read_restart_file(std::string filename, int& count, double& t, double& dt, 
     f.read((char*) &dt_coag_o, sizeof(double));
     f.read((char*) &t_temp, sizeof(double));
     f.read((char*) &dt_1perc, sizeof(double));
+
+    f.close();
+}
+void read_restart_file(std::string filename, int& count, double& t, double& dt, double& t_i, double& dt_i, double& t_coag_i, double& dt_coag_i, double& t_coag_o, double& dt_coag_o, double& t_temp, double& dt_1perc, double& t_chem, double& dt_1percchem) {
+
+    std::ifstream f(filename, std::ios::binary);
+
+    f.read((char*) &count, sizeof(int));
+    f.read((char*) &t, sizeof(double));
+    f.read((char*) &dt, sizeof(double));
+    f.read((char*) &t_i, sizeof(double));
+    f.read((char*) &dt_i, sizeof(double));
+    f.read((char*) &t_coag_i, sizeof(double));
+    f.read((char*) &dt_coag_i, sizeof(double));
+    f.read((char*) &t_coag_o, sizeof(double));
+    f.read((char*) &dt_coag_o, sizeof(double));
+    f.read((char*) &t_temp, sizeof(double));
+    f.read((char*) &dt_1perc, sizeof(double));
+    f.read((char*) &t_chem, sizeof(double));
+    f.read((char*) &dt_1percchem, sizeof(double));
 
     f.close();
 }

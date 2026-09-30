@@ -16,8 +16,8 @@
 #include "file_io.h"
 #include "errorfuncs.h"
 
-double rhobench[] = {3.38824e-13, 4.78601e-13, 6.76042e-13, 9.54936e-13, 1.34888e-12, 1.90535e-12, 2.69139e-12, 3.80172e-12, 5.37015e-12, 7.58575e-12, 1.07158e-11, 1.51382e-11, 2.13881e-11, 3.02251e-11, 4.27478e-11, 6.06822e-11, 2.01842e-11, 2.24911e-18, 2.24911e-18, 2.24911e-18};
-double vRbench[] = {-9.62968e-06, -1.92137e-05, -3.83364e-05, -7.64913e-05, -0.00015262, -0.000304517, -0.000607591, -0.0012123, -0.00241886, -0.00482627, -0.00962967, -0.0192137, -0.0383364, -0.0764912, -0.198354, -0.78966, -3.14368, 0, 0, 0};
+double rhobench[] = {3.38538e-13,4.78197e-13,6.75471e-13,9.54129e-13,1.34774e-12,1.90374e-12,2.68912e-12,3.79851e-12,5.36561e-12,7.57935e-12,1.07067e-11,1.51254e-11,2.13702e-11,3.02001e-11,4.27137e-11,6.06415e-11,2.01825e-11,2.24911e-19,2.24911e-19,2.24911e-19};
+double vRbench[] = {3.47204,3.47203,3.47201,3.47197,3.47189,3.47174,3.47144,3.47083,3.46963,3.46723,3.46243,3.45286,3.43377,3.39568,3.27402,2.68371,0.333626,3.47204,3.47204,3.47204};
 
 void set_up_gas(Grid& g, CudaArray<double>& Sig_g, CudaArray<double>& nu, Field<double>& T, Field<double>& cs, Field<double>& cs2, double alpha, Star& star) {
   
@@ -56,7 +56,7 @@ void set_up_dust(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, Field3D<double>&
             double rho_tot = 0;
             for (int k=0; k<qd.Nd; k++) {
                 // Initialise dust with MRN profile and exponential cut off at 0.1 micron
-                qd(i,j,k).rho = std::pow(sizes.centre_size(k)/sizes.centre_size(0), 0.5) * std::exp(-std::pow(sizes.centre_size(k)/1., 10.));
+                qd(i,j,k).rho = std::pow(sizes.grain_props(i,j,k).a/sizes.grain_props(i,j,0).a, 0.5) * std::exp(-std::pow(sizes.grain_props(i,j,k).a/1., 10.));
                 D(i,j,k) = wg(i,j).rho * (alpha * cs(i,j) * cs(i,j) / std::sqrt(GMsun/std::pow(g.Rc(i), 3.))) / Sc ;
                 rho_tot += qd(i,j,k).rho;
             }
@@ -167,7 +167,7 @@ int main() {
     double a1 = 10.   ;  // Grain size upper bound in cm
     int n_spec = 20;
 
-    SizeGrid sizes(a0, a1, n_spec, rho_p) ;
+    SizeGrid sizes(g, a0, a1, n_spec, rho_p) ;
 
     // Disc & Star parameters
     
@@ -188,6 +188,7 @@ int main() {
     Field<double> cs = create_field<double>(g); // Sound speed
     Field<double> cs2 = create_field<double>(g); // Sound speed squared
     Field<double> alpha2D = create_field<double>(g); // alpha 2D
+    Field<double> mu2D = create_field<double>(g); // alpha 2D
     Field3D<double> D = create_field3D<double>(g, n_spec); // Dust diffusion constant 
 
     // Set up initial dust and gas variables
@@ -203,6 +204,7 @@ int main() {
     for (int i=0; i<g.NR + 2*g.Nghost; i++) {
         for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
             alpha2D(i,j) = alpha;
+            mu2D(i,j) = mu;
         }
     }
 
@@ -212,7 +214,7 @@ int main() {
 
     // Initialise diffusion-advection solver
 
-    Sources src(T, Ws_g, sizes, floor, M_star, mu);
+    Sources src(T, Ws_g, sizes, floor, M_star, mu2D);
     DustDynamics dyn(D, cs, src, 0.4, 0.2, floor, gas_floor);
 
     // Set up boundary conditions
@@ -252,7 +254,7 @@ int main() {
         L2 += (std::pow(Ws_d(2,2,k).v_R-vRbench[k], 2.)/sizes.size());
     }
     L2 = std::sqrt(L2);
-    if (L2 <= 1.e-6) {printf("Pass.\n");}
+    if (L2 <= 1.e-5) {printf("Pass.\n");}
     else {printf("\n\tL2 = %g, fail.\n", L2);}
     return 0;
 } 

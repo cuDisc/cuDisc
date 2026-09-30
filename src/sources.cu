@@ -21,7 +21,7 @@ double OmK2(GridRef& g, double Mstar, int i, int j) {
 }
 
 __global__
-void _source_curv_grav(GridRef g, Field3DRef<Prims> w, Field3DRef<Quants> u, FieldConstRef<Prims> wg, double dt, double Mstar, double floor) {
+void _source_curv_grav(GridRef g, Field3DRef<Prims> w, Field3DRef<Quants> u, FieldConstRef<Prims> wg, Field3DConstRef<int> active, double dt, double Mstar, double floor) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -34,7 +34,7 @@ void _source_curv_grav(GridRef g, Field3DRef<Prims> w, Field3DRef<Quants> u, Fie
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
             for (int k=kidx; k<w.Nd; k+=kstride) {
 
-                if (w(i,j,k).rho > 1.1*wg(i,j).rho*floor) {
+                if (active(i,j,k)) {
 
                     double f1 = w(i,j,k).v_phi*w(i,j,k).v_phi/g.Rc(i) - OmK2(g, Mstar, i, j)*g.Rc(i);
                     double f2 = -OmK2(g, Mstar, i, j)*g.Zc(i,j);
@@ -48,7 +48,7 @@ void _source_curv_grav(GridRef g, Field3DRef<Prims> w, Field3DRef<Quants> u, Fie
 }
 
 __global__
-void _source_curv_grav_pressure(GridRef g, Field3DRef<Prims> w, Field3DRef<Quants> u, FieldConstRef<Prims> wg, Field3DConstRef<double> f_rad, double dt, double Mstar, double floor) {
+void _source_curv_grav_pressure(GridRef g, Field3DRef<Prims> w, Field3DRef<Quants> u, FieldConstRef<Prims> wg, Field3DConstRef<double> f_rad, Field3DConstRef<int> active, double dt, double Mstar, double floor) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -61,7 +61,7 @@ void _source_curv_grav_pressure(GridRef g, Field3DRef<Prims> w, Field3DRef<Quant
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
             for (int k=kidx; k<w.Nd; k+=kstride) {
 
-                if (w(i,j,k).rho > 1.1*wg(i,j).rho*floor) {
+                if (active(i,j,k)) {
 
                     double f1 = w(i,j,k).v_phi*w(i,j,k).v_phi/g.Rc(i) - OmK2(g, Mstar, i, j)*g.Rc(i) + f_rad(i,j,k)*g.Rc(i)/(w(i,j,k).rho*g.rc(i,j));
                     double f2 = -OmK2(g, Mstar, i, j)*g.Zc(i,j) + f_rad(i,j,k)*g.Zc(i,j)/(w(i,j,k).rho*g.rc(i,j));
@@ -76,7 +76,7 @@ void _source_curv_grav_pressure(GridRef g, Field3DRef<Prims> w, Field3DRef<Quant
 }
 
 __global__
-void _source_drag(GridRef g, Field3DRef<Prims> w, FieldConstRef<Prims> w_gas, Field3DConstRef<double> t_stop, double dt, double) {
+void _source_drag(GridRef g, Field3DRef<Prims> w, FieldConstRef<Prims> w_gas, Field3DConstRef<double> t_stop, Field3DConstRef<int> active, double dt, double) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -117,7 +117,7 @@ void _source_drag(GridRef g, Field3DRef<Prims> w, FieldConstRef<Prims> w_gas, Fi
 template<bool full_stokes>
 __global__
 void _calc_t_s(GridRef g, Field3DConstRef<Prims> q, FieldConstRef<Prims> w_gas, FieldConstRef<double> T, 
-                    Field3DRef<double> t_stop, const RealType* s, double rho_m, double mu) {
+                    Field3DRef<double> t_stop, Field3DConstRef<Grain> grain, FieldConstRef<double> mu) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -129,24 +129,24 @@ void _calc_t_s(GridRef g, Field3DConstRef<Prims> q, FieldConstRef<Prims> w_gas, 
     for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
             for (int k=kidx; k<q.Nd; k+=kstride) {
-                double cs = sqrt(k_B*T(i,j)/(mu*m_H));
-                t_stop(i,j,k) = calc_t_s<full_stokes>(q(i,j,k), w_gas(i,j), s[k], rho_m, cs, mu);
+                double cs = sqrt(k_B*T(i,j)/(mu(i,j)*m_H));
+                t_stop(i,j,k) = calc_t_s<full_stokes>(q(i,j,k), w_gas(i,j), grain(i,j,k).a, grain(i,j,k).rho, cs, mu(i,j));
             }
         }
     }
 }
 
 template<bool use_full_stokes>
-void Sources<use_full_stokes>::source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u, double dt) {
+void Sources<use_full_stokes>::source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u, Field3DConstRef<int> active, double dt) {
 
     dim3 threads(16,8,8);
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (u.Nd+7)/8) ;
 
-    _source_curv_grav<<<blocks,threads>>>(g, w, u, _w_gas, dt, _Mstar, _floor);
+    _source_curv_grav<<<blocks,threads>>>(g, w, u, _w_gas, active, dt, _Mstar, _floor);
 }
 
 template<bool use_full_stokes>
-void Sources<use_full_stokes>::source_imp(Grid& g, Field3D<Prims>& w, double dt) {
+void Sources<use_full_stokes>::source_imp(Grid& g, Field3D<Prims>& w, Field3DConstRef<int> active, double dt) {
 
     Field3D<double> t_stop = Field3D<double>(g.NR+2*g.Nghost,g.Nphi+2*g.Nghost,w.Nd);
 
@@ -154,23 +154,23 @@ void Sources<use_full_stokes>::source_imp(Grid& g, Field3D<Prims>& w, double dt)
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (w.Nd+7)/8) ;
 
     if (use_full_stokes) 
-        _calc_t_s<true><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_sizes(), _sizes.solid_density(), _mu);
+        _calc_t_s<true><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_props, _mu);
     else
-        _calc_t_s<false><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_sizes(), _sizes.solid_density(), _mu);
-    _source_drag<<<blocks,threads>>>(g, w, _w_gas, t_stop, dt, _Mstar);
+        _calc_t_s<false><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_props, _mu);
+    _source_drag<<<blocks,threads>>>(g, w, _w_gas, t_stop, active, dt, _Mstar);
 }
 
 template<bool use_full_stokes>
-void SourcesRad<use_full_stokes>::source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u, double dt) {
+void SourcesRad<use_full_stokes>::source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u, Field3DConstRef<int> active, double dt) {
 
     dim3 threads(16,8,8);
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (u.Nd+7)/8) ;
 
-    _source_curv_grav_pressure<<<blocks,threads>>>(g, w, u, _w_gas, _f_rad, dt, _Mstar, _floor);
+    _source_curv_grav_pressure<<<blocks,threads>>>(g, w, u, _w_gas, _f_rad, active, dt, _Mstar, _floor);
 }
 
 template<bool use_full_stokes>
-void SourcesRad<use_full_stokes>::source_imp(Grid& g, Field3D<Prims>& w, double dt) {
+void SourcesRad<use_full_stokes>::source_imp(Grid& g, Field3D<Prims>& w, Field3DConstRef<int> active, double dt) {
 
     Field3D<double> t_stop = Field3D<double>(g.NR+2*g.Nghost,g.Nphi+2*g.Nghost,w.Nd);
 
@@ -178,10 +178,10 @@ void SourcesRad<use_full_stokes>::source_imp(Grid& g, Field3D<Prims>& w, double 
     dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (w.Nd+7)/8) ;
 
     if (use_full_stokes) 
-        _calc_t_s<true><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_sizes(), _sizes.solid_density(), _mu);
+        _calc_t_s<true><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_props, _mu);
     else
-        _calc_t_s<false><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_sizes(), _sizes.solid_density(), _mu);
-    _source_drag<<<blocks,threads>>>(g, w, _w_gas, t_stop, dt, _Mstar);
+        _calc_t_s<false><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_props, _mu);
+    _source_drag<<<blocks,threads>>>(g, w, _w_gas, t_stop, active, dt, _Mstar);
 }
 
 template class Sources<true>;

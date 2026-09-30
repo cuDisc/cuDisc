@@ -1,5 +1,6 @@
 
 #include <cassert>
+#include <cmath>
 #include <iostream>
 #include <fstream>
 #include <stdexcept>
@@ -40,6 +41,7 @@ CSR_SpMatrix _create_FLD_multi_matrix(const Grid& g, int num_bands) {
             case 2:
                 return 3;
             default:
+                std::cerr << "create_FLD_multi_matrix: Unexpected number of edges: " << edges << std::endl ;
                 throw std::invalid_argument("Should never occur") ;
                 return -1 ;
         }
@@ -60,6 +62,232 @@ CSR_SpMatrix _create_FLD_multi_matrix(const Grid& g, int num_bands) {
     assert (mat.csr_offset[(1+num_bands)*nx*ny] == mat.csr_offset[0] + non_zero) ;
 
     return mat ;
+}
+
+
+__global__
+void __reduced_eqns_reduce_system(DnVecConstRef JT, DnVecRef Jreduced, int num_bands) {
+    int i = threadIdx.x + blockIdx.x*blockDim.x ;
+    int j = threadIdx.y + blockIdx.y*blockDim.y ;
+
+    int num_rows = Jreduced.rows / num_bands ;
+
+    if (i < num_rows && j < num_bands) {
+        Jreduced.data[i*num_bands + j] = JT.data[i*(1+num_bands) + 1 + j] ;
+    }
+}
+
+__global__
+void __reduced_eqns_expand_solution(DnVecRef JT, DnVecConstRef Jreduced, CSR_SpMatrixConstRef T_from_J, DnVecConstRef T_from_J_rhs, int num_bands) {
+    int i = threadIdx.x + blockIdx.x*blockDim.x ;
+    int j = threadIdx.y + blockIdx.y*blockDim.y ;
+
+    int num_rows = T_from_J_rhs.rows ;
+
+    if (i < num_rows && j < num_bands) {
+        // Copy the energy
+        JT.data[i*(1+num_bands) + 1 + j] = Jreduced.data[i*num_bands + j] ;
+    }
+    if (i < num_rows && j == 0) {
+        // Compute the temperature
+        JT.data[i*(1+num_bands)] = T_from_J_rhs.data[i] ;
+        for (int b=0; b < num_bands; b++) {
+            JT.data[i*(1+num_bands)] += T_from_J.data[i*num_bands + b] * Jreduced.data[i*num_bands + b] ;
+        }
+    }
+    
+}
+
+
+class ReducedEquations {
+  public:
+    ReducedEquations(int num_bands_, CSR_SpMatrix&& mat_, DnVec&& rhs_, CSR_SpMatrix&& T_from_J_, DnVec&& T_from_J_rhs_) 
+        : _num_bands(num_bands_), mat(std::move(mat_)), rhs(std::move(rhs_)), 
+          _T_from_J(std::move(T_from_J_)), _T_from_J_rhs(std::move(T_from_J_rhs_)) {}
+    
+    ReducedEquations()
+        : _num_bands(0), mat(1,1,1), rhs(1), _T_from_J(1,1,1), _T_from_J_rhs(1) {}
+
+    DnVec reduce_system(const DnVec& JT) const {    
+        DnVec J(rhs.rows) ;
+
+        dim3 block_size(64, 16) ;
+        dim3 blocks((J.rows + block_size.x - 1)/block_size.x, (_num_bands + block_size.y - 1)/block_size.y) ;
+
+        __reduced_eqns_reduce_system<<<blocks, block_size>>>(JT, J, _num_bands) ;
+        check_CUDA_errors("__reduced_eqns_reduce_system") ;
+
+        return J;
+    }
+
+    DnVec expand_solution(const DnVec& J) const {
+        DnVec JT(_T_from_J.rows*(1+_num_bands)) ;
+
+        dim3 block_size(1024, 1) ;
+        dim3 blocks(((_T_from_J_rhs.rows + block_size.x - 1)/block_size.x), (_num_bands + block_size.y - 1)/block_size.y) ;
+
+        __reduced_eqns_expand_solution<<<blocks, block_size>>>(JT, J, _T_from_J, _T_from_J_rhs, _num_bands) ;
+        check_CUDA_errors("__reduced_eqns_expand_solution") ;
+
+        return JT;
+    }
+
+    CSR_SpMatrix mat ;
+    DnVec rhs ;
+ private:
+    int _num_bands ;
+    CSR_SpMatrix _T_from_J ;
+    DnVec _T_from_J_rhs ;
+} ;
+
+__host__ __device__ void __create_reduced_system_cell(
+        int i, int j, int nx, int ny, int num_bands,
+        CSR_SpMatrixConstRef mat, DnVecConstRef rhs,
+        CSR_SpMatrixRef reduced_mat, DnVecRef reduced_rhs,
+        CSR_SpMatrixRef T_from_J, DnVecRef T_from_J_rhs) {
+
+    // Write the temperature equation in terms of the radiation density:
+    int k_cell = (i*ny + j);
+
+    int k_block_o = (1+num_bands)*k_cell;
+    int k_block_n = num_bands*k_cell;
+
+    int start_o = mat.csr_offset[k_block_o] ;
+    int start_n = k_block_n ;
+
+    // Get the temperature row:
+    double T0 = mat.data[start_o++];
+    T_from_J.csr_offset[k_cell+1] = (k_cell+1)*num_bands ;
+    for (int b=0; b < num_bands; b++) {
+        T_from_J.col_index[start_n] = start_n;
+        if (mat.col_index[start_o] == k_block_o + b + 1)
+            T_from_J.data[start_n++] = -mat.data[start_o++]/T0;
+        else
+            T_from_J.data[start_n++] = 0 ;
+    }
+    T_from_J_rhs.data[k_cell] = rhs.data[k_block_o]/T0;
+
+    // Fill in the radiation with the temperature eliminated.
+    for (int b=0; b < num_bands; b++) {
+        // Copy diffusion terms:
+        int k_o = k_block_o + 1 + b ;
+        int k_n = k_block_n + b ;
+
+        start_o = mat.csr_offset[k_o] ;
+
+        // Find the CSR offset of the new array by correcting the old one for the new sparsity structure on the diagonal.
+        int start_block = start_o - k_cell*(1 + 3*num_bands) - (1 + num_bands) - 2*b;
+        int start_n = start_block + k_cell*num_bands*num_bands + b*num_bands ;
+
+        reduced_rhs.data[k_n] = rhs.data[k_o] ;
+
+        // Copy the diffusion terms for cells before this one
+        while (mat.col_index[start_o] < k_block_o) {
+            int col_cell = (mat.col_index[start_o] - 1) / (1 + num_bands) ;
+            reduced_mat.col_index[start_n] = mat.col_index[start_o] - col_cell - 1;
+            reduced_mat.data[start_n] = mat.data[start_o] ;
+            start_n++ ;
+            start_o++ ;
+        }
+
+        // Handle the coupling terms
+        double coupling = 0 ;
+        if (mat.col_index[start_o] == k_block_o) {
+            coupling = mat.data[start_o++] ;
+        }
+        for (int k = k_block_n; k < k_block_n + num_bands; k++) {
+            reduced_mat.col_index[start_n] = k ;
+            if (k == k_n)
+                reduced_mat.data[start_n] = mat.data[start_o++] ;
+            else
+                reduced_mat.data[start_n] = 0 ;
+
+            reduced_mat.data[start_n] += coupling*T_from_J.data[k];
+            start_n++ ;
+        }
+        reduced_rhs.data[k_n] -= coupling*T_from_J_rhs.data[k_cell];
+
+        // Add the remaining diffusion terms
+        while (start_o < mat.csr_offset[k_o+1]) {
+            int col_cell = (mat.col_index[start_o] - 1) / (1 + num_bands) ;
+            reduced_mat.col_index[start_n] = mat.col_index[start_o] - col_cell - 1;
+            reduced_mat.data[start_n] = mat.data[start_o] ;
+            start_n++ ;
+            start_o++ ;
+        }
+        reduced_mat.csr_offset[k_block_n+b+1] = start_n ;
+    }
+}
+
+__global__ void __create_reduced_system(int nx, int ny, int num_bands, 
+                                        CSR_SpMatrixConstRef mat, DnVecConstRef rhs, 
+                                        CSR_SpMatrixRef reduced_mat, DnVecRef reduced_rhs, 
+                                        CSR_SpMatrixRef T_from_J, DnVecRef T_from_J_rhs) {
+    int i = threadIdx.x + blockIdx.x*blockDim.x ;
+    int j = threadIdx.y + blockIdx.y*blockDim.y ;
+
+    if ((i < nx) && (j < ny)) {
+        __create_reduced_system_cell(i, j, nx, ny, num_bands,
+                                     mat, rhs, reduced_mat, reduced_rhs,
+                                     T_from_J, T_from_J_rhs) ;
+    }
+}
+
+void __create_reduced_system_cpu(int nx, int ny, int num_bands,
+                                 CSR_SpMatrixConstRef mat, DnVecConstRef rhs,
+                                 CSR_SpMatrixRef reduced_mat, DnVecRef reduced_rhs,
+                                 CSR_SpMatrixRef T_from_J, DnVecRef T_from_J_rhs) {
+    for (int i = 0; i < nx; i++)
+        for (int j = 0; j < ny; j++)
+            __create_reduced_system_cell(i, j, nx, ny, num_bands,
+                                         mat, rhs, reduced_mat, reduced_rhs,
+                                         T_from_J, T_from_J_rhs) ;
+}
+
+ReducedEquations create_reduced_system(const Grid& g, CSR_SpMatrix& mat, DnVec& rhs, int num_bands) {
+
+    // Reduce number of rows by eliminating the gas temperature equation. 
+    // Change non-zeros to make the diagonal blocks dense.
+    int nx = g.NR ;
+    int ny = g.Nphi ;
+
+    assert(nx > 1 && ny > 1) ;
+    int rows = num_bands*nx*ny ;
+    int non_zeros = nx*ny*num_bands*num_bands + // coupling
+        num_bands*(8*(nx-2)*(ny-2) + 5*2*(nx + ny - 4) + 3*4) ; // FLD
+
+    // Matrix for the reduced system. 
+    CSR_SpMatrix reduced_mat(rows, rows, non_zeros) ;
+    DnVec reduced_rhs(rows) ;
+
+    // Matrix to get the temperature from the radiation density:
+    CSR_SpMatrix T_from_J(nx*ny, num_bands*nx*ny, num_bands*nx*ny) ;
+    DnVec T_from_J_rhs(nx*ny) ;
+
+
+    dim3 block_size(32, 32) ;
+    dim3 blocks((nx + block_size.x - 1)/block_size.x, (ny + block_size.y - 1)/block_size.y) ;
+    
+    reduced_mat.csr_offset[0] = 0 ;
+    T_from_J.csr_offset[0] = 0 ;
+
+    constexpr bool use_gpu_reduction = true ;
+    if (use_gpu_reduction) {
+        __create_reduced_system<<<blocks, block_size>>>(
+            nx, ny, num_bands, mat, rhs, reduced_mat, reduced_rhs, T_from_J, T_from_J_rhs
+        ) ;
+        check_CUDA_errors("__create_reduced_system") ;
+    }
+    else {
+        __create_reduced_system_cpu(
+            nx, ny, num_bands, mat, rhs, reduced_mat, reduced_rhs, T_from_J, T_from_J_rhs
+        ) ;
+    }
+
+    assert (reduced_mat.csr_offset[num_bands*nx*ny] == reduced_mat.csr_offset[0] + non_zeros) ;
+    assert (T_from_J.csr_offset[nx*ny] == T_from_J.csr_offset[0] + num_bands*nx*ny) ;
+
+    return ReducedEquations(num_bands, std::move(reduced_mat), std::move(reduced_rhs), std::move(T_from_J), std::move(T_from_J_rhs)) ;
 }
 
 
@@ -430,6 +658,181 @@ __global__ void create_FLD_multi_system(GridRef g, double dt, double Cv,
     }} // End loop over bands
 }
 
+__global__ void create_FLD_multi_system(GridRef g, double dt, FieldConstRef<double> Cv, 
+                                        FieldConstRef<double> rho, Field3DConstRef<double> rhok_abs, 
+                                        FieldConstRef<double> T, Field3DConstRef<double> J,
+                                        Field3DConstRef<double> D, 
+                                        FieldConstRef<double> heat, 
+                                        Field3DConstRef<double> scattering,
+                                        double T_ext,
+                                        PlanckIntegralRef planck, const double* wle,
+                                        CSR_SpMatrixRef mat, DnVecRef rhs,
+                                        int boundary) {
+
+    int j = threadIdx.x + blockIdx.x*blockDim.x + g.Nghost ;
+    int i = threadIdx.y + blockIdx.y*blockDim.y + g.Nghost ;
+    
+    int nx = g.NR ;
+    int ny = g.Nphi ;
+    int num_bands = J.Nd ;
+    
+    if (i < nx+g.Nghost && j < ny+g.Nghost) {
+        
+        double T0 = T[T.index(i,j)] ;
+        double d = rho[rho.index(i,j)] ;
+        double k0 = 16*sigma_SB*T0*T0*T0 ;
+        double vol = g.volume(i,j) ;
+        
+        ////// Gas temperature equation
+        //    (Cv0/k0) (e1 - e0) / dt = - rho kp [e1 - J1] + heat + 0.75 k0*T0
+        int idx = (1+num_bands)*((i-g.Nghost)*ny + j-g.Nghost) ;
+        int start = mat.csr_offset[idx] ;
+        mat.col_index[start] = idx ;
+
+
+        // Time dependent terms
+        if (dt > 0) {
+            mat.data[start] = vol*Cv(i,j)*d/(k0*dt) ;
+            rhs.data[idx]   = vol*Cv(i,j)*d*T0/(4*dt) ;
+        }
+        else {
+            mat.data[start] = 0 ;
+            rhs.data[idx]   = 0 ;
+        }
+
+        // Radiation-matter coupling
+        rhs.data[idx]   += vol*heat(i,j) ;
+        for (int b=0; b < num_bands; b++) {
+            double rhokappa = rhok_abs(i,j,b) ;
+            
+            mat.data[start] += vol*rhokappa *
+                planck_factor(planck, T0, b, num_bands, wle) ;
+            
+            mat.col_index[start+b+1] = idx+b+1 ;
+            mat.data[start+b+1] = -vol*rhokappa ;
+        }
+
+
+        /////// Radiation density equation
+        //    (J1-J0) / (c dt) = rho kp [e1 - J1] - 0.75 k0*T0 + grad[D grad(J1)]
+        for (int b=0; b < num_bands; b++) {
+
+        idx = ((i-g.Nghost)*ny + j-g.Nghost) * (1 + num_bands) + 1 + b ;
+        rhs.data[idx]  = 0 ;
+
+
+        // Compute diffusion matrix elements
+        double Dij[3][3] ;
+        compute_diffusion_matrix(g, D, Dij, boundary, i, j, b) ;
+
+
+        //////////////////////////////////////
+        // Handle the boundaries. For:
+        //   - open boundaries:   add the external flux to the rhs
+        //   - closed boundaries: subtract the boundary terms from the matrix
+        //
+        // Note that there are no corner cases because of the above if statements.
+
+        double J_ext ;
+        if (T_ext > 0)
+            J_ext = 4*sigma_SB*pow(T_ext,4) *
+                planck_factor(planck, T_ext, b, num_bands, wle) ;
+        else
+            J_ext = 0 ;
+
+        if (i == g.Nghost) {
+            if (boundary & BoundaryFlags::open_R_inner)
+                rhs.data[idx] -= J_ext * (Dij[0][0] + Dij[0][1]) ;
+        }
+        if (i == nx + g.Nghost - 1) {
+            if (boundary & BoundaryFlags::open_R_outer)
+                rhs.data[idx] -= J_ext * (Dij[2][1] + Dij[2][2]) ;
+        }
+        if (j == g.Nghost) {
+            if (boundary & BoundaryFlags::open_Z_inner)
+                rhs.data[idx] -= J_ext * (Dij[0][0] + Dij[1][0]) ;
+        }
+        if (j == ny + g.Nghost - 1) {
+            if (boundary & BoundaryFlags::open_Z_outer)
+                rhs.data[idx] -= J_ext * (Dij[1][2] + Dij[2][2]) ;
+        }
+
+        ////////////////////////////////////////
+        // Write the results to the matrix array:
+        start = mat.csr_offset[idx] ;
+
+        if (i > g.Nghost) {
+            if (j > g.Nghost) {
+                mat.col_index[start] = idx - (1+num_bands)*(ny+1) ;
+                mat.data[start] = Dij[0][0] ;
+                start++ ;
+            }
+            mat.col_index[start] = idx - (1+num_bands)*ny ;
+            mat.data[start] = Dij[0][1] ;
+            start++ ;
+            if (j < ny + g.Nghost- 1) {
+                mat.col_index[start] = idx - (1+num_bands)*(ny-1) ;
+                mat.data[start] = Dij[0][2] ;
+                start++ ;
+            }
+        }
+        if (j > g.Nghost) {
+            mat.col_index[start] = idx - (1+num_bands) ;
+            mat.data[start] = Dij[1][0] ;
+            start++ ;
+        }
+
+        // Add the time-dependent terms
+        // Radiation-matter coupling
+        double rhokappa = rhok_abs(i,j,b) ;
+
+        mat.col_index[start] = idx - (b + 1) ;
+        mat.data[start] = -vol*rhokappa *
+            planck_factor(planck, T0, b, num_bands, wle) ;
+        start++ ; 
+
+        mat.col_index[start] = idx ;
+        mat.data[start] = vol*rhokappa ;
+
+        // Diffusive flux production due to scattering of stellar
+        // radiation:
+        rhs.data[idx] += vol * scattering(i,j,b) ;
+
+        // Time dependent terms
+        if (dt > 0) {
+            mat.data[start] += vol/(c_light*dt) ;
+            rhs.data[idx]  += J(i,j,b) * vol/(c_light*dt) ;
+        }
+
+        // Add the central matrix element:
+        mat.data[start] += Dij[1][1] ;
+        start++;
+
+        if (j < ny + g.Nghost - 1) {
+            mat.col_index[start] = idx + (1+num_bands) ;
+            mat.data[start] = Dij[1][2] ;
+            start++ ;
+        }
+
+
+        if (i < nx + g.Nghost - 1) {
+            if (j > g.Nghost) {
+                mat.col_index[start] = idx + (1+num_bands)*(ny-1) ;
+                mat.data[start] = Dij[2][0] ;
+                start++ ;
+            }
+            mat.col_index[start] = idx + (1+num_bands)*ny ;
+            mat.data[start] = Dij[2][1] ;
+            start++ ;
+            if (j < ny + g.Nghost - 1) {
+                mat.col_index[start] = idx + (1+num_bands)*(ny+1) ;
+                mat.data[start] = Dij[2][2] ;
+                start++ ;
+            }
+        }
+    }} // End loop over bands
+}
+
 __global__ void copy_initial_values(GridRef g, FieldConstRef<double> T, 
                                     Field3DConstRef<double> J, DnVecRef x) {
 
@@ -531,6 +934,113 @@ __global__ void copy_final_values(GridRef g, FieldRef<double> T,
 
 // Scheme based on: http://dx.doi.org/10.1016/j.jcp.2012.06.042
 void FLD_Solver::solve_multi_band(const Grid& g, double dt, double Cv, 
+                                 const Field3D<double>& rhokappa_abs,
+                                 const Field3D<double>& rhokappa_sca,
+                                 const Field<double>& rho, 
+                                 const Field<double>& heat, 
+                                 const Field3D<double>& scattering,
+                                 const CudaArray<double>& wle,
+                                 Field<double>& T, Field3D<double>& J,
+                                 bool use_reduced_system) {
+
+    CodeTiming::BlockTimer timing_block = 
+        timer->StartNewTimer("FLD_Solver::solve_multi_band") ;
+    CodeTiming::BlockTimer timing_subblock = 
+        timer->StartNewTimer("FLD_Solver::solve_multi_band::create_system") ;   
+
+    dim3 threads(32,32,1) ;
+    dim3 blocks((g.Nphi + 2*g.Nghost+31)/32,(g.NR + 2*g.Nghost+31)/32,1) ;
+          
+    CSR_SpMatrix FLD_mat = _create_FLD_multi_matrix(g, J.Nd) ;
+
+    DnVec rhs_eqn(FLD_mat.rows) ;
+    DnVec sol(FLD_mat.rows) ;
+    copy_initial_values<<<blocks, threads>>>(g, T, J, sol) ; 
+
+    Field3D<double> D = create_field3D<double>(g, J.Nd) ;
+    compute_diffusion_coeff<<<blocks, threads>>>(g, J, rhokappa_abs, rhokappa_sca, D) ;
+    //compute_diffusion_coeff<<<blocks, threads>>>(g, J, rho, kappa_abs, kappa_ext, D) ;
+    check_CUDA_errors("compute_diffusion_coeff") ;           
+
+    dim3 threads2(16,16,1) ;
+    dim3 blocks2((g.Nphi + 2*g.Nghost+15)/16,(g.NR + 2*g.Nghost+15)/16,1) ;
+
+    PlanckInegral planck ;
+    create_FLD_multi_system<<<blocks2, threads2>>>(g, dt, Cv, rho, rhokappa_abs, T, J, D, 
+                                                   heat, scattering,
+                                                   _T_ext, planck, wle.get(),  
+                                                   FLD_mat, rhs_eqn, _boundary) ;
+    check_CUDA_errors("create_FLD_multi_system") ;    
+
+    timing_subblock.StartNewBlock("FLD_Solver::solve_multi_band::solve") ;      
+
+    CSR_SpMatrix* mat;
+    DnVec* rhs;
+    ReducedEquations reduced_eqns;
+
+    if (use_reduced_system) {
+        reduced_eqns = create_reduced_system(g, FLD_mat, rhs_eqn, J.Nd) ;
+        sol = reduced_eqns.reduce_system(sol) ;
+        mat = &reduced_eqns.mat ;
+        rhs = &reduced_eqns.rhs ;
+    }
+    else {
+        mat = &FLD_mat ;
+        rhs = &rhs_eqn ;
+    }
+
+    Jacobi_Precond jacobi(*mat) ;
+    jacobi.transform(*mat, sol, *rhs) ;
+
+    /*
+    std::ofstream m("FLD_multi_mat.mm") ;
+    write_MM_format(FLD_mat, m) ;
+    std::ofstream v("FLD_multi_rhs.mm") ;
+    write_MM_format(rhs, v) ;
+    */
+
+
+    // Solve the linear system
+    //BlockJacobi_precond pc(FLD_mat, 1+J.Nd) ;
+    PCG_Solver pcg(std::unique_ptr<CheckConvergence>(new CheckTemperatureResidual(_tol, J.Nd, _tol)), _max_iter) ;
+
+    // Solve the linear system
+    if (_ILU_order < 0) {
+        NoPrecond precond ;
+        //BlockJacobi_precond precond(FLD_mat) ;
+        bool success = 
+            pcg.solve_non_symmetric(*mat, *rhs, sol, precond) ;
+        
+        if (not success) {
+            std::cout << "Non-preconditioned solve failed, falling back to ILU(0)." << std::endl;
+            
+            if (use_reduced_system)
+                sol = DnVec(FLD_mat.rows) ;
+            copy_initial_values<<<blocks, threads>>>(g, T, J, sol) ; 
+            if (use_reduced_system)
+                sol = reduced_eqns.reduce_system(sol) ;
+
+            jacobi.transform_guess(sol) ;
+
+            ILU_precond precond(*mat, 0) ;
+            pcg.solve_non_symmetric(*mat, *rhs, sol, precond) ;
+        }
+    }
+    else {
+        ILU_precond precond(*mat, _ILU_order) ;
+        pcg.solve_non_symmetric(*mat, *rhs, sol, precond) ;
+    }
+    jacobi.invert(sol) ;
+    if (use_reduced_system)
+        sol = reduced_eqns.expand_solution(sol) ;
+
+    copy_final_values<<<blocks, threads>>>(g, T, J, sol) ; 
+    check_CUDA_errors("copy_final_values") ;     
+
+    timing_subblock.EndTiming() ;
+}
+
+void FLD_Solver::solve_multi_band(const Grid& g, double dt, const Field<double>& Cv, 
                                  const Field3D<double>& rhokappa_abs,
                                  const Field3D<double>& rhokappa_sca,
                                  const Field<double>& rho, 

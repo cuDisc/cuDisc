@@ -157,6 +157,10 @@ class DSHARP_opacs {
             
             std::ifstream opac_f(filename);
 
+            if (!opac_f) {
+                throw std::runtime_error("Could not find/open opacity file " + std::string(filename)) ;
+            }
+
             opac_f >> n_a;
             opac_f >> n_lam;
 
@@ -243,7 +247,7 @@ class DSHARP_opacs {
         void generate_a(SizeGrid& sizes) {
 
             for (int i=0; i<n_a; i++) {
-                a_ptr[i] = static_cast<double>(sizes.centre_size(i)); 
+                a_ptr[i] = static_cast<double>(std::pow(3./4./M_PI*sizes.centre_mass(i)/sizes.solid_density(), 1./3.)); 
             }
         }
 
@@ -341,6 +345,9 @@ void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, Fie
 
 void calculate_total_rhokappa(Grid& g, Field3D<double>& rho_d, Field<Prims>& wg, DSHARP_opacs& opacs,
                                     Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca);
+
+void calculate_total_rhokappa(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, Field<double>& rho_tot, DSHARP_opacs& opacs,
+                                    Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca, Molecule& mol);
 
 void calculate_grain_rhokappa(Grid& g, Field3D<Prims>& qd, DSHARP_opacs& opacs,
                                     Field3D<double>& rhokappa_abs_grain, Field3D<double>& rhokappa_sca_grain);
