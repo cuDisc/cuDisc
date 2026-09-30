@@ -176,9 +176,9 @@ void _calc_prim(GridRef g, Field3DRef<Quants> q, Field3DRef<Prims> w) {
 }
 
 
-
+template<typename T>
 __global__
-void _fix_negative_density(GridRef g, Field3DRef<Prims> w, FieldConstRef<Prims> w_gas,
+void _fix_negative_density(GridRef g, Field3DRef<T> w, FieldConstRef<Prims> w_gas,
                            double floor) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
@@ -192,11 +192,14 @@ void _fix_negative_density(GridRef g, Field3DRef<Prims> w, FieldConstRef<Prims> 
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {   
             for (int k=kidx; k<w.Nd; k+=kstride) {
                 // Protect negative densities only.
-                if (!(w(i,j,k).rho > 0.)) {
-                    w(i,j,k).rho   = w_gas(i,j).rho * floor;
-                    w(i,j,k).v_R   = 0 ;
-                    w(i,j,k).v_phi = w_gas(i,j).v_phi;
-                    w(i,j,k).v_Z   = 0 ; 
+                if (!(w(i,j,k)[0] > 0.)) {
+                    w(i,j,k)[0]   = w_gas(i,j)[0] * floor;
+                    w(i,j,k)[1]  = 0 ;
+                    if constexpr (std::is_same_v<T, Prims>)
+                        w(i,j,k)[2]  = w_gas(i,j)[2];
+                    if constexpr (std::is_same_v<T, Quants>)
+                        w(i,j,k)[2]  = w(i,j,k)[0] * w_gas(i,j)[2] * g.Rc(i);  
+                    w(i,j,k)[3]  = 0 ; 
                 }
             } 
         }
@@ -828,7 +831,7 @@ void DustDynamics::update_quants_and_sources(Grid& g, Field3D<Prims>& w, Field3D
         _sources.source_exp(g, w, q_mids, active, dt);
     _calc_prim<<<blocks,threads>>>(g, q_mids, w);
     check_CUDA_errors("_calc_prim") ; 
-    _fix_negative_density<<<blocks,threads>>>(g, w, w_gas, _floor);
+    _fix_negative_density<<<blocks,threads>>>(g, Field3DRef<Prims>(w), FieldConstRef<Prims>(w_gas), _floor);
     check_CUDA_errors("_fix_negative_density") ;
     if (apply_sources)
         _sources.source_imp(g, w, active, dt);
@@ -1414,7 +1417,9 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     _sources.source_exp(g, w_dust, q_mids, active, dt/2.);
     _calc_prim<<<blocks,threads>>>(g, q_mids, w_dust);
     check_CUDA_errors("_calc_prim") ; 
-    _fix_negative_density<<<blocks,threads>>>(g, w_dust, w_gas, _floor);
+    _fix_negative_density<<<blocks,threads>>>(g, Field3DRef<Prims>(w_dust), FieldConstRef<Prims>(w_gas), _floor);
+    check_CUDA_errors("_fix_negative_density") ;
+    _fix_negative_density<<<blocks,threads>>>(g, Field3DRef<Quants>(q_mids_trac), FieldConstRef<Prims>(w_gas), 1e-100*_floor);
     check_CUDA_errors("_fix_negative_density") ;
 
     // Update sizegrid for half-time densities (after flooring), before the
@@ -1431,7 +1436,7 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     _copy_dust_vels<<<blocks,threads>>>(g, w_dust, w_trac, q_mids_trac);
     check_CUDA_errors("_copy_dust_vels") ; 
 
-    _fix_negative_density<<<blocks,threads>>>(g, w_trac, w_gas, 1e-100*_floor);
+    _fix_negative_density<<<blocks,threads>>>(g, Field3DRef<Prims>(w_trac), FieldConstRef<Prims>(w_gas), 1e-100*_floor);
     check_CUDA_errors("_fix_negative_density") ;
 
     // Van Leer stage for dust and tracer
@@ -1449,7 +1454,9 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     _sources.source_exp(g, w_dust, q_mids, active, dt);
     _calc_prim<<<blocks, threads>>>(g, q_mids, w_dust);
     check_CUDA_errors("_calc_prim") ; 
-    _fix_negative_density<<<blocks,threads>>>(g, w_dust, w_gas, _floor);
+    _fix_negative_density<<<blocks,threads>>>(g, Field3DRef<Prims>(w_dust), FieldConstRef<Prims>(w_gas), _floor);
+    check_CUDA_errors("_fix_negative_density") ;
+    _fix_negative_density<<<blocks,threads>>>(g, Field3DRef<Quants>(q_mids_trac), FieldConstRef<Prims>(w_gas), 1e-100*_floor);
     check_CUDA_errors("_fix_negative_density") ;
 
     // Update sizegrid for full-time densities (after flooring), before the
@@ -1501,3 +1508,6 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
                                              1e-100*_floor, reactivation_factor);
     check_CUDA_errors("_update_active_cells") ;
 }
+
+template __global__ void _fix_negative_density<Prims>(GridRef g, Field3DRef<Prims> w, FieldConstRef<Prims> w_gas, double floor);
+template __global__ void _fix_negative_density<Quants>(GridRef g, Field3DRef<Quants> w, FieldConstRef<Prims> w_gas, double floor);

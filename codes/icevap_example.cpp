@@ -434,7 +434,7 @@ int main() {
         read_temp(dir, "restart", T, J);
         COchem.read_mol(dir, "restart"); 
         COchem.read_restart_file(dir, t_chem, dt_1percchem);
-        dyn.reinitialize_active(g, Ws_d, Ws_g);
+        dyn.read_active(g, dir);
 
         compute_cs2(g,T,cs2,mu2D);
         cs2_to_cs(g, cs, cs2);
@@ -720,6 +720,7 @@ int main() {
                 write_restart_file(dir / ("restart_params.dat"), count, t, dt_CFL, t_coag, t_temp, dt_coag, dt_1perc, t_chem, dt_1percchem);
                 write_prims(dir, "restart", g, Ws_d, Ws_g, Sig_g);
                 write_temp(dir, "restart", g, T, J) ;
+                dyn.write_active(g, dir);
                 COchem.write_mol(dir,"restart");
                 COchem.write_restart_file(dir, t_chem, dt_1percchem);
                 return 0;

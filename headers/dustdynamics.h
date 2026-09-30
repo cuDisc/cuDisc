@@ -9,6 +9,7 @@
 #include "utils.h"
 #include "density_view.h"
 #include <memory>
+#include <fstream>
 
 class SourcesBase ; 
 class Molecule ;
@@ -100,6 +101,37 @@ class DustDynamics {
         double get_CFL_limit(const Grid& g, const Field3D<Prims>& w, const Field<Prims>& w_gas, Molecule& mol) ;
         double get_CFL_limit_debug(const Grid& g, const Field3D<Prims>& w, const Field<Prims>& w_gas);
         // double get_CFL_limit_debug(const Grid& g, const Field3D<Quants>& q, const Field3D<double>& D) ;
+
+        void write_active(const Grid& g, std::filesystem::path dir) {
+            std::ofstream f(dir / ("active_restart.dat"), std::ios::binary);
+            for (int i=0; i<g.NR; i++) {
+                for (int j=0; j<g.Nphi; j++) {
+                    for (int k=0; k<(*_active).Nd; k++) {
+                        f.write((char*) &(*_active)(i,j,k), sizeof(int));
+                    }
+                }
+            }
+            f.close();
+        }
+
+        void read_active(const Grid& g, std::filesystem::path dir) {
+
+            if (!_active) {
+                _active = std::make_unique<Field3D<int>>(g.NR+2*g.Nghost,
+                                                          g.Nphi+2*g.Nghost,
+                                                          _D.Nd);
+            }
+
+            std::ifstream f(dir / ("active_restart.dat"), std::ios::binary);
+            for (int i=0; i<g.NR; i++) {
+                for (int j=0; j<g.Nphi; j++) {
+                    for (int k=0; k<(*_active).Nd; k++) {
+                        f.read((char*) &(*_active)(i,j,k), sizeof(int));
+                    }
+                }
+            }
+            f.close();
+        }
 
     private:
         // Donor-cell stage: sets boundaries on w, computes conserved quantities q,

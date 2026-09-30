@@ -450,7 +450,7 @@ int main() {
         std::cout << "Restart params: " << count << " " << t/year << " " << dt_CFL/year << "\n";
 
         read_restart_quants(dir, Ws_d, Ws_g, Sig_g, T, J);
-        dyn.reinitialize_active(g, Ws_d, Ws_g);
+        dyn.read_active(g, dir);
 
         compute_cs2(g,T,cs2,mu);
         cs2_to_cs(g, cs, cs2);
@@ -647,6 +647,7 @@ int main() {
                 std::cout << "Writing restart at t = " << t/year << " years.\n" ;
                 write_restart_file(dir / ("restart_params.dat"), count, t, dt_CFL, t_coag, t_temp, dt_coag, dt_1perc, dummy);
                 write_restart_quants(dir, g, Ws_d, Ws_g, Sig_g, T, J);  
+                dyn.write_active(g, dir);
                 return 0;
             } 
 
