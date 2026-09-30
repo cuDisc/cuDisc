@@ -1,4 +1,5 @@
 #include "dustdynamics.h"
+#include "icevapour.h"
 #include "cuda_runtime.h"
 #include "DSHARP_opacs.h"
 #include <filesystem>

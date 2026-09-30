@@ -6,6 +6,7 @@
 #include "coagulation/fragments.h"
 #include "coagulation/integration.h"
 #include "dustdynamics.h"
+#include "icevapour.h"
 
 #include <iostream>
 
@@ -23,26 +24,6 @@ __global__ void _compute_ytot(GridRef g, Field3DConstRef<double> y,
         yscale(i,j) = (res+1e-100)*scale ;
 
     }
-}
-
-template<typename T>
-__device__ double& _density(T& value) {
-    return value[0];
-}
-
-template<>
-__device__ double& _density<double>(double& value) {
-    return value;
-}
-
-template<typename T>
-__device__ double _density(const T& value) {
-    return value[0];
-}
-
-template<>
-__device__ double _density<double>(const double& value) {
-    return value;
 }
 
 // Compute the maximum error scaled in each block. 
@@ -64,7 +45,7 @@ __global__ void _compute_error_norm(GridRef g,
         double res = 0 ;
         double scale ;
         for (int k=0; k<y.Nd; k++) {
-            double floor_density = floor * _density(wg(i,j));
+            double floor_density = floor * get_rho(wg(i,j));
             scale = yabs(i,j) + rel_tol * max(max(abs(y(i,j,k)), abs(ynew(i,j,k))),
                                                floor_density) ;
             res += err(i,j,k)*err(i,j,k) / (scale*scale) ;
@@ -207,7 +188,7 @@ __global__ void _copy_rho_forwards(GridRef g, Field3DRef<T> ws, FieldRef<T> wg, 
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
             for (int k=kidx; k<ws.Nd; k+=kstride) { 
-                rhos(i,j,k) = max(_density(ws(i,j,k)) - floor*_density(wg(i,j)), 0.);
+                rhos(i,j,k) = max(get_rho(ws(i,j,k)) - floor*get_rho(wg(i,j)), 0.);
             }
         }
     }
@@ -226,7 +207,7 @@ __global__ void _copy_rho_backwards(GridRef g, Field3DRef<T> ws, FieldRef<T> wg,
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
             for (int k=kidx; k<ws.Nd; k+=kstride) { 
-                _density(ws(i,j,k)) = rhos(i,j,k) + floor*_density(wg(i,j));
+                get_rho(ws(i,j,k)) = rhos(i,j,k) + floor*get_rho(wg(i,j));
             }
         }
     }
@@ -673,7 +654,7 @@ double TimeIntegration::take_step_tracers_debug(Grid& g, Field3D<double>& y, Fie
 }
 
 template<bool debug, typename T>
-int TimeIntegration::integrate_tracers_impl(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, SizeGridIce& sizes, double tmax,
+int TimeIntegration::integrate_tracers_impl(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, SizeGrid& sizes, double tmax,
                                                 double& dt_coag, double floor) const {
     double dt = dt_coag ;
     if (dt_coag < tmax && dt_coag > _SAFETY*tmax)
@@ -751,7 +732,7 @@ __global__ void _check_active(GridRef g, FieldRef<T> wg, Field3DRef<double> rhos
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
             active(i,j) = false;
             for (int k=0; k<rhos.Nd; k++) {
-                if (rhos(i,j,k) > 10.*floor*_density(wg(i,j))) {
+                if (rhos(i,j,k) > 10.*floor*get_rho(wg(i,j))) {
                     active(i,j) = true;
                     break;
                 }
@@ -761,13 +742,13 @@ __global__ void _check_active(GridRef g, FieldRef<T> wg, Field3DRef<double> rhos
 }
 
 template<typename T>
-int TimeIntegration::integrate_tracers(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, SizeGridIce& sizes,
+int TimeIntegration::integrate_tracers(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, SizeGrid& sizes,
                                double tmax, double& dt_coag, double floor) const {
     return integrate_tracers_impl<false>(g, ws, wg, mol, sizes, tmax, dt_coag, floor);
 }
 
 template<typename T>
-int TimeIntegration::integrate_tracers_debug(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, SizeGridIce& sizes, 
+int TimeIntegration::integrate_tracers_debug(Grid& g, Field3D<T>& ws, Field<T>& wg, Molecule& mol, SizeGrid& sizes, 
                                      double tmax, double& dt_coag, double floor) const {
     return integrate_tracers_impl<true>(g, ws, wg, mol, sizes, tmax, dt_coag, floor);
 }
@@ -790,13 +771,11 @@ template int TimeIntegration::integrate_debug<Prims>(Grid& g, Field3D<Prims>& ws
 template int TimeIntegration::integrate_debug<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, double tmax, double& dt_coag, double floor) const;
 template int TimeIntegration::integrate_debug<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, double tmax, double& dt_coag, double floor) const;
 
-template int TimeIntegration::integrate_tracers<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, Molecule& mol, SizeGridIce& sizes, double tmax, double& dt_coag, double floor) const;
-template int TimeIntegration::integrate_tracers<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, Molecule& mol, SizeGridIce& sizes, double tmax, double& dt_coag, double floor) const;
-template int TimeIntegration::integrate_tracers<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, Molecule& mol, SizeGridIce& sizes, double tmax, double& dt_coag, double floor) const;
+template int TimeIntegration::integrate_tracers<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, Molecule& mol, SizeGrid& sizes, double tmax, double& dt_coag, double floor) const;
+template int TimeIntegration::integrate_tracers<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, Molecule& mol, SizeGrid& sizes, double tmax, double& dt_coag, double floor) const;
 
-template int TimeIntegration::integrate_tracers_debug<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, Molecule& mol, SizeGridIce& sizes, double tmax, double& dt_coag, double floor) const;
-template int TimeIntegration::integrate_tracers_debug<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, Molecule& mol, SizeGridIce& sizes, double tmax, double& dt_coag, double floor) const;
-template int TimeIntegration::integrate_tracers_debug<double>(Grid& g, Field3D<double>& ws, Field<double>& wg, Molecule& mol, SizeGridIce& sizes, double tmax, double& dt_coag, double floor) const;
+template int TimeIntegration::integrate_tracers_debug<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, Molecule& mol, SizeGrid& sizes, double tmax, double& dt_coag, double floor) const;
+template int TimeIntegration::integrate_tracers_debug<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, Molecule& mol, SizeGrid& sizes, double tmax, double& dt_coag, double floor) const;
 
 template int TimeIntegration::integrate<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, double tmax, double& dt_coag, double floor) const;
 template int TimeIntegration::integrate<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, double tmax, double& dt_coag, double floor) const;

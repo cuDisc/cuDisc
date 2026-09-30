@@ -286,13 +286,13 @@ class CuzziOpacs {
 // } ;
 
 // template<typename T>
-void calculate_total_rhokappa(Grid& g, SizeGridIce& sizes, Field3D<Prims>& qd, Field<Prims>& wg, Field<double>& rho_tot, CuzziOpacs<DSHARPwCOComp>& opacs,
+void calculate_total_rhokappa(Grid& g, SizeGrid& sizes, Field3D<Prims>& qd, Field<Prims>& wg, Field<double>& rho_tot, CuzziOpacs<DSHARPwCOComp>& opacs,
                                     Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca, Molecule& mol);
-void calculate_total_rhokappa(Grid& g, SizeGridIce& sizes, Field3D<Prims>& qd, Field<Prims>& wg, Field<double>& rho_tot, CuzziOpacs<DSHARPComp>& opacs,
+void calculate_total_rhokappa(Grid& g, SizeGrid& sizes, Field3D<Prims>& qd, Field<Prims>& wg, Field<double>& rho_tot, CuzziOpacs<DSHARPComp>& opacs,
                                     Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca, Molecule& mol);
-void calculate_total_rhokappa(Grid& g, Grid& g_in, SizeGridIce& sizes, Field3D<double>& rho_d, Field<Prims>& wg, Field<double>& rho_tot, CuzziOpacs<DSHARPwCOComp>& opacs,
+void calculate_total_rhokappa(Grid& g, Grid& g_in, SizeGrid& sizes, Field3D<double>& rho_d, Field<Prims>& wg, Field<double>& rho_tot, CuzziOpacs<DSHARPwCOComp>& opacs,
                                     Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca, Molecule& mol);
-void calculate_total_rhokappa(Grid& g, Grid& g_in, SizeGridIce& sizes, Field3D<double>& rho_d, Field<Prims>& wg, Field<double>& rho_tot, CuzziOpacs<DSHARPComp>& opacs,
+void calculate_total_rhokappa(Grid& g, Grid& g_in, SizeGrid& sizes, Field3D<double>& rho_d, Field<Prims>& wg, Field<double>& rho_tot, CuzziOpacs<DSHARPComp>& opacs,
                                     Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca, Molecule& mol);
 
 // class CuzziOpacs<DSHARPComp>;

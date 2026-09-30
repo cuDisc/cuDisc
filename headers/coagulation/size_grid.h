@@ -9,11 +9,11 @@
 #include "field.h"
 #include "grid.h"
 #include "cuda_array.h"
+#include "density_view.h"
 
 struct Prims;
 struct Prims1D;
 struct Quants;
-class Molecule;
 
 #ifdef REAL_TYPE
 using RealType = REAL_TYPE ;
@@ -140,35 +140,28 @@ public:
               << std::pow(3*edge_mass(i)/(4*M_PI*rho_d), 1/3.) << "\n" ;
     }
 
-    // Per-cell grain properties field (size + density), shared by SizeGrid and SizeGridIce
+    // Per-cell grain properties field (size + density), shared by SizeGrid and its subclasses
     Field3D<Grain> grain_props = create_field3D<Grain>(_g, stride);
 
     // Recompute grain size/density from the current dust/ice densities.
-    // Wg/Wd are passed so subclasses have access to t_stop (needed for
-    // compaction/porosity). No-op by default: a plain SizeGrid has a fixed
-    // grain size/density set at construction.
+    // No-op by default: a plain SizeGrid has a fixed grain size/density set
+    // at construction.
+    //
+    // Wd holds the dust (refractory) density and Wd_ice the ice density, each
+    // as any element type supported by density_view. Wg (Prims or Prims1D)
+    // is passed on so subclasses have access to t_stop (needed for
+    // compaction/porosity).
+    template<typename Tg, typename Td, typename Ti>
+    void update_sizes(const Field<Tg>& Wg, Field3D<Td>& Wd, Field3D<Ti>& Wd_ice) {
+        _update_sizes(Wg, density_view(Wd), density_view(Wd_ice)) ;
+    }
 
-    // general
+protected:
 
-    virtual void update_sizes(Field<Prims>& /*Wg*/, Field3D<Prims>& /*Wd*/) {}
-    virtual void update_sizes(Field<Prims1D>& /*Wg*/, Field3D<Prims1D>& /*Wd*/) {}
-
-    // dyn specialisation
-    
-    virtual void update_sizes(const Field<Prims>& /*Wg*/, Field3D<Quants>& /*Wd*/) {}
-    virtual void update_sizes(const Field<Prims>& /*Wg*/, Field3D<Quants>& /*Wd*/, Field3D<Quants>& /*Wd_ice*/) {}
-
-    // dyn1D specialisation
-
-    virtual void update_sizes(Field<Prims1D>& /*Wg*/, Field3D<Prims1D>& /*Wd*/, Field3D<Prims1D>& /*Wd_ice*/) {}
-
-    // Coag specialisation
-
-    virtual void update_sizes(Field<double>& /*Wg*/, Field3D<double>& /*rho_d*/, Field3D<double>& /*rho_i*/) {}
-    virtual void update_sizes(Field<Prims1D>& /*Wg*/, Field3D<double>& /*rho_d*/, Field3D<double>& /*rho_i*/) {}
-    virtual void update_sizes(Field<Prims>& /*Wg*/, Field3D<double>& /*rho_d*/, Field3D<double>& /*rho_i*/) {}
-    virtual void update_sizes(Field<Prims>& /*Wg*/, Field3D<Prims>& /*Wd*/, Field3D<double>& /*rho_i*/) {}
-    virtual void update_sizes(Field<Prims1D>& /*Wg*/, Field3D<Prims1D>& /*Wd*/, Field3D<double>& /*rho_i*/) {}
+    // Customisation points for update_sizes with ice, one per gas type.
+    // No-op by default.
+    virtual void _update_sizes(const Field<Prims>& /*Wg*/, DensityView /*rho_dust*/, DensityView /*rho_ice*/) {}
+    virtual void _update_sizes(const Field<Prims1D>& /*Wg*/, DensityView /*rho_dust*/, DensityView /*rho_ice*/) {}
 
 private:
 
@@ -187,70 +180,8 @@ private:
 
     RealType rho_d=1;
     int num_bins;
-    friend class SizeGridIce;
     friend class SizeGridRef;
-    friend class SizeGridIceRef;
 };
-
-struct Ice {
-    double a, rho;
-};
-
-class SizeGridIce : public SizeGrid {
-
-    private:
-
-        RealType _rho_m_ice;
-
-        friend class SizeGridIceRef;
-
-        // Shared launch logic for update_sizes: W holds the dust density/state,
-        // rho_other holds the ice-mass field (or a Molecule's ice field).
-        template<typename Wt, typename Rt>
-        void launch_update_sizegrid(Field3D<Wt>& W, Field3D<Rt>& rho_other) ;
-
-        template<typename Wt>
-        void launch_update_sizegrid_mol(Field3D<Wt>& W, Molecule& mol) ;
-
-    public:
-
-        SizeGridIce(Grid& g, RealType a_min, RealType a_max, int Nbins, RealType rho_daux, RealType rho_m_ice) : 
-            SizeGrid(g, a_min, a_max, Nbins, rho_daux),
-            _rho_m_ice(rho_m_ice) {}
-
-        SizeGridIce(Grid& g, CudaArray<RealType>& a, int Nbins, RealType rho_daux, RealType rho_m_ice) : 
-            SizeGrid(g, a, Nbins, rho_daux),
-            _rho_m_ice(rho_m_ice) {}
-
-        RealType ice_density() const {
-            return _rho_m_ice;
-        }
-
-        // Recompute grain size/density from dust + ice densities.
-
-        // general
-
-        void update_sizes(Field<Prims>& Wg, Field3D<Prims>& Wd) override ;
-        void update_sizes(Field<Prims1D>& Wg, Field3D<Prims1D>& Wd) override ;
-
-        // dyn specialisation
-
-        void update_sizes(const Field<Prims>& Wg, Field3D<Quants>& Wd) override ;
-        void update_sizes(const Field<Prims>& Wg, Field3D<Quants>& Wd, Field3D<Quants>& Wd_ice) override ;
-
-        // dyn1D specialisation
-
-        void update_sizes(Field<Prims1D>& Wg, Field3D<Prims1D>& Wd, Field3D<Prims1D>& Wd_ice) override ;
-
-        // Coag specialisation
-
-        void update_sizes(Field<double>& Wg, Field3D<double>& rho_d, Field3D<double>& rho_i) override ;
-        void update_sizes(Field<Prims1D>& Wg, Field3D<double>& rho_d, Field3D<double>& rho_i) override ;
-        void update_sizes(Field<Prims>& Wg, Field3D<double>& rho_d, Field3D<double>& rho_i) override ;
-        void update_sizes(Field<Prims>& Wg, Field3D<Prims>& Wd, Field3D<double>& rho_i) override ;
-        void update_sizes(Field<Prims1D>& Wg, Field3D<Prims1D>& Wd, Field3D<double>& rho_i) override ;
-
-} ;
 
 class SizeGridRef {
 
@@ -275,36 +206,6 @@ class SizeGridRef {
         RealType base_mass(int idx) const {
             return _mass_c[idx] ;
         }
-} ;
-
-class SizeGridIceRef : public SizeGridRef {
-
-    private:
-
-        RealType _rho_m_ice;
-        RealType _rho_m_solid;
-
-    public:
-
-        SizeGridIceRef(SizeGridIce& size) :
-            SizeGridRef(size),
-            _rho_m_ice(size._rho_m_ice),
-            _rho_m_solid(size.solid_density()),
-            grain_props(size.grain_props)
-        {}
-
-        Field3DRef<Grain> grain_props;
-
-        __host__ __device__
-        RealType solid_density() const {
-            return _rho_m_solid ;
-        }
-
-        __host__ __device__
-        RealType ice_density() const {
-            return _rho_m_ice;
-        }
-   
 } ;
 
 #endif//_CUDISC_HEADERS_COAGULATION_SIZE_GRID_H_

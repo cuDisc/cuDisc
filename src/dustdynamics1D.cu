@@ -4,13 +4,14 @@
 #include "grid.h"
 #include "dustdynamics.h"
 #include "dustdynamics1D.h"
+#include "icevapour.h"
 #include "constants.h"
 #include "van_leer.h"
 #include "drag_const.h"
 
 template<bool full_stokes>
 __global__
-void _calc_dust_vel(GridRef g, Field3DRef<Prims1D> W_d, FieldRef<Prims1D> W_g, FieldConstRef<double> cs, double GMstar, RealType rho_m, Field3DRef<Grain> grain_props, Field3DRef<double> D, double mu, double alpha, double /*floor*/) {
+void _calc_dust_vel(GridRef g, Field3DRef<Prims1D> W_d, FieldRef<Prims1D> W_g, FieldConstRef<double> cs, double GMstar, Field3DRef<Grain> grain_props, Field3DRef<double> D, double mu, double alpha, double /*floor*/) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
@@ -23,34 +24,7 @@ void _calc_dust_vel(GridRef g, Field3DRef<Prims1D> W_d, FieldRef<Prims1D> W_g, F
         for (int k=kidx; k<W_d.Nd; k+=kstride) {
 
             double Om = sqrt(GMstar/g.Rc(i))/g.Rc(i);
-            double St = calc_t_s<full_stokes>(W_d(i,j,k), W_g(i,j), grain_props(i,j,k).a, rho_m, cs(i,j), mu, Om) * Om;
-
-            double _alpha = D(i,j,k) * Om / (cs(i,j)*cs(i,j) * W_g(i,j).Sig);
-            
-            W_d(i,j,k).v_R = (W_g(i,j).v_R + 2.*(W_g(i,j).v_phi-Om*g.Rc(i))*St)/(1.+St*St);
-            W_d(i,j,k).v_phi = Om*g.Rc(i) + 0.5*(-W_g(i,j).v_R*St + 2.*(W_g(i,j).v_phi-Om*g.Rc(i)))/(1.+St*St);
-            W_d(i,j,k).v_Z = St * cs(i,j) * sqrt(1./(1.+St/_alpha));
-        }
-    }
-
-}
-
-template<bool full_stokes>
-__global__
-void _calc_dust_vel(GridRef g, Field3DRef<Prims1D> W_d, FieldRef<Prims1D> W_g, FieldConstRef<double> cs, double GMstar, SizeGridIceRef sizes, Field3DRef<double> D, double mu, double alpha, double floor) {
-
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
-    int kstride = gridDim.z * blockDim.z ;
-
-    int j = g.Nghost;
-
-    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
-        for (int k=kidx; k<W_d.Nd; k+=kstride) {
-
-            double Om = sqrt(GMstar/g.Rc(i))/g.Rc(i);
-            double St = calc_t_s<full_stokes>(W_d(i,j,k), W_g(i,j), sizes.grain_props(i,j,k).a, sizes.grain_props(i,j,k).rho, cs(i,j), mu, Om) * Om;
+            double St = calc_t_s<full_stokes>(W_d(i,j,k), W_g(i,j), grain_props(i,j,k).a, grain_props(i,j,k).rho, cs(i,j), mu, Om) * Om;
 
             double _alpha = D(i,j,k) * Om / (cs(i,j)*cs(i,j) * W_g(i,j).Sig);
             
@@ -104,19 +78,7 @@ void calculate_dust_vel(Grid& g, Field3D<Prims1D>& W_d, Field<Prims1D>& W_g,
     dim3 threads2D(32,1,16) ;
     dim3 blocks2D((g.NR + 2*g.Nghost+31)/32,1,(W_d.Nd+15)/16) ;
 
-    _calc_dust_vel<full_stokes><<<blocks2D, threads2D>>>(g, W_d, W_g, cs, star.GM, sizes.solid_density(), sizes.grain_props, D, mu, alpha, floor);
-    check_CUDA_errors("_calc_dust_vel");
-
-}
-
-template<bool full_stokes>
-void calculate_dust_vel(Grid& g, Field3D<Prims1D>& W_d, Field<Prims1D>& W_g,
-                        FieldConstRef<double>& cs, Star& star, SizeGridIce& sizes, Field3DRef<double>& D, double mu, double alpha, double floor) {
-
-    dim3 threads2D(32,1,16) ;
-    dim3 blocks2D((g.NR + 2*g.Nghost+31)/32,1,(W_d.Nd+15)/16) ;
-
-    _calc_dust_vel<full_stokes><<<blocks2D, threads2D>>>(g, W_d, W_g, cs, star.GM, sizes, D, mu, alpha, floor);
+    _calc_dust_vel<full_stokes><<<blocks2D, threads2D>>>(g, W_d, W_g, cs, star.GM, sizes.grain_props, D, mu, alpha, floor);
     check_CUDA_errors("_calc_dust_vel");
 
 }
@@ -585,7 +547,7 @@ __global__ void _copy_dust_vels(GridRef g, Field3DRef<Prims1D> wd, Field3DRef<Pr
 
 
 template<bool use_full_stokes>
-void DustDyn1D<use_full_stokes>::operator() (Grid& g, Field3D<Prims1D>& W_d, Field<Prims1D>& W_g, Molecule& mol, Field3D<double>& D_vap, double dt, SizeGridIce& sizes) {
+void DustDyn1D<use_full_stokes>::operator() (Grid& g, Field3D<Prims1D>& W_d, Field<Prims1D>& W_g, Molecule& mol, Field3D<double>& D_vap, double dt, SizeGrid& sizes) {
 
     dim3 threads(32,1,16) ;
     dim3 blocks((g.NR + 2*g.Nghost+31)/32,1,(W_d.Nd+15)/16) ;

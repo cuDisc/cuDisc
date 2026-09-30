@@ -7,10 +7,12 @@
 #include "flags.h"
 #include "grid.h"
 #include "utils.h"
-#include "icevapour.h"
+#include "density_view.h"
 #include <memory>
 
 class SourcesBase ; 
+class Molecule ;
+class SizeGrid ;
 
 struct Quants {
     double rho, mom_R, amom_phi, mom_Z;
@@ -41,6 +43,11 @@ struct Prims {
     } ;
 
 } ;
+
+inline __host__ __device__ double get_rho(const Prims& w) { return w.rho ; }
+inline __host__ __device__ double& get_rho(Prims& w) { return w.rho ; }
+inline __host__ __device__ double get_rho(const Quants& q) { return q.rho ; }
+inline __host__ __device__ double& get_rho(Quants& q) { return q.rho ; }
 
 __global__
 void _set_boundaries(GridRef g, Field3DRef<Prims> w, int bound) ;
@@ -87,7 +94,7 @@ class DustDynamics {
 
         void operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas, double dt) ;
         void operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas, double dt, Molecule& mol) ;
-        void operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas, double dt, Molecule& mol, SizeGridIce& sizes) ;
+        void operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas, double dt, Molecule& mol, SizeGrid& sizes) ;
 
         double get_CFL_limit(const Grid& g, const Field3D<Prims>& w, const Field<Prims>& w_gas) ;
         double get_CFL_limit(const Grid& g, const Field3D<Prims>& w, const Field<Prims>& w_gas, Molecule& mol) ;

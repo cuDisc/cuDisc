@@ -79,28 +79,4 @@ class SourcesRad : public SourcesBase {
 
 } ;
 
-template<bool use_full_stokes=false>
-class SourcesIce : public SourcesBase {
-
-    public:
-
-        SourcesIce(const Field<double>& T, const Field<Prims>& w_gas, const SizeGridIce& s, double floor, double Mstar, const Field<double>& mu) :
-            _Mstar(Mstar), _mu(mu), _sizes(s), _T(T), _w_gas(w_gas), _floor(floor){};
-
-        void source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u, 
-                Field3DConstRef<int> active, double dt);
-        void source_imp(Grid& g, Field3D<Prims>& w, 
-                Field3DConstRef<int> active, double dt);
-
-    private:
-
-        double _Mstar;
-        FieldConstRef<double> _mu; 
-        const SizeGridIce& _sizes;
-        FieldConstRef<double> _T;
-        FieldConstRef<Prims> _w_gas;
-        double _floor;
-
-} ;
-
 #endif

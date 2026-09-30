@@ -4,6 +4,7 @@
 #include "field.h"
 #include "flags.h"
 #include "star.h"
+#include "density_view.h"
 #include "coagulation/size_grid.h"
 
 struct Prims1D {
@@ -23,6 +24,9 @@ struct Prims1D {
         return v_Z;
     } ;
 } ;
+
+inline __host__ __device__ double get_rho(const Prims1D& w) { return w.Sig ; }
+inline __host__ __device__ double& get_rho(Prims1D& w) { return w.Sig ; }
 
 struct Prims ;
 class Molecule ;
@@ -51,7 +55,7 @@ class DustDyn1D {
         }
 
         void operator() (Grid& g, Field3D<Prims1D>& W_d, Field<Prims1D>& W_g, double dt) ;
-        void operator() (Grid& g, Field3D<Prims1D>& W_d, Field<Prims1D>& W_g, Molecule& mol, Field3D<double>& D_vap, double dt, SizeGridIce& sizes) ;
+        void operator() (Grid& g, Field3D<Prims1D>& W_d, Field<Prims1D>& W_g, Molecule& mol, Field3D<double>& D_vap, double dt, SizeGrid& sizes) ;
         void operator() (Grid& g, Grid& g2D, Field3D<Prims1D>& W_d, Field<Prims1D>& W_g, Field<Prims>& W_g2D, double dt) ;
         double get_CFL_limit(const Grid& g, const Field3D<Prims1D>& W_d, const Field<Prims1D>& W_g) ;
 

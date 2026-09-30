@@ -1,6 +1,7 @@
 #include <iostream>
 #include <algorithm>
 #include <cassert>
+#include <type_traits>
 
 #include "icevapour.h"
 #include "dustdynamics.h"
@@ -167,8 +168,7 @@ ChemRate R_a_jac(GridRef g, MoleculeRef mol, FieldConstRef<double> T, Field3DRef
     return Ra;
 }
 
-template<typename Te>
-__global__ void _update_sizegrid(GridRef g, Field3DRef<Grain> grains, Field3DRef<Te> W, Field3DRef<double> rho_grains, const RealType* m, RealType rho_ms, RealType rho_mi) {
+__global__ void _update_sizegrid(GridRef g, Field3DRef<Grain> grains, DensityView rho_dust, DensityView rho_ice, const RealType* m, RealType rho_ms, RealType rho_mi) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
@@ -179,73 +179,11 @@ __global__ void _update_sizegrid(GridRef g, Field3DRef<Grain> grains, Field3DRef
 
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
-            for (int k=kidx; k<W.Nd; k+=kstride) {
-                double rho_1 = (rho_grains(i,j,k)/(W(i,j,k)[0] * rho_mi) + 1./rho_ms);
+            for (int k=kidx; k<rho_dust.Nd; k+=kstride) {
+                double rho_d = rho_dust(i,j,k), rho_i = rho_ice(i,j,k);
+                double rho_1 = (rho_i/(rho_d * rho_mi) + 1./rho_ms);
                 grains(i,j,k).a = pow((3.*m[k]/(4.*M_PI)) * rho_1, 1./3.);
-                grains(i,j,k).rho = (rho_grains(i,j,k) + W(i,j,k)[0]) / (W(i,j,k)[0] * rho_1);
-            } 
-        }
-    }
-
-}
-
-__global__ void _update_sizegrid(GridRef g, Field3DRef<Grain> grains, Field3DRef<double> rho_d, Field3DRef<double> rho_grains, const RealType* m, RealType rho_ms, RealType rho_mi) {
-
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
-    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
-    int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
-
-    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
-        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
-            for (int k=kidx; k<rho_d.Nd; k+=kstride) {
-                double rho_1 = ((rho_grains(i,j,k))/((rho_d(i,j,k)+1e-200) * rho_mi) + 1./rho_ms);
-                grains(i,j,k).a = pow((3.*m[k]/(4.*M_PI)) * rho_1, 1./3.);
-                grains(i,j,k).rho = ((rho_grains(i,j,k)) + (rho_d(i,j,k)+1e-200)) / ((rho_d(i,j,k)+1e-200) * rho_1);
-            } 
-        }
-    }
-
-}
-
-__global__ void _update_sizegrid(GridRef g, Field3DRef<Grain> grains, Field3DRef<Quants> W, Field3DRef<Quants> rhograins, const RealType* m, RealType rho_ms, RealType rho_mi) {
-
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
-    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
-    int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
-
-    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
-        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
-            for (int k=kidx; k<W.Nd; k+=kstride) {
-                double rho_1 = (max(rhograins(i,j,k).rho,0.)/(W(i,j,k)[0] * rho_mi) + 1./rho_ms);
-                grains(i,j,k).a = pow((3.*m[k]/(4.*M_PI)) * rho_1, 1./3.);
-                grains(i,j,k).rho = (max(rhograins(i,j,k).rho,0.) + W(i,j,k)[0]) / (W(i,j,k)[0] * rho_1);
-                // if (i==g.NR+g.Nghost-1 && j==82 && k==0) {printf("%g %g\n",rhograins(i,j,k).rho,W(i,j,k)[0]);}// rho_1, grains(i,j,k).a, grains(i,j,k).rho);}
-            } 
-        }
-    }
-
-}
-__global__ void _update_sizegrid(GridRef g, Field3DRef<Grain> grains, Field3DRef<Prims1D> W, Field3DRef<Prims1D> rhograins, const RealType* m, RealType rho_ms, RealType rho_mi) {
-
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
-    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
-    int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
-
-    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
-        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
-            for (int k=kidx; k<W.Nd; k+=kstride) {
-                double rho_1 = (max(rhograins(i,j,k)[0],0.)/(W(i,j,k)[0] * rho_mi) + 1./rho_ms);
-                grains(i,j,k).a = pow((3.*m[k]/(4.*M_PI)) * rho_1, 1./3.);
-                grains(i,j,k).rho = (max(rhograins(i,j,k)[0],0.) + W(i,j,k)[0]) / (W(i,j,k)[0] * rho_1);
+                grains(i,j,k).rho = (rho_i + rho_d) / (rho_d * rho_1);
             } 
         }
     }
@@ -521,7 +459,7 @@ void IceVapChem::imp_update(double dt, double& dt_chem) {
         err_tot = err(_g.NR + 2*_g.Nghost-1,_g.Nphi + 2*_g.Nghost-1);
         
         it++;
-        _update_sizegrid<<<blocks3,threads3>>>(_g, _sizes.grain_props, _W, rhos, _sizes.grain_masses(), _sizes.solid_density(), _sizes.ice_density());
+        _update_sizegrid<<<blocks3,threads3>>>(_g, _sizes.grain_props, density_view(_W), density_view(rhos), _sizes.grain_masses(), _sizes.solid_density(), _sizes.ice_density());
     }
 
     set_tol<<<blocks,threads>>>(_g, err);
@@ -576,7 +514,7 @@ void IceVapChem1D::imp_update(double dt, double& dt_chem) {
         err_tot = err(_g.NR + 2*_g.Nghost-1,_g.Nphi + 2*_g.Nghost-1);
 
         it++;
-        _update_sizegrid<<<blocks3,threads3>>>(_g, _sizes.grain_props, _W, Sigs, _sizes.grain_masses(), _sizes.solid_density(), _sizes.ice_density());
+        _update_sizegrid<<<blocks3,threads3>>>(_g, _sizes.grain_props, density_view(_W), density_view(Sigs), _sizes.grain_masses(), _sizes.solid_density(), _sizes.ice_density());
         cudaDeviceSynchronize();
     }
     set_tol<<<blocks,threads>>>(_g, err);
@@ -589,57 +527,38 @@ void IceVapChem1D::imp_update(double dt, double& dt_chem) {
     copy_final_values<<<blocks,threads>>>(_g, Sigs, _mol, _floor, _Wg);
 }
 
-template<typename Wt, typename Rt>
-void SizeGridIce::launch_update_sizegrid(Field3D<Wt>& W, Field3D<Rt>& rho_other) {
+void SizeGridIce::launch_update_sizegrid(DensityView rho_dust, DensityView rho_ice) {
 
     dim3 threads3(16,16,4) ;
-    dim3 blocks3((_g.NR + 2*_g.Nghost+15)/16,(_g.Nphi + 2*_g.Nghost+15)/16, (W.Nd + 3)/4);
+    dim3 blocks3((_g.NR + 2*_g.Nghost+15)/16,(_g.Nphi + 2*_g.Nghost+15)/16, (rho_dust.Nd + 3)/4);
 
-    _update_sizegrid<<<blocks3,threads3>>>(_g, grain_props, Field3DRef<Wt>(W), Field3DRef<Rt>(rho_other),
+    _update_sizegrid<<<blocks3,threads3>>>(_g, grain_props, rho_dust, rho_ice,
                                             grain_masses(), solid_density(), ice_density());
     cudaDeviceSynchronize();
 }
 
-void SizeGridIce::update_sizes(const Field<Prims>& Wg, Field3D<Quants>& Qd, Field3D<Quants>& Qd_ice) {
-    launch_update_sizegrid(Qd, Qd_ice);
+void SizeGridIce::_update_sizes(const Field<Prims>& /*Wg*/, DensityView rho_dust, DensityView rho_ice) {
+    launch_update_sizegrid(rho_dust, rho_ice);
 }
 
-void SizeGridIce::update_sizes(Field<Prims1D>& Wg, Field3D<Prims1D>& Wd, Field3D<Prims1D>& Wd_ice) {
-    launch_update_sizegrid(Wd, Wd_ice);
+void SizeGridIce::_update_sizes(const Field<Prims1D>& /*Wg*/, DensityView rho_dust, DensityView rho_ice) {
+    launch_update_sizegrid(rho_dust, rho_ice);
 }
 
-void SizeGridIce::update_sizes(Field<Prims>& Wg, Field3D<Prims>& Wd, Field3D<double>& rho_i) {
-    launch_update_sizegrid(Wd, rho_i);
+// DensityView construction (see density_view.h). get_rho on the first
+// element gives the address of the first density; nothing is read.
+
+template<typename T>
+static DensityView make_density_view(Field3DRef<T> f) {
+    static_assert(std::is_same<decltype(get_rho(*f.get())), double&>::value,
+                  "DensityView requires the density to be stored as a double") ;
+    return DensityView{reinterpret_cast<char*>(&get_rho(*f.get())), sizeof(T), f.Nd, f.stride_Zd, f.stride_d} ;
 }
 
-void SizeGridIce::update_sizes(Field<Prims1D>& Wg, Field3D<Prims1D>& Wd, Field3D<double>& rho_i) {
-    launch_update_sizegrid(Wd, rho_i);
-}
-
-void SizeGridIce::update_sizes(Field<double>& Wg, Field3D<double>& rho_d, Field3D<double>& rho_i) {
-    launch_update_sizegrid(rho_d, rho_i);
-}
-
-void SizeGridIce::update_sizes(Field<Prims1D>& Wg, Field3D<double>& rho_d, Field3D<double>& rho_i) {
-    launch_update_sizegrid(rho_d, rho_i);
-}
-
-void SizeGridIce::update_sizes(Field<Prims>& Wg, Field3D<double>& rho_d, Field3D<double>& rho_i) {
-    launch_update_sizegrid(rho_d, rho_i);
-}
-
-
-void SizeGridIce::update_sizes(Field<Prims>& /*Wg*/, Field3D<Prims>& /*Wd*/) {
-    // No molecule: nothing to update for an ice-tracking size grid without ice data.
-}
-
-void SizeGridIce::update_sizes(const Field<Prims>& /*Wg*/, Field3D<Quants>& /*Wd*/) {
-    // No molecule: nothing to update for an ice-tracking size grid without ice data.
-}
-
-void SizeGridIce::update_sizes(Field<Prims1D>& /*Wg*/, Field3D<Prims1D>& /*Wd*/) {
-    // No molecule: nothing to update for an ice-tracking size grid without ice data.
-}
+DensityView density_view(Field3DRef<double> f)  { return make_density_view(f) ; }
+DensityView density_view(Field3DRef<Prims> f)   { return make_density_view(f) ; }
+DensityView density_view(Field3DRef<Prims1D> f) { return make_density_view(f) ; }
+DensityView density_view(Field3DRef<Quants> f)  { return make_density_view(f) ; }
 
 
 
@@ -684,8 +603,3 @@ template __global__ void copy_final_values<Prims1D>(GridRef g, Field3DRef<double
 template __global__ void get_tol(Field3DRef<double> rhos, Field3DRef<double> rhos_0, GridRef g, int ngrains, FieldRef<double> err, double floor, FieldRef<Prims> wg);
 template __global__ void get_tol(Field3DRef<double> rhos, Field3DRef<double> rhos_0, GridRef g, int ngrains, FieldRef<double> err, double floor, FieldRef<Prims1D> wg);
 
-template void SizeGridIce::launch_update_sizegrid<Quants,Quants>(Field3D<Quants>&, Field3D<Quants>&);
-template void SizeGridIce::launch_update_sizegrid<Prims1D,Prims1D>(Field3D<Prims1D>&, Field3D<Prims1D>&);
-template void SizeGridIce::launch_update_sizegrid<double,double>(Field3D<double>&, Field3D<double>&);
-template void SizeGridIce::launch_update_sizegrid<Prims,double>(Field3D<Prims>&, Field3D<double>&);
-template void SizeGridIce::launch_update_sizegrid<Prims1D,double>(Field3D<Prims1D>&, Field3D<double>&);

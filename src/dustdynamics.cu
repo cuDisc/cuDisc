@@ -1359,7 +1359,7 @@ __global__ void _copy_dust_vels(GridRef g, Field3DRef<Prims> wd, Field3DRef<Prim
     }
 }
 
-void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas, double dt, Molecule& mol, SizeGridIce& sizes) {
+void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas, double dt, Molecule& mol, SizeGrid& sizes) {
 
     if (g.Nghost < 2)
         throw std::invalid_argument("Dust dynamics requires at least 2 ghost cells") ;
@@ -1409,10 +1409,6 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     _update_quants<<<blocks,threads>>>(g, q_mids, q, q_mids_trac, q_trac, dt/2., fluxR, fluxZ, fluxR_trac, fluxZ_trac);
     check_CUDA_errors("_update_quants") ;
 
-    // Update sizegrid for half-time quantities
-
-    sizes.update_sizes(w_gas, q_mids, q_mids_trac);
-
     // Update sources
 
     _sources.source_exp(g, w_dust, q_mids, active, dt/2.);
@@ -1420,6 +1416,12 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     check_CUDA_errors("_calc_prim") ; 
     _fix_negative_density<<<blocks,threads>>>(g, w_dust, w_gas, _floor);
     check_CUDA_errors("_fix_negative_density") ;
+
+    // Update sizegrid for half-time densities (after flooring), before the
+    // implicit drag needs t_stop
+
+    sizes.update_sizes(w_gas, w_dust, q_mids_trac);
+
     _sources.source_imp(g, w_dust, active, dt/2.);
     
     _set_boundaries<<<blocks,threads>>>(g, w_dust, _boundary);
@@ -1442,10 +1444,6 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     _update_quants<<<blocks,threads>>>(g, q_mids, q, q_mids_trac, q_trac, dt, fluxR, fluxZ, fluxR_trac, fluxZ_trac);
     check_CUDA_errors("_update_quants") ;
 
-    // Update sizegrid for full-time quantities
-
-    sizes.update_sizes(w_gas, q_mids, q_mids_trac);
-
     // Update sources
 
     _sources.source_exp(g, w_dust, q_mids, active, dt);
@@ -1453,6 +1451,12 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     check_CUDA_errors("_calc_prim") ; 
     _fix_negative_density<<<blocks,threads>>>(g, w_dust, w_gas, _floor);
     check_CUDA_errors("_fix_negative_density") ;
+
+    // Update sizegrid for full-time densities (after flooring), before the
+    // implicit drag needs t_stop
+
+    sizes.update_sizes(w_gas, w_dust, q_mids_trac);
+
     _sources.source_imp(g, w_dust, active, dt);
 
     // Update tracers

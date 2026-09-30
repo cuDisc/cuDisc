@@ -8,6 +8,40 @@
 
 struct Prims;
 struct Quants;
+
+// Size grid whose grains carry an ice mantle: grain size/density are
+// recomputed from the refractory and ice densities (see icevapour.cu).
+class SizeGridIce : public SizeGrid {
+
+    private:
+
+        RealType _rho_m_ice;
+
+        // Shared by all _update_sizes overrides: the size update does not
+        // depend on the gas state.
+        void launch_update_sizegrid(DensityView rho_dust, DensityView rho_ice) ;
+
+    protected:
+
+        void _update_sizes(const Field<Prims>& Wg, DensityView rho_dust, DensityView rho_ice) override ;
+        void _update_sizes(const Field<Prims1D>& Wg, DensityView rho_dust, DensityView rho_ice) override ;
+
+    public:
+
+        SizeGridIce(Grid& g, RealType a_min, RealType a_max, int Nbins, RealType rho_daux, RealType rho_m_ice) : 
+            SizeGrid(g, a_min, a_max, Nbins, rho_daux),
+            _rho_m_ice(rho_m_ice) {}
+
+        SizeGridIce(Grid& g, CudaArray<RealType>& a, int Nbins, RealType rho_daux, RealType rho_m_ice) : 
+            SizeGrid(g, a, Nbins, rho_daux),
+            _rho_m_ice(rho_m_ice) {}
+
+        RealType ice_density() const {
+            return _rho_m_ice;
+        }
+
+} ;
+
 class Molecule {
 
     private:

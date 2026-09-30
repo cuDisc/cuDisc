@@ -389,7 +389,7 @@ int main() {
 
     // Initialise diffusion-advection solver
 
-    SourcesIce src(T, Ws_g, sizes, floor, M_star, mu2D);
+    Sources src(T, Ws_g, sizes, floor, M_star, mu2D);
     DustDynamics dyn(D, cs, src, 0.4, 0.2, floor, gas_floor);
 
     double dt_CFL = dyn.get_CFL_limit(g, Ws_d, Ws_g);

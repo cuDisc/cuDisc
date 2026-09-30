@@ -184,33 +184,7 @@ void SourcesRad<use_full_stokes>::source_imp(Grid& g, Field3D<Prims>& w, Field3D
     _source_drag<<<blocks,threads>>>(g, w, _w_gas, t_stop, active, dt, _Mstar);
 }
 
-template<bool use_full_stokes>
-void SourcesIce<use_full_stokes>::source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u, Field3DConstRef<int> active, double dt) {
-
-    dim3 threads(16,8,8);
-    dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (u.Nd+7)/8) ;
-
-    _source_curv_grav<<<blocks,threads>>>(g, w, u, _w_gas, active, dt, _Mstar, _floor);
-}
-
-template<bool use_full_stokes>
-void SourcesIce<use_full_stokes>::source_imp(Grid& g, Field3D<Prims>& w, Field3DConstRef<int> active, double dt) {
-
-    Field3D<double> t_stop = Field3D<double>(g.NR+2*g.Nghost,g.Nphi+2*g.Nghost,w.Nd);
-
-    dim3 threads(16,8,8);
-    dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (w.Nd+7)/8) ;
-
-    if (use_full_stokes) 
-        _calc_t_s<true><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_props, _mu);
-    else
-        _calc_t_s<false><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_props, _mu);
-    _source_drag<<<blocks,threads>>>(g, w, _w_gas, t_stop, active, dt, _Mstar);
-}
-
 template class Sources<true>;
 template class Sources<false>;
 template class SourcesRad<true>;
 template class SourcesRad<false>;
-template class SourcesIce<true>;
-template class SourcesIce<false>;

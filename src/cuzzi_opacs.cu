@@ -380,7 +380,7 @@ void CuzziOpacs<CompMix>::calc_opacs(SizeGrid& sizes, double por) {
 }
 
 template<typename CompRef>
-__global__ void _calc_rho_kappa_vol(GridRef g, Field3DConstRef<Prims> qd, FieldConstRef<Prims> wg, SizeGridIceRef sizes, double por,
+__global__ void _calc_rho_kappa_vol(GridRef g, Field3DConstRef<Prims> qd, FieldConstRef<Prims> wg, SizeGridRef sizes, double por,
                                 CompRef comps, int n_comp, double* lam, int n_lam, Field3DRef<double> rhokabs, Field3DRef<double> rhoksca, MoleculeRef mol) {
 
     int k = threadIdx.x + blockIdx.x*blockDim.x ;
@@ -498,7 +498,7 @@ __global__ void _calc_rho_kappa_vol(GridRef g, Field3DConstRef<Prims> qd, FieldC
 }
 
 template<typename CompRef>
-__global__ void _calc_rho_kappa_vol(GridRef g, GridRef g_in, Field3DConstRef<double> rho_d, FieldConstRef<Prims> wg, SizeGridIceRef sizes, double por, double* k_abs, double* k_sca,
+__global__ void _calc_rho_kappa_vol(GridRef g, GridRef g_in, Field3DConstRef<double> rho_d, FieldConstRef<Prims> wg, SizeGridRef sizes, double por, double* k_abs, double* k_sca,
                                 CompRef comps, int n_comp, double* lam, int n_lam, Field3DRef<double> rhokabs, Field3DRef<double> rhoksca, MoleculeRef mol) {
 
     int k = threadIdx.x + blockIdx.x*blockDim.x ;
@@ -651,7 +651,7 @@ __global__ void _calc_rho_tot_vol(GridRef g, Field3DConstRef<Prims> wd, FieldCon
     }
 } 
 
-void calculate_total_rhokappa(Grid& g, SizeGridIce& sizes, Field3D<Prims>& qd, Field<Prims>& wg, Field<double>& rho_tot, CuzziOpacs<DSHARPwCOComp>& opacs,
+void calculate_total_rhokappa(Grid& g, SizeGrid& sizes, Field3D<Prims>& qd, Field<Prims>& wg, Field<double>& rho_tot, CuzziOpacs<DSHARPwCOComp>& opacs,
                                     Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca, Molecule& mol) {
 
     int nk = 1 ;
@@ -674,7 +674,7 @@ void calculate_total_rhokappa(Grid& g, SizeGridIce& sizes, Field3D<Prims>& qd, F
     check_CUDA_errors("_calc_rho_tot_vol") ;
 }
 
-void calculate_total_rhokappa(Grid& g, SizeGridIce& sizes, Field3D<Prims>& qd, Field<Prims>& wg, Field<double>& rho_tot, CuzziOpacs<DSHARPComp>& opacs,
+void calculate_total_rhokappa(Grid& g, SizeGrid& sizes, Field3D<Prims>& qd, Field<Prims>& wg, Field<double>& rho_tot, CuzziOpacs<DSHARPComp>& opacs,
                                     Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca, Molecule& mol) {
 
     int nk = 1 ;
@@ -697,7 +697,7 @@ void calculate_total_rhokappa(Grid& g, SizeGridIce& sizes, Field3D<Prims>& qd, F
     check_CUDA_errors("_calc_rho_tot_vol") ;
 }
 
-void calculate_total_rhokappa(Grid& g, Grid& g_in, SizeGridIce& sizes, Field3D<double>& rho_d, Field<Prims>& wg, Field<double>& rho_tot, CuzziOpacs<DSHARPwCOComp>& opacs,
+void calculate_total_rhokappa(Grid& g, Grid& g_in, SizeGrid& sizes, Field3D<double>& rho_d, Field<Prims>& wg, Field<double>& rho_tot, CuzziOpacs<DSHARPwCOComp>& opacs,
                                     Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca, Molecule& mol) {
 
     int nk = 1 ;
@@ -715,7 +715,7 @@ void calculate_total_rhokappa(Grid& g, Grid& g_in, SizeGridIce& sizes, Field3D<d
 
 }
 
-void calculate_total_rhokappa(Grid& g, Grid& g_in, SizeGridIce& sizes, Field3D<double>& rho_d, Field<Prims>& wg, Field<double>& rho_tot, CuzziOpacs<DSHARPComp>& opacs,
+void calculate_total_rhokappa(Grid& g, Grid& g_in, SizeGrid& sizes, Field3D<double>& rho_d, Field<Prims>& wg, Field<double>& rho_tot, CuzziOpacs<DSHARPComp>& opacs,
                                     Field3D<double>& rhokappa_abs, Field3D<double>& rhokappa_sca, Molecule& mol) {
 
     int nk = 1 ;
