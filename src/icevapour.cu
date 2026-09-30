@@ -180,7 +180,7 @@ __global__ void _update_sizegrid(GridRef g, Field3DRef<Grain> grains, DensityVie
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
             for (int k=kidx; k<rho_dust.Nd; k+=kstride) {
-                double rho_d = rho_dust(i,j,k), rho_i = rho_ice(i,j,k);
+                double rho_d = max(rho_dust(i,j,k),1e-200), rho_i = rho_ice(i,j,k);
                 double rho_1 = (rho_i/(rho_d * rho_mi) + 1./rho_ms);
                 grains(i,j,k).a = pow((3.*m[k]/(4.*M_PI)) * rho_1, 1./3.);
                 grains(i,j,k).rho = (rho_i + rho_d) / (rho_d * rho_1);
