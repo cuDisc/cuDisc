@@ -1508,6 +1508,3 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
                                              1e-100*_floor, reactivation_factor);
     check_CUDA_errors("_update_active_cells") ;
 }
-
-template __global__ void _fix_negative_density<Prims>(GridRef g, Field3DRef<Prims> w, FieldConstRef<Prims> w_gas, double floor);
-template __global__ void _fix_negative_density<Quants>(GridRef g, Field3DRef<Quants> w, FieldConstRef<Prims> w_gas, double floor);

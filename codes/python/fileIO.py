@@ -134,6 +134,11 @@ class SizeGrid:
         D = np.log(mass[1:]/mass[:-1])/np.log(size[1:]/size[:-1])
         self.a_c = size[:-1] * (self.m_c/mass[:-1])**(1/D)
 
+class GrainProps:
+    def __init__(self, a, rho):
+        self.a   = a
+        self.rho = rho
+
 class OpacData:
     def __init__(self, wle, sizes, kappa_abs, kappa_sca):
         self.wle = wle
@@ -245,6 +250,41 @@ class CuDiscModel:
             raise AttributeError("Could not find the grain sizes (grains.sizes) "
                                  "in the simulation directory")
         return SizeGrid(m_e, a)
+
+    def load_grain_props_snap(self, snap_num):
+        """Load the grain properties (a, rho) for a single snapshot"""
+        snap_file = os.path.join(self.sim_dir, f'grain_props_{snap_num}.dat')
+
+        NR, NZ, Ndust = np.fromfile(snap_file, dtype=np.intc, count=3)
+        data = np.fromfile(snap_file, dtype=np.double, offset=3*np.dtype(np.intc).itemsize)
+        data = data.reshape(NR, NZ, Ndust, 2)
+
+        a = data[:,:,:,0]
+        rho = data[:,:,:,1]
+
+        return GrainProps(a, rho)
+
+    def load_grain_props(self):
+        """Load the grain properties (a, rho) for all snapshots"""
+        num_snaps = self._get_num_snaps()
+
+        file = os.path.join(self.sim_dir, 'grain_props_0.dat')
+        NR, NZ, Ndust = np.fromfile(file, dtype=np.intc, count=3)
+
+        a   = np.zeros((num_snaps, NR, NZ, Ndust))
+        rho = np.zeros((num_snaps, NR, NZ, Ndust))
+
+        for snap in range(num_snaps):
+            file = os.path.join(self.sim_dir, f'grain_props_{snap}.dat')
+
+            NR, NZ, Ndust = np.fromfile(file, dtype=np.intc, count=3)
+            data = np.fromfile(file, dtype=np.double, offset=3*np.dtype(np.intc).itemsize)
+            data = data.reshape(NR, NZ, Ndust, 2)
+
+            a[snap] = data[:,:,:,0]
+            rho[snap] = data[:,:,:,1]
+
+        return GrainProps(a, rho)
     
     def load_opacity(self):
         opac_file = os.path.join(self.sim_dir, "interp_opacs.dat")
@@ -448,17 +488,30 @@ class CuDiscModel:
 
         NR, NZ, Ndust = np.fromfile(file, dtype=np.intc, count=3)
 
+        has_grain_props = os.path.exists(
+            os.path.join(self.sim_dir, 'grain_props_0.dat')
+        )
+
         vap = np.zeros((num_snaps, NR, NZ))
-        ice = np.zeros((num_snaps, NR, NZ, Ndust,3))
+        if has_grain_props:
+            ice = np.zeros((num_snaps, NR, NZ, Ndust))
+        else:
+            ice = np.zeros((num_snaps, NR, NZ, Ndust, 3))
         
         for snap in range(num_snaps):
             file = os.path.join(self.sim_dir, f'mol_{snap}.dat')
 
             NR, NZ, Ndust = np.fromfile(file, dtype=np.intc, count=3)
             data = np.fromfile(file, dtype=np.double, offset=3*np.dtype(np.intc).itemsize)
-            data = data.reshape(NR, NZ, 3*Ndust+1)
-            vap[snap] = data[:,:,0]
-            ice[snap] = data[:,:,1:].reshape(NR,NZ,Ndust,3)
+
+            if has_grain_props:
+                data = data.reshape(NR, NZ, Ndust + 1)
+                vap[snap] = data[:,:,0]
+                ice[snap] = data[:,:,1:]
+            else:
+                data = data.reshape(NR, NZ, 3*Ndust+1)
+                vap[snap] = data[:,:,0]
+                ice[snap] = data[:,:,1:].reshape(NR,NZ,Ndust,3)
         
         return Molecule(vap, ice)
     
@@ -469,9 +522,19 @@ class CuDiscModel:
         NR, NZ, Ndust = np.fromfile(snap_file, dtype=np.intc, count=3)        
 
         data = np.fromfile(snap_file, dtype=np.double, offset=3*np.dtype(np.intc).itemsize)
-        data = data.reshape(NR, NZ, 3*Ndust+1)
-        vap = data[:,:,0]
-        ice = data[:,:,1:].reshape(NR,NZ,Ndust,3)
+
+        has_grain_props = os.path.exists(
+            os.path.join(self.sim_dir, f'grain_props_{snap_num}.dat')
+        )
+
+        if has_grain_props:
+            data = data.reshape(NR, NZ, Ndust + 1)
+            vap = data[:,:,0]
+            ice = data[:,:,1:]
+        else:
+            data = data.reshape(NR, NZ, 3*Ndust+1)
+            vap = data[:,:,0]
+            ice = data[:,:,1:].reshape(NR,NZ,Ndust,3)
         
         return Molecule(vap, ice)
     
@@ -483,17 +546,30 @@ class CuDiscModel:
 
         NR, NZ, Ndust = np.fromfile(file, dtype=np.intc, count=3)
 
+        has_grain_props = os.path.exists(
+            os.path.join(self.sim_dir, 'grain_props_0.dat')
+        )
+
         vap = np.zeros((num_snaps, NR))
-        ice = np.zeros((num_snaps, NR, Ndust,3))
-        
+        if has_grain_props:
+            ice = np.zeros((num_snaps, NR, Ndust))
+        else:
+            ice = np.zeros((num_snaps, NR, Ndust, 3))
+
         for snap in range(num_snaps):
             file = os.path.join(self.sim_dir, f'mol_{snap}.dat')
 
             NR, NZ, Ndust = np.fromfile(file, dtype=np.intc, count=3)
             data = np.fromfile(file, dtype=np.double, offset=3*np.dtype(np.intc).itemsize)
-            data = data.reshape(NR, NZ, 3*Ndust+1)
-            vap[snap] = data[:,2,0]
-            ice[snap] = data[:,2,1:].reshape(NR,Ndust,3)
+
+            if has_grain_props:
+                data = data.reshape(NR, NZ, Ndust + 1)
+                vap[snap] = data[:,2,0]
+                ice[snap] = data[:,2,1:]
+            else:
+                data = data.reshape(NR, NZ, 3*Ndust+1)
+                vap[snap] = data[:,2,0]
+                ice[snap] = data[:,2,1:].reshape(NR,Ndust,3)
         
         return Molecule1D(vap, ice)
 
@@ -576,7 +652,8 @@ class CuDiscModel:
         except ValueError:
             return False
         
-    def compute_1Dbinned_profiles(self, dust, mol, sizes, rho_mi, rho_ms):
+    # ...existing code...
+    def compute_1Dbinned_profiles(self, dust, mol, sizes, rho_mi, rho_ms, grain_props=None):
         """
         Compute binned surface densities and related arrays.
 
@@ -592,13 +669,24 @@ class CuDiscModel:
             Ice internal density
         rho_ms : double
             Base dust internal density
+        grain_props : GrainProps, optional
+            Grain properties (a, rho) loaded separately (new file format). If
+            not provided, falls back to the old format where size/density
+            were stored in mol.ice[...,1] and mol.ice[...,2].
 
         Returns
         -------
         BinnedData1D object
         """
-        # Calculate new mass array
-        m_new = (4. / 3.) * np.pi * mol.ice[:, :, :, 2] * mol.ice[:, :, :, 1]**3
+        if grain_props is not None:
+            # New format: grain size/density from grain_props, ice mass from mol.ice directly
+            m_new = (4. / 3.) * np.pi * grain_props.rho * grain_props.a**3
+            ice_dens = mol.ice
+        else:
+            # Old format: ice mass, size, density all packed into mol.ice
+            m_new = (4. / 3.) * np.pi * mol.ice[:, :, :, 2] * mol.ice[:, :, :, 1]**3
+            ice_dens = mol.ice[..., 0]
+
         m_bins = np.logspace(
             np.log10(sizes.m_c[0]),
             np.log10(sizes.m_c[-1]),
@@ -627,8 +715,8 @@ class CuDiscModel:
             # Accumulate values into binned arrays
             Sig_binned[coords + (ind,)] += eps * dust.Sigma[..., i]
             Sig_binned[coords + (ind + 1,)] += (1. - eps) * dust.Sigma[..., i]
-            Sig_ice_binned[coords + (ind,)] += eps * mol.ice[:, :, i, 0]
-            Sig_ice_binned[coords + (ind + 1,)] += (1. - eps) * mol.ice[:, :, i, 0]
+            Sig_ice_binned[coords + (ind,)] += eps * ice_dens[..., i]
+            Sig_ice_binned[coords + (ind + 1,)] += (1. - eps) * ice_dens[..., i]
 
         rho_1 = np.maximum(1e-300, Sig_ice_binned) / (np.maximum(Sig_binned, 1e-300) * rho_mi) + 1. / rho_ms
         dens_binned = np.maximum(Sig_ice_binned + Sig_binned, 1e-300) / (np.maximum(Sig_binned, 1e-300) * rho_1)
@@ -647,7 +735,7 @@ class CuDiscModel:
 
         return BinnedData1D(Sig_ind, Sig_ice_ind, m_bins, a_binned, a_bins_e_c, Sig_binned, Sig_ice_binned, dens_binned)
     
-    def compute_binned_profiles(self, g, dust, mol, sizes, rho_mi, rho_ms):
+    def compute_binned_profiles(self, g, dust, mol, sizes, rho_mi, rho_ms, grain_props=None):
         """
         Compute binned surface densities and related arrays.
 
@@ -663,13 +751,24 @@ class CuDiscModel:
             Ice internal density
         rho_ms : double
             Base dust internal density
+        grain_props : GrainProps, optional
+            Grain properties (a, rho) loaded separately (new file format). If
+            not provided, falls back to the old format where size/density
+            were stored in mol.ice[...,1] and mol.ice[...,2].
 
         Returns
         -------
         BinnedData object
         """
-        # Calculate new mass array
-        m_new = (4. / 3.) * np.pi * mol.ice[..., 2] * mol.ice[..., 1]**3
+        if grain_props is not None:
+            # New format: grain size/density from grain_props, ice mass from mol.ice directly
+            m_new = (4. / 3.) * np.pi * grain_props.rho * grain_props.a**3
+            ice_dens = mol.ice
+        else:
+            # Old format: ice mass, size, density all packed into mol.ice
+            m_new = (4. / 3.) * np.pi * mol.ice[..., 2] * mol.ice[..., 1]**3
+            ice_dens = mol.ice[..., 0]
+
         m_bins = np.logspace(
             np.log10(sizes.m_c[0]),
             np.log10(sizes.m_c[-1]),
@@ -698,8 +797,8 @@ class CuDiscModel:
             # Accumulate values into binned arrays
             rho_binned[coords + (ind,)] += eps * dust.rho[..., i]
             rho_binned[coords + (ind + 1,)] += (1. - eps) * dust.rho[..., i]
-            rho_ice_binned[coords + (ind,)] += eps * mol.ice[:, :, :, i, 0]
-            rho_ice_binned[coords + (ind + 1,)] += (1. - eps) * mol.ice[:, :, :, i, 0]
+            rho_ice_binned[coords + (ind,)] += eps * ice_dens[..., i]
+            rho_ice_binned[coords + (ind + 1,)] += (1. - eps) * ice_dens[..., i]
 
         rho_1 = np.maximum(1e-300, rho_ice_binned) / (np.maximum(rho_binned, 1e-300) * rho_mi) + 1. / rho_ms
         dens_binned = np.maximum(rho_ice_binned + rho_binned, 1e-300) / (np.maximum(rho_binned, 1e-300) * rho_1)

@@ -378,7 +378,7 @@ int main() {
     // Initialise temperature solver
 
     FLD_Solver FLD(10, 1e-5, 1000);
-    // FLD.set_precond_level(1);
+    FLD.set_precond_level(1);
 
     FLD.set_boundaries(BoundaryFlags::open_R_inner | 
                        BoundaryFlags::open_R_outer | 
@@ -452,8 +452,6 @@ int main() {
     }
     else {
         std::cout << "Computing initial temperature structure\n"; 
-
-        // for (int i=0; i<4; i++) {
 
         n=0;
         tol = 1;
@@ -570,6 +568,7 @@ int main() {
         write_prims(dir, 0, g, Ws_d, Ws_g, Sig_g);
         write_temp(dir, 0, g, T, J);
         COchem.write_mol(dir, 0);   
+        sizes.write_grain_props(dir, 0);
         dt_CFL = 1; 
         t_coag=0*year;
         dt_1percchem = 1*year;
@@ -646,8 +645,7 @@ int main() {
                         break;
                     }
 
-                    if (Tcount > 0) { 
-                        FLD.set_precond_level(1);
+                    if (Tcount > 0) {
                         FLD.set_tolerance(std::pow(10.,-2));
                         copy_field(g, oldT, T); 
                         copy_field(g, oldJ, J);
@@ -666,7 +664,6 @@ int main() {
                     err = fracerr(g, oldT, T);
                     Tcount += 1;
                 }
-                FLD.set_precond_level(0);
                 FLD.set_tolerance(1e-5);
                 if (exit == true) { 
         
@@ -733,6 +730,7 @@ int main() {
         write_prims(dir, Nout, g, Ws_d, Ws_g, Sig_g);
         write_temp(dir, Nout, g, T, J);
         COchem.write_mol(dir, Nout);
+        sizes.write_grain_props(dir, Nout);
 
         Nout+=1;
 

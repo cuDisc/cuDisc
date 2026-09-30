@@ -143,6 +143,31 @@ public:
     // Per-cell grain properties field (size + density), shared by SizeGrid and its subclasses
     Field3D<Grain> grain_props = create_field3D<Grain>(_g, stride);
 
+    template<typename out_type>
+    void write_grain_props(std::filesystem::path dir, out_type out) {
+
+        std::stringstream out_string ;
+        out_string << out ;
+        
+        std::ofstream f(dir / ("grain_props_" + out_string.str() + ".dat"), std::ios::binary);
+        
+        int NR = _g.NR+2*_g.Nghost, NZ = _g.Nphi+2*_g.Nghost;
+
+        f.write((char*) &NR, sizeof(int));
+        f.write((char*) &NZ, sizeof(int));
+        f.write((char*) &num_bins, sizeof(int));
+        for (int i=0; i<_g.NR+2*_g.Nghost; i++) {
+            for (int j=0; j<_g.Nphi+2*_g.Nghost; j++) {
+                for (int k=0; k<num_bins; k++) {
+                    f.write((char*) &grain_props(i,j,k).a, sizeof(double));
+                    f.write((char*) &grain_props(i,j,k).rho, sizeof(double));
+                }
+
+            }
+        }  
+        f.close();
+    }
+
     // Recompute grain size/density from the current dust/ice densities.
     // No-op by default: a plain SizeGrid has a fixed grain size/density set
     // at construction.
