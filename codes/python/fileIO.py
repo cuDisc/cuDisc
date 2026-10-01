@@ -251,38 +251,36 @@ class CuDiscModel:
                                  "in the simulation directory")
         return SizeGrid(m_e, a)
 
+    def has_grain_props(self):
+        """Whether the simulation wrote the grain properties (grain_props_*.dat)"""
+        return os.path.exists(os.path.join(self.sim_dir, 'grain_props_0.dat'))
+
+    def has_molecules(self):
+        """Whether the simulation wrote molecule data (mol_*.dat)"""
+        return os.path.exists(os.path.join(self.sim_dir, 'mol_0.dat'))
+
     def load_grain_props_snap(self, snap_num):
         """Load the grain properties (a, rho) for a single snapshot"""
-        snap_file = os.path.join(self.sim_dir, f'grain_props_{snap_num}.dat')
-
-        NR, NZ, Ndust = np.fromfile(snap_file, dtype=np.intc, count=3)
-        data = np.fromfile(snap_file, dtype=np.double, offset=3*np.dtype(np.intc).itemsize)
+        (NR, NZ, Ndust), data = self._read_snap('grain_props', snap_num)
+        if data.size != NR*NZ*Ndust*2:
+            raise ValueError(f"grain_props_{snap_num}.dat has {data.size} values, "
+                             f"not NR*NZ*Ndust*2 = {NR*NZ*Ndust*2}")
         data = data.reshape(NR, NZ, Ndust, 2)
 
-        a = data[:,:,:,0]
-        rho = data[:,:,:,1]
-
-        return GrainProps(a, rho)
+        return GrainProps(data[:,:,:,0], data[:,:,:,1])
 
     def load_grain_props(self):
         """Load the grain properties (a, rho) for all snapshots"""
+        self._check_snapshots('grain_props')
         num_snaps = self._get_num_snaps()
 
-        file = os.path.join(self.sim_dir, 'grain_props_0.dat')
-        NR, NZ, Ndust = np.fromfile(file, dtype=np.intc, count=3)
-
-        a   = np.zeros((num_snaps, NR, NZ, Ndust))
-        rho = np.zeros((num_snaps, NR, NZ, Ndust))
-
-        for snap in range(num_snaps):
-            file = os.path.join(self.sim_dir, f'grain_props_{snap}.dat')
-
-            NR, NZ, Ndust = np.fromfile(file, dtype=np.intc, count=3)
-            data = np.fromfile(file, dtype=np.double, offset=3*np.dtype(np.intc).itemsize)
-            data = data.reshape(NR, NZ, Ndust, 2)
-
-            a[snap] = data[:,:,:,0]
-            rho[snap] = data[:,:,:,1]
+        snap = self.load_grain_props_snap(0)
+        a   = np.empty((num_snaps,) + snap.a.shape)
+        rho = np.empty((num_snaps,) + snap.rho.shape)
+        for n in range(num_snaps):
+            if n > 0:
+                snap = self.load_grain_props_snap(n)
+            a[n], rho[n] = snap.a, snap.rho
 
         return GrainProps(a, rho)
     
@@ -481,53 +479,27 @@ class CuDiscModel:
         return Sig_g, Sig_d, v_d, v_g
 
     def load_mol(self):
-        
+        """Load the molecule data for all snapshots. ice is (..., Ndust) for
+        files written with separate grain properties, or (..., Ndust, 3)
+        (ice, a, rho) for older files with the grain properties packed in."""
+        self._check_snapshots('mol')
         num_snaps = self._get_num_snaps()
 
-        file = os.path.join(self.sim_dir, f'mol_0.dat')
+        snap = self.load_mol_snap(0)
+        vap = np.empty((num_snaps,) + snap.vap.shape)
+        ice = np.empty((num_snaps,) + snap.ice.shape)
+        for n in range(num_snaps):
+            if n > 0:
+                snap = self.load_mol_snap(n)
+            vap[n], ice[n] = snap.vap, snap.ice
 
-        NR, NZ, Ndust = np.fromfile(file, dtype=np.intc, count=3)
-
-        has_grain_props = os.path.exists(
-            os.path.join(self.sim_dir, 'grain_props_0.dat')
-        )
-
-        vap = np.zeros((num_snaps, NR, NZ))
-        if has_grain_props:
-            ice = np.zeros((num_snaps, NR, NZ, Ndust))
-        else:
-            ice = np.zeros((num_snaps, NR, NZ, Ndust, 3))
-        
-        for snap in range(num_snaps):
-            file = os.path.join(self.sim_dir, f'mol_{snap}.dat')
-
-            NR, NZ, Ndust = np.fromfile(file, dtype=np.intc, count=3)
-            data = np.fromfile(file, dtype=np.double, offset=3*np.dtype(np.intc).itemsize)
-
-            if has_grain_props:
-                data = data.reshape(NR, NZ, Ndust + 1)
-                vap[snap] = data[:,:,0]
-                ice[snap] = data[:,:,1:]
-            else:
-                data = data.reshape(NR, NZ, 3*Ndust+1)
-                vap[snap] = data[:,:,0]
-                ice[snap] = data[:,:,1:].reshape(NR,NZ,Ndust,3)
-        
         return Molecule(vap, ice)
-    
+
     def load_mol_snap(self, snap_num):
 
-        snap_file = os.path.join(self.sim_dir, f'mol_{snap_num}.dat')
+        (NR, NZ, Ndust), data = self._read_snap('mol', snap_num)
 
-        NR, NZ, Ndust = np.fromfile(snap_file, dtype=np.intc, count=3)        
-
-        data = np.fromfile(snap_file, dtype=np.double, offset=3*np.dtype(np.intc).itemsize)
-
-        has_grain_props = os.path.exists(
-            os.path.join(self.sim_dir, f'grain_props_{snap_num}.dat')
-        )
-
-        if has_grain_props:
+        if self._mol_layout(snap_num) == 'ice':
             data = data.reshape(NR, NZ, Ndust + 1)
             vap = data[:,:,0]
             ice = data[:,:,1:]
@@ -535,42 +507,63 @@ class CuDiscModel:
             data = data.reshape(NR, NZ, 3*Ndust+1)
             vap = data[:,:,0]
             ice = data[:,:,1:].reshape(NR,NZ,Ndust,3)
-        
+
         return Molecule(vap, ice)
-    
+
+    def _read_snap(self, base, snap_num):
+        """The (NR, NZ, Ndust) header and the data of {base}_{snap_num}.dat"""
+        snap_file = os.path.join(self.sim_dir, f'{base}_{snap_num}.dat')
+        header = tuple(int(x) for x in np.fromfile(snap_file, dtype=np.intc, count=3))
+        data = np.fromfile(snap_file, dtype=np.double, offset=3*np.dtype(np.intc).itemsize)
+        return header, data
+
+    def _mol_layout(self, snap_num):
+        """'ice' (ice only) or 'packed' (ice, a, rho), from the size of
+        mol_{snap_num}.dat"""
+        snap_file = os.path.join(self.sim_dir, f'mol_{snap_num}.dat')
+        NR, NZ, Ndust = np.fromfile(snap_file, dtype=np.intc, count=3)
+        n = (os.path.getsize(snap_file) - 3*np.dtype(np.intc).itemsize) // np.dtype(np.double).itemsize
+        if n == NR*NZ*(Ndust+1):
+            return 'ice'
+        if n == NR*NZ*(3*Ndust+1):
+            return 'packed'
+        raise ValueError(f"mol_{snap_num}.dat has {n} values, neither NR*NZ*(Ndust+1) "
+                         f"nor NR*NZ*(3*Ndust+1) for NR, NZ, Ndust = {NR}, {NZ}, {Ndust}")
+
+    def _check_snapshots(self, base):
+        """Check that every snapshot has its {base}_*.dat, and that they all
+        have the same shape (and, for mol, layout) as snapshot 0"""
+        num_snaps = self._get_num_snaps()
+        files = [os.path.join(self.sim_dir, f'{base}_{n}.dat') for n in range(num_snaps)]
+        missing = [n for n, f in enumerate(files) if not os.path.exists(f)]
+        if missing:
+            raise FileNotFoundError(f"{self.sim_dir} has {num_snaps} snapshots, but no "
+                                    f"{base}_*.dat for snapshots {missing}")
+
+        def describe(n):
+            header = tuple(int(x) for x in np.fromfile(files[n], dtype=np.intc, count=3))
+            return header + ((self._mol_layout(n),) if base == 'mol' else ())
+
+        first = describe(0)
+        differ = [n for n in range(1, num_snaps) if describe(n) != first]
+        if differ:
+            raise ValueError(f"{base}_*.dat differ from snapshot 0 {first} "
+                             f"in snapshots {differ}: e.g. {differ[0]} is {describe(differ[0])}")
+
     def load_mol1D(self):
-        
+        """Load the molecule data for all snapshots of a 1D run (taken from
+        the cell at iZ = 2). ice has the same layouts as in load_mol."""
+        self._check_snapshots('mol')
         num_snaps = self._get_num_snaps()
 
-        file = os.path.join(self.sim_dir, f'mol_0.dat')
+        snap = self.load_mol_snap(0)
+        vap = np.empty((num_snaps,) + snap.vap[:,2].shape)
+        ice = np.empty((num_snaps,) + snap.ice[:,2].shape)
+        for n in range(num_snaps):
+            if n > 0:
+                snap = self.load_mol_snap(n)
+            vap[n], ice[n] = snap.vap[:,2], snap.ice[:,2]
 
-        NR, NZ, Ndust = np.fromfile(file, dtype=np.intc, count=3)
-
-        has_grain_props = os.path.exists(
-            os.path.join(self.sim_dir, 'grain_props_0.dat')
-        )
-
-        vap = np.zeros((num_snaps, NR))
-        if has_grain_props:
-            ice = np.zeros((num_snaps, NR, Ndust))
-        else:
-            ice = np.zeros((num_snaps, NR, Ndust, 3))
-
-        for snap in range(num_snaps):
-            file = os.path.join(self.sim_dir, f'mol_{snap}.dat')
-
-            NR, NZ, Ndust = np.fromfile(file, dtype=np.intc, count=3)
-            data = np.fromfile(file, dtype=np.double, offset=3*np.dtype(np.intc).itemsize)
-
-            if has_grain_props:
-                data = data.reshape(NR, NZ, Ndust + 1)
-                vap[snap] = data[:,2,0]
-                ice[snap] = data[:,2,1:]
-            else:
-                data = data.reshape(NR, NZ, 3*Ndust+1)
-                vap[snap] = data[:,2,0]
-                ice[snap] = data[:,2,1:].reshape(NR,Ndust,3)
-        
         return Molecule1D(vap, ice)
 
     def _get_prim_file_base(self):
@@ -652,7 +645,6 @@ class CuDiscModel:
         except ValueError:
             return False
         
-    # ...existing code...
     def compute_1Dbinned_profiles(self, dust, mol, sizes, rho_mi, rho_ms, grain_props=None):
         """
         Compute binned surface densities and related arrays.
