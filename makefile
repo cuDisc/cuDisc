@@ -15,7 +15,7 @@ DIRECTORIES = $(HEADER_DIR) $(HEADER_DIR)/coagulation $(SRC_DIR)
 # =========================
 
 CPP    = g++
-CFLAGS = -O3 -g -std=c++17 -Wall -Wextra -march=native 
+CFLAGS = -O3 -g -std=c++17 -Wall -Wextra -march=native -Wno-deprecated-declarations
 
 HIP_MODE = 0
 
@@ -46,7 +46,7 @@ else
        --generate-code arch=compute_80,code=sm_80 \
        --generate-code arch=compute_86,code=sm_86
 
-    GPU_FLAGS    = -O3 -g --std=c++17 -Wno-deprecated-gpu-targets $(ARCH) -DOPAC_DIR=\"$(OPAC_DIR)\" 
+    GPU_FLAGS    = -O3 -g --std=c++17 -Wno-deprecated-gpu-targets $(ARCH) -DOPAC_DIR=\"$(OPAC_DIR)\" -Wno-deprecated-declarations
     GPU_INCLUDE  = -I./$(HEADER_DIR) -I$(CUDA_HOME)/include
     GPU_LIBS     = -L$(CUDA_HOME)/lib64 -lcudart -lcublas -lcusparse# -lstdc++fs
 	CFLAGS := $(CFLAGS) -I$(CUDA_HOME)/include -DOPAC_DIR=\"$(OPAC_DIR)\" 

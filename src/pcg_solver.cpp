@@ -6,11 +6,10 @@
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
 #include <cusparse.h>
-
+#include <algorithm>
 
 #include "pcg_solver.h"
 #include "timing.h"
-
 
 
 /* PCG_Solver::operator() 
@@ -40,12 +39,17 @@ bool PCG_Solver::operator()(const CSR_SpMatrix& mat, const DnVec& rhs, DnVec& x,
     DnVec r(mat.rows), p(mat.rows), q(mat.rows), z(mat.rows) ;
 
     // Check storage again
-    size_t buffer_size ;
+    size_t bs1, bs2;
     cusparseSpMV_bufferSize(
         CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
         &minus_one, mat.descr, x.descr, &zero, r.descr, 
-        CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, &buffer_size) ;
+        CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, &bs1) ;
+    cusparseSpMV_bufferSize(
+        CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
+        &one, mat.descr, p.descr, &zero, q.descr, 
+        CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, &bs2) ;
 
+    size_t buffer_size = std::max({bs1, bs2});
     void* spmv_buffer = nullptr;
     CudaArray<char> buffer;
     if (buffer_size > 0) {
@@ -154,12 +158,15 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
     DnVec& t = y ;
 
     // Check storage again
-    size_t buffer_size ;
-    cusparseSpMV_bufferSize(
-        CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
-        &minus_one, mat.descr, x.descr, &zero, r.descr, 
-        CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, &buffer_size) ;
-
+    size_t bs1, bs2, bs3;
+    cusparseSpMV_bufferSize(CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
+        &minus_one, mat.descr, x.descr, &zero, r.descr, CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, &bs1);
+    cusparseSpMV_bufferSize(CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
+        &one, mat.descr, y.descr, &zero, q.descr, CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, &bs2);
+    cusparseSpMV_bufferSize(CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
+        &one, mat.descr, z.descr, &zero, t.descr, CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, &bs3);
+    
+    size_t buffer_size = std::max({bs1, bs2, bs3});
     void* spmv_buffer = nullptr;
     CudaArray<char> buffer;
     if (buffer_size > 0) {
@@ -189,17 +196,6 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
     double normrhs, normr ;
     cublasDdot(CublasHandle::get(), r.rows, r.get(), 1, r.get(), 1, &normr);
     cublasDdot(CublasHandle::get(), rhs.rows, rhs.get(), 1, rhs.get(), 1, &normrhs);
-
-    cusparseSpMV_bufferSize(
-        CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
-        &one, mat.descr, y.descr, &zero, q.descr,
-        CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, &buffer_size) ;
-
-    spmv_buffer = nullptr;
-    if (buffer_size > 0) {
-        buffer = make_CudaArray<char>(buffer_size);
-        spmv_buffer = buffer.get();
-    }
 
     #ifdef __HIP_PLATFORM_AMD__
         hipsparseSpMV_preprocess(
