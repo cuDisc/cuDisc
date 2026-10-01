@@ -6,11 +6,10 @@
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
 #include <cusparse.h>
-
+#include <algorithm>
 
 #include "pcg_solver.h"
 #include "timing.h"
-
 
 
 /* PCG_Solver::operator() 
@@ -44,7 +43,7 @@ bool PCG_Solver::operator()(const CSR_SpMatrix& mat, const DnVec& rhs, DnVec& x,
     cusparseSpMV_bufferSize(
         CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
         &minus_one, mat.descr, x.descr, &zero, r.descr, 
-        CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, &buffer_size) ;
+        CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, &buffer_size) ;
 
     void* spmv_buffer = nullptr;
     CudaArray<char> buffer;
@@ -55,7 +54,7 @@ bool PCG_Solver::operator()(const CSR_SpMatrix& mat, const DnVec& rhs, DnVec& x,
 
     cusparseSpMV(CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
                   &minus_one, mat.descr, x.descr, &zero, r.descr, 
-                  CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, spmv_buffer) ;
+                  CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, spmv_buffer) ;
 
     cublasDaxpy(CublasHandle::get(), mat.rows, &one, rhs.get(), 1, r.get(), 1) ;
 
@@ -91,7 +90,7 @@ bool PCG_Solver::operator()(const CSR_SpMatrix& mat, const DnVec& rhs, DnVec& x,
         status = cusparseSpMV(
                     CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
                     &one, mat.descr, p.descr, &zero, q.descr, 
-                    CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, spmv_buffer) ;
+                    CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, spmv_buffer) ;
         if (status != CUSPARSE_STATUS_SUCCESS)
             throw std::runtime_error("PCG: Matrix mult failed") ;
        
@@ -154,12 +153,15 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
     DnVec& t = y ;
 
     // Check storage again
-    size_t buffer_size ;
-    cusparseSpMV_bufferSize(
-        CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
-        &minus_one, mat.descr, x.descr, &zero, r.descr, 
-        CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, &buffer_size) ;
-
+    size_t bs1, bs2, bs3;
+    cusparseSpMV_bufferSize(CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
+        &minus_one, mat.descr, x.descr, &zero, r.descr, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, &bs1);
+    cusparseSpMV_bufferSize(CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
+        &one, mat.descr, y.descr, &zero, q.descr, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, &bs2);
+    cusparseSpMV_bufferSize(CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
+        &one, mat.descr, z.descr, &zero, t.descr, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, &bs3);
+    
+    size_t buffer_size = std::max({bs1, bs2, bs3});
     void* spmv_buffer = nullptr;
     CudaArray<char> buffer;
     if (buffer_size > 0) {
@@ -178,7 +180,7 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
 
     cusparseSpMV(CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
                   &minus_one, mat.descr, x.descr, &zero, r.descr, 
-                  CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, spmv_buffer) ;
+                  CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, spmv_buffer) ;
 
     cublasDaxpy(CublasHandle::get(), mat.rows, &one, rhs.get(), 1, r.get(), 1) ;
 
@@ -189,17 +191,6 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
     double normrhs, normr ;
     cublasDdot(CublasHandle::get(), r.rows, r.get(), 1, r.get(), 1, &normr);
     cublasDdot(CublasHandle::get(), rhs.rows, rhs.get(), 1, rhs.get(), 1, &normrhs);
-
-    cusparseSpMV_bufferSize(
-        CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
-        &one, mat.descr, y.descr, &zero, q.descr,
-        CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, &buffer_size) ;
-
-    spmv_buffer = nullptr;
-    if (buffer_size > 0) {
-        buffer = make_CudaArray<char>(buffer_size);
-        spmv_buffer = buffer.get();
-    }
 
     #ifdef __HIP_PLATFORM_AMD__
         hipsparseSpMV_preprocess(
@@ -231,7 +222,7 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
             cusparseSpMV_bufferSize(
                 CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
                 &minus_one, mat.descr, x.descr, &zero, r.descr, 
-                CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, &buffer_size) ;
+                CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, &buffer_size) ;
 
             void* spmv_buffer = nullptr;
             CudaArray<char> buffer;
@@ -249,7 +240,7 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
 
             cusparseSpMV(CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
                           &minus_one, mat.descr, x.descr, &zero, r.descr, 
-                          CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, spmv_buffer) ;
+                          CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, spmv_buffer) ;
 
             cublasDaxpy(CublasHandle::get(), mat.rows, &one, rhs.get(), 1, r.get(), 1) ;
 
@@ -287,7 +278,7 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
         status = cusparseSpMV(
                     CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
                     &one, mat.descr, y.descr, &zero, q.descr, 
-                    CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, spmv_buffer) ;
+                    CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, spmv_buffer) ;
         if (status != CUSPARSE_STATUS_SUCCESS)
             throw std::runtime_error("BiCGStab: 1st Matrix mult failed") ;
 
@@ -334,7 +325,7 @@ bool PCG_Solver::solve_non_symmetric(const CSR_SpMatrix& mat, const DnVec& rhs, 
         status = cusparseSpMV(
                     CusparseHandle::get(), CUSPARSE_OPERATION_NON_TRANSPOSE,
                     &one, mat.descr, z.descr, &zero, t.descr, 
-                    CUDA_R_64F, CUSPARSE_SPMV_CSR_ALG1, spmv_buffer) ;
+                    CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, spmv_buffer) ;
         if (status != CUSPARSE_STATUS_SUCCESS)
             throw std::runtime_error("BiCGStab: 2nd Matrix mult failed") ;
 

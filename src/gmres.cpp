@@ -26,7 +26,7 @@ void GMRES_Solver::operator()(const CSR_SpMatrix& mat, const DnVec& rhs, DnVec& 
 
    // GMRES outer loop
    int total_iterations = 0;
-   GMRES_Solver::_gmres_result result ;
+   GMRES_Solver::_gmres_result result {} ;
    for (int iter = 0; iter < _max_iters+1; iter++) {
 
         result = gmres_loop(mat, rhs, x, precond) ;
