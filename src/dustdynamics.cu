@@ -1499,7 +1499,7 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
 
     van_leer_update(g, w_trac_vap, w_gas, fluxR_vap, fluxZ_vap, active_vap, blocks_vap, threads_vap);
 
-    update_quants_and_sources<false>(g, w_trac_vap, q_mids_vap, q_vap, w_gas, 0.5*dt, fluxR_vap, fluxZ_vap, active_vap, blocks_vap, threads_vap);
+    update_quants_and_sources<false>(g, w_trac_vap, q_mids_vap, q_vap, w_gas, dt, fluxR_vap, fluxZ_vap, active_vap, blocks_vap, threads_vap);
 
     _update_tracer_vap<<<blocks2D, threads2D>>>(g, w_trac_vap, mol);
     check_CUDA_errors("_update_tracer_vap") ;
