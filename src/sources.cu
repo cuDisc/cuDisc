@@ -23,12 +23,12 @@ double OmK2(GridRef& g, double Mstar, int i, int j) {
 __global__
 void _source_curv_grav(GridRef g, Field3DRef<Prims> w, Field3DRef<Quants> u, FieldConstRef<Prims> wg, Field3DConstRef<int> active, double dt, double Mstar, double floor) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
@@ -50,12 +50,12 @@ void _source_curv_grav(GridRef g, Field3DRef<Prims> w, Field3DRef<Quants> u, Fie
 __global__
 void _source_curv_grav_pressure(GridRef g, Field3DRef<Prims> w, Field3DRef<Quants> u, FieldConstRef<Prims> wg, Field3DConstRef<double> f_rad, Field3DConstRef<int> active, double dt, double Mstar, double floor) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
@@ -78,12 +78,12 @@ void _source_curv_grav_pressure(GridRef g, Field3DRef<Prims> w, Field3DRef<Quant
 __global__
 void _source_drag(GridRef g, Field3DRef<Prims> w, FieldConstRef<Prims> w_gas, Field3DConstRef<double> t_stop, Field3DConstRef<int> active, double dt, double) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
@@ -119,12 +119,12 @@ __global__
 void _calc_t_s(GridRef g, Field3DConstRef<Prims> q, FieldConstRef<Prims> w_gas, FieldConstRef<double> T, 
                     Field3DRef<double> t_stop, Field3DConstRef<Grain> grain, FieldConstRef<double> mu) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
@@ -139,8 +139,8 @@ void _calc_t_s(GridRef g, Field3DConstRef<Prims> q, FieldConstRef<Prims> w_gas, 
 template<bool use_full_stokes>
 void Sources<use_full_stokes>::source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u, Field3DConstRef<int> active, double dt) {
 
-    dim3 threads(16,8,8);
-    dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (u.Nd+7)/8) ;
+    dim3 threads(32,4,2) ;  // grain size on x: it is contiguous in memory
+    dim3 blocks((u.Nd+31)/32, (g.Nphi + 2*g.Nghost+3)/4, (g.NR + 2*g.Nghost+1)/2) ;
 
     _source_curv_grav<<<blocks,threads>>>(g, w, u, _w_gas, active, dt, _Mstar, _floor);
 }
@@ -150,8 +150,8 @@ void Sources<use_full_stokes>::source_imp(Grid& g, Field3D<Prims>& w, Field3DCon
 
     Field3D<double> t_stop = Field3D<double>(g.NR+2*g.Nghost,g.Nphi+2*g.Nghost,w.Nd);
 
-    dim3 threads(16,8,8);
-    dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (w.Nd+7)/8) ;
+    dim3 threads(32,4,2) ;  // grain size on x: it is contiguous in memory
+    dim3 blocks((w.Nd+31)/32, (g.Nphi + 2*g.Nghost+3)/4, (g.NR + 2*g.Nghost+1)/2) ;
 
     if (use_full_stokes) 
         _calc_t_s<true><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_props, _mu);
@@ -163,8 +163,8 @@ void Sources<use_full_stokes>::source_imp(Grid& g, Field3D<Prims>& w, Field3DCon
 template<bool use_full_stokes>
 void SourcesRad<use_full_stokes>::source_exp(Grid& g, Field3D<Prims>& w, Field3D<Quants>& u, Field3DConstRef<int> active, double dt) {
 
-    dim3 threads(16,8,8);
-    dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (u.Nd+7)/8) ;
+    dim3 threads(32,4,2) ;  // grain size on x: it is contiguous in memory
+    dim3 blocks((u.Nd+31)/32, (g.Nphi + 2*g.Nghost+3)/4, (g.NR + 2*g.Nghost+1)/2) ;
 
     _source_curv_grav_pressure<<<blocks,threads>>>(g, w, u, _w_gas, _f_rad, active, dt, _Mstar, _floor);
 }
@@ -174,8 +174,8 @@ void SourcesRad<use_full_stokes>::source_imp(Grid& g, Field3D<Prims>& w, Field3D
 
     Field3D<double> t_stop = Field3D<double>(g.NR+2*g.Nghost,g.Nphi+2*g.Nghost,w.Nd);
 
-    dim3 threads(16,8,8);
-    dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (w.Nd+7)/8) ;
+    dim3 threads(32,4,2) ;  // grain size on x: it is contiguous in memory
+    dim3 blocks((w.Nd+31)/32, (g.Nphi + 2*g.Nghost+3)/4, (g.NR + 2*g.Nghost+1)/2) ;
 
     if (use_full_stokes) 
         _calc_t_s<true><<<blocks,threads>>>(g, w, _w_gas, _T, t_stop, _sizes.grain_props, _mu);
