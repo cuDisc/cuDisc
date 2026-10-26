@@ -3,36 +3,21 @@
 
 #include "grid.h"
 #include "field.h"
-#include <cmath>
 
-double L2err(Grid& g, Field<double> &T1, Field<double> &T2) {
+/* Differences between two fields, e.g. temperatures before and after an
+ * update, over all cells (including ghosts):
+ *
+ *   L2err   : sqrt(sum (T2 - T1)^2 / N)
+ *   fracerr : sum |T2 - T1| / T1 / N
+ *
+ * The default versions run on the GPU, so the fields are not migrated to the
+ * host. The sum is done in a fixed order, so the result is reproducible.
+ * The _cpu versions loop over the fields on the host.
+ */
+double L2err(Grid& g, Field<double> &T1, Field<double> &T2) ;
+double fracerr(Grid& g, Field<double> &T1, Field<double> &T2) ;
 
-    double sum=0;
-    int N = (g.NR + 2*g.Nghost)*(g.Nphi + 2*g.Nghost);
-
-    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-        for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
-            sum += (T2(i,j) - T1(i,j))*(T2(i,j) - T1(i,j));
-        }
-    }
-
-    return std::sqrt(sum/N);
-
-}
-
-double fracerr(Grid& g, Field<double> &T1, Field<double> &T2) {
-
-    double sum=0;
-    int N = (g.NR + 2*g.Nghost)*(g.Nphi + 2*g.Nghost);
-
-    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-        for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
-            sum += std::abs(T2(i,j) - T1(i,j))/T1(i,j);
-        }
-    }
-
-    return sum/N;
-
-}
+double L2err_cpu(Grid& g, Field<double> &T1, Field<double> &T2) ;
+double fracerr_cpu(Grid& g, Field<double> &T1, Field<double> &T2) ;
 
 #endif//_CUDISC_HEADERS_ERRORFUNCS_H_

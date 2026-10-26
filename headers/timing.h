@@ -4,7 +4,7 @@
 
 
 #include <assert.h>
-#include <time.h>
+#include <chrono>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -68,7 +68,10 @@ private:
 //==============================================================================
 inline double WallClockTime()
 {
-  return clock() / (double) CLOCKS_PER_SEC;
+  // Note: clock() measures process CPU time, which misses time spent blocked
+  // waiting on the GPU, so use a monotonic wall clock instead.
+  using namespace std::chrono ;
+  return duration<double>(steady_clock::now().time_since_epoch()).count() ;
 }
 
 struct TimingData {
