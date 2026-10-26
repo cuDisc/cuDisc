@@ -271,98 +271,104 @@ __global__ void _compute_coagulation_rate(_CoagulationRateHelper<Kernel,Fragment
     } 
     __syncthreads() ;
 
-    
-    if (active(iR,iZ)) {
-        // Main coagulation loop
-        if (iR < coag.kernel.NR() && iZ < coag.kernel.Nphi()) {
-            for (int i=s0; i < coag.size; i += threads_per_cell) {
-                double mi = coag.grain_masses[i] ;      
-                double ni = dust_density(iR, iZ, i) / mi ;
-            
-                for (int j = 0; j < coag.size; ++j) {
+    // Check the bounds first: active has no entries beyond the grid
+    bool cell_active = iR < coag.kernel.NR() && iZ < coag.kernel.Nphi() && active(iR,iZ) ;
 
-                    auto Kij = coag.kernel(iR, iZ, i, j) ;
+    // Main coagulation loop
+    if (cell_active) {
+        for (int i=s0; i < coag.size; i += threads_per_cell) {
+            double mi = coag.grain_masses[i] ;      
+            double ni = dust_density(iR, iZ, i) / mi ;
+        
+            for (int j = 0; j < coag.size; ++j) {
 
-                    // Kij.p_coag = 1.;
-                    // Kij.p_frag = 0.;
+                auto Kij = coag.kernel(iR, iZ, i, j) ;
 
-                    double mj = coag.grain_masses[j] ;
-                    double nj = dust_density(iR, iZ, j) / mj ;
-            
-                    double tot_rate = Kij.K * nj * ni ;
-                    
-                    if (tot_rate == 0) 
-                        continue ;
+                // Kij.p_coag = 1.;
+                // Kij.p_frag = 0.;
 
-                    atomicAdd_block(&rate(iR, iZ, i), 
-                                    -tot_rate * mi * (Kij.p_coag + Kij.p_frag)) ;
+                double mj = coag.grain_masses[j] ;
+                double nj = dust_density(iR, iZ, j) / mj ;
+        
+                double tot_rate = Kij.K * nj * ni ;
+                
+                if (tot_rate == 0) 
+                    continue ;
+
+                atomicAdd_block(&rate(iR, iZ, i), 
+                                -tot_rate * mi * (Kij.p_coag + Kij.p_frag)) ;
+
+                for (int t=1; t < num_tracers+1; t++) {
+                    double tracer_rate = Kij.K * nj * 
+                        dust_density(iR, iZ, i + t*coag.size) * (Kij.p_coag + Kij.p_frag) ;
+                    atomicAdd_block(&rate(iR, iZ, i + t*coag.size), -tracer_rate) ;
+                }
+
+                // Kij.p_coag = 1.;
+                // Coagulation using Brauer's method.
+                if (Kij.p_coag > 0) {
+                    double coag_rate = tot_rate * mi * Kij.p_coag ;
+                
+                    int k = coag.cache.index(i,j).coag ;
+                    double f = coag.cache.Cijk(i,j).coag ;
+                
+                    if (k < coag.size)
+                        atomicAdd_block(&rate(iR,iZ,k), f * coag_rate) ;
+                    if (k + 1 < coag.size) 
+                        atomicAdd_block(&rate(iR,iZ,k+1), (1 - f) * coag_rate) ;
 
                     for (int t=1; t < num_tracers+1; t++) {
-                        double tracer_rate = Kij.K * nj * 
-                            dust_density(iR, iZ, i + t*coag.size) * (Kij.p_coag + Kij.p_frag) ;
-                        atomicAdd_block(&rate(iR, iZ, i + t*coag.size), -tracer_rate) ;
-                    }
+                        double tracer_rate = Kij.K * nj *
+                            dust_density(iR, iZ, i + t*coag.size) * Kij.p_coag ;
 
-                    // Kij.p_coag = 1.;
-                    // Coagulation using Brauer's method.
-                    if (Kij.p_coag > 0) {
-                        double coag_rate = tot_rate * mi * Kij.p_coag ;
-                    
-                        int k = coag.cache.index(i,j).coag ;
-                        double f = coag.cache.Cijk(i,j).coag ;
-                    
                         if (k < coag.size)
-                            atomicAdd_block(&rate(iR,iZ,k), f * coag_rate) ;
+                            atomicAdd_block(&rate(iR, iZ, k + t*coag.size), f * tracer_rate) ;
                         if (k + 1 < coag.size) 
-                            atomicAdd_block(&rate(iR,iZ,k+1), (1 - f) * coag_rate) ;
-
-                        for (int t=1; t < num_tracers+1; t++) {
-                            double tracer_rate = Kij.K * nj *
-                                dust_density(iR, iZ, i + t*coag.size) * Kij.p_coag ;
-
-                            if (k < coag.size)
-                                atomicAdd_block(&rate(iR, iZ, k + t*coag.size), f * tracer_rate) ;
-                            if (k + 1 < coag.size) 
-                                atomicAdd_block(&rate(iR, iZ, k + 1 + t*coag.size), (1-f) * tracer_rate) ;
-                        }
+                            atomicAdd_block(&rate(iR, iZ, k + 1 + t*coag.size), (1-f) * tracer_rate) ;
                     }
+                }
 
-                    // Fragmentation using the self-similar bins method
-                    if (Kij.p_frag > 0 && j <= i) {
-                        double frag_rate = tot_rate * Kij.p_frag ;
-                        if (i == j) frag_rate /= 2 ;
+                // Fragmentation using the self-similar bins method
+                if (Kij.p_frag > 0 && j <= i) {
+                    double frag_rate = tot_rate * Kij.p_frag ;
+                    if (i == j) frag_rate /= 2 ;
 
-                        int k     = coag.cache.index(i,j).frag;
-                        int k_rem = coag.cache.index(i,j).remnant;
-                        double m_rem = coag.cache.Cijk(i,j).remnant ;
-                        double eps = coag.cache.Cijk(i,j).eps;
+                    int k     = coag.cache.index(i,j).frag;
+                    int k_rem = coag.cache.index(i,j).remnant;
+                    double m_rem = coag.cache.Cijk(i,j).remnant ;
+                    double eps = coag.cache.Cijk(i,j).eps;
 
-                        atomicAdd_block(&tmp[k],              frag_rate * ((mi - m_rem) + mj )) ;
-                        atomicAdd_block(&rate(iR,iZ,k_rem),   frag_rate * (          m_rem) * eps) ;
+                    // A remnant in the largest bin stays there, rather than leaving the grid
+                    if (k_rem + 1 >= coag.size) eps = 1 ;
+
+                    atomicAdd_block(&tmp[k],              frag_rate * ((mi - m_rem) + mj )) ;
+                    atomicAdd_block(&rate(iR,iZ,k_rem),   frag_rate * (          m_rem) * eps) ;
+                    if (k_rem + 1 < coag.size)
                         atomicAdd_block(&rate(iR,iZ,k_rem+1), frag_rate * (          m_rem) * (1-eps)) ;
 
-                        // double rho_tot = dust_density(iR, iZ, i) + dust_density(iR, iZ, j) ;
-                        for (int t=1; t < num_tracers+1; t++) {
-                            double tracer_rate = frag_rate * (dust_density(iR, iZ, i + t*coag.size)/ni + dust_density(iR, iZ, j + t*coag.size)/nj)/(mi+mj) ;
-                            
-                            atomicAdd_block(&rate(iR,iZ,k_rem + t*coag.size),     tracer_rate * (          m_rem) * eps) ;
+                    // double rho_tot = dust_density(iR, iZ, i) + dust_density(iR, iZ, j) ;
+                    for (int t=1; t < num_tracers+1; t++) {
+                        double tracer_rate = frag_rate * (dust_density(iR, iZ, i + t*coag.size)/ni + dust_density(iR, iZ, j + t*coag.size)/nj)/(mi+mj) ;
+                        
+                        atomicAdd_block(&rate(iR,iZ,k_rem + t*coag.size),     tracer_rate * (          m_rem) * eps) ;
+                        if (k_rem + 1 < coag.size)
                             atomicAdd_block(&rate(iR,iZ,k_rem + 1 + t*coag.size), tracer_rate * (          m_rem) * (1-eps)) ;
-                            atomicAdd_block(&tmp[k + t*coag.size],                tracer_rate * ((mi - m_rem)+ mj)) ;
-                        }
+                        atomicAdd_block(&tmp[k + t*coag.size],                tracer_rate * ((mi - m_rem)+ mj)) ;
                     }
                 }
             }
         }
+    }
 
-        __syncthreads() ;
+    // Every thread in the block must reach the barrier, so it is outside the branches
+    __syncthreads() ;
 
-        // Distribute the fragmentation products
-        if (iR < coag.kernel.NR() && iZ < coag.kernel.Nphi()) {
-            for (int j=s0; j < coag.size; j += threads_per_cell) {
-                for (int t=0; t < num_tracers+1; t++)
-                    for (int i = 0; i < coag.size; ++i) 
-                        rate(iR,iZ,j+t*coag.size) += tmp[i + t*coag.size] * coag.cache.Cijk_frag(i,j) ;
-                }
+    // Distribute the fragmentation products
+    if (cell_active) {
+        for (int j=s0; j < coag.size; j += threads_per_cell) {
+            for (int t=0; t < num_tracers+1; t++)
+                for (int i = 0; i < coag.size; ++i)
+                    rate(iR,iZ,j+t*coag.size) += tmp[i + t*coag.size] * coag.cache.Cijk_frag(i,j) ;
         }
     }
 
