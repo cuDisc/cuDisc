@@ -30,7 +30,7 @@ __global__ void _compute_ytot(GridRef g, Field3DConstRef<double> y,
 // The result is stored in the errtot(i,j) corresponding to threadIdx.{x,y} = 0.
 
 template<bool debug, typename T>
-__global__ void _compute_error_norm(GridRef g,
+__global__ void __launch_bounds__(1024) _compute_error_norm(GridRef g,
                                     Field3DConstRef<double> y, Field3DConstRef<double> ynew,
                                     FieldConstRef<double> yabs, FieldConstRef<T> wg,
                                     double floor, double rel_tol,
@@ -44,12 +44,20 @@ __global__ void _compute_error_norm(GridRef g,
     if (i < g.NR + 2*g.Nghost && j < g.Nphi + 2*g.Nghost) {
         double res = 0 ;
         double scale ;
+        double mass = 0, mass_new = 0 ;
         for (int k=0; k<y.Nd; k++) {
             double floor_density = floor * get_rho(wg(i,j));
             scale = yabs(i,j) + rel_tol * max(max(abs(y(i,j,k)), abs(ynew(i,j,k))),
                                                floor_density) ;
             res += err(i,j,k)*err(i,j,k) / (scale*scale) ;
+            mass += y(i,j,k) ;
+            mass_new += ynew(i,j,k) ;
         }
+        // Coagulation conserves the total mass in each cell. The embedded error
+        // estimate cannot see a mass change if both solutions are clipped to zero,
+        // so also reject steps that change the mass by more than ~0.01*rel_tol.
+        scale = yabs(i,j) + 0.01 * rel_tol * max(mass, mass_new) ;
+        res += (mass_new - mass)*(mass_new - mass) / (scale*scale) ;
         errtot(i,j) = res ;
         if constexpr (debug) {
             idxs(i,j,0) = i;
@@ -129,7 +137,9 @@ double TimeIntegration::take_step_impl(Grid& g, Field3D<double>& y,
     bool success = false ;
     while (not success) {
         if (dt == 0)
-            throw std::runtime_error("Error time-step of zero was assigned");
+            throw std::runtime_error("Coagulation time-step reduced to zero: no step could meet the error / "
+                                     "mass-conservation tolerance. This usually means non-finite (NaN/inf) "
+                                     "coagulation rates, e.g. from invalid grain sizes or kernel values.");
 
         do_step(dt, g, y, ynew, error, active) ;
 
@@ -603,7 +613,9 @@ double TimeIntegration::take_step_tracers_impl(Grid& g, Field3D<double>& y, Fiel
 
     while (not success) {
         if (dt == 0)
-            throw std::runtime_error("Error time-step of zero was assigned");
+            throw std::runtime_error("Coagulation time-step reduced to zero: no step could meet the error / "
+                                     "mass-conservation tolerance. This usually means non-finite (NaN/inf) "
+                                     "coagulation rates, e.g. from invalid grain sizes or kernel values.");
           
         do_step(dt, g, ywtr, ynew, error, active) ;
 
