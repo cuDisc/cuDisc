@@ -154,6 +154,20 @@ test_%: $(PWD)/$(TEST_GPU_DIR)/test_%.cu $(LIBRARY) $(HEADERS) makefile
 %: codes/%.cpp $(LIBRARY) $(HEADERS) makefile
 	$(CPP) $(CFLAGS) -I./$(HEADER_DIR) $< -o $@ $(LIBRARY) $(GPU_LIBS)
 
+# Standalone GPU codes in codes/ (copied, or hipified in HIP mode, to build/codes)
+$(BUILD_DIR)/codes/%.cu: codes/%.cu
+	@mkdir -p $(BUILD_DIR)/codes
+	@if [ $(HIP_MODE) -eq 1 ]; then \
+		echo "hipify-perl $< > $@"; \
+		hipify-perl $< > $@; \
+	else \
+		echo "cp $< $@"; \
+		cp $< $@; \
+	fi
+
+%: $(BUILD_DIR)/codes/%.cu $(LIBRARY) $(HEADERS) makefile
+	$(GPU_COMPILER) $(GPU_FLAGS) $(GPU_INCLUDE) $< -o $@ $(LIBRARY) $(GPU_LIBS)
+
 # Unit tests (CPU binaries, but link with GPU libs so HIP/CUDA symbols resolve)
 unit_%: unit_tests/unit_%.cpp $(LIBRARY) $(HEADERS) makefile
 	$(CPP) $(CFLAGS) -I./$(HEADER_DIR) $< -o $@ $(LIBRARY) $(GPU_LIBS)
