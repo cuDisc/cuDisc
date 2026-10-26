@@ -108,25 +108,17 @@ class DustDynamics {
             bool has_vap = (bool) _active_vap;
             f.write((char*) &has_vap, sizeof(bool));
 
-            if (!has_vap) {
-                for (int i=0; i<g.NR; i++) {
-                    for (int j=0; j<g.Nphi; j++) {
-                        for (int k=0; k<(*_active).Nd; k++) {
-                            f.write((char*) &(*_active)(i,j,k), sizeof(int));
-                        }
-                    }
-                }
-            }
-            else {
-                for (int i=0; i<g.NR; i++) {
-                    for (int j=0; j<g.Nphi; j++) {
+            for (int i=0; i<g.NR+2*g.Nghost; i++) {
+                for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
+                    if (has_vap) {
                         f.write((char*) &(*_active_vap)(i,j,0), sizeof(int));
-                        for (int k=0; k<(*_active).Nd; k++) {
-                            f.write((char*) &(*_active)(i,j,k), sizeof(int));
-                        }
+                    }
+                    for (int k=0; k<(*_active).Nd; k++) {
+                        f.write((char*) &(*_active)(i,j,k), sizeof(int));
                     }
                 }
             }
+
             f.close();
         }
 
@@ -149,8 +141,8 @@ class DustDynamics {
                                                              1);
             }
 
-            for (int i=0; i<g.NR; i++) {
-                for (int j=0; j<g.Nphi; j++) {
+            for (int i=0; i<g.NR+2*g.Nghost; i++) {
+                for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
                     if (has_vap) {
                         f.read((char*) &(*_active_vap)(i,j,0), sizeof(int));
                     }
