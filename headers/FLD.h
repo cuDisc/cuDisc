@@ -54,24 +54,31 @@ class FLD_Solver {
                     Field<double>& T, Field<double>& J);
 
 
-    void solve_multi_band(const Grid& g, double dt, double Cv, 
+    /* Solve the multi-band equations with a spatially varying heat capacity, Cv.
+     *
+     * If use_reduced_system is true, the gas temperature equation is
+     * eliminated before the solve, leaving only the radiation equations.
+     */
+    void solve_multi_band(const Grid& g, double dt, const Field<double>& Cv,
                           const Field3D<double>& rhokappa_abs,
                           const Field3D<double>& rhokappa_sca,
                           const Field<double>& rho,
-                          const Field<double>& heat, 
+                          const Field<double>& heat,
                           const Field3D<double>& scattering,
                           const CudaArray<double>& wle,
                           Field<double>& T, Field3D<double>& J,
                           bool use_reduced_system=false) ;
 
-    void solve_multi_band(const Grid& g, double dt, const Field<double>& Cv, 
-                                 const Field3D<double>& rhokappa_abs,
-                                 const Field3D<double>& rhokappa_sca,
-                                 const Field<double>& rho,
-                                 const Field<double>& heat, 
-                                 const Field3D<double>& scattering,
-                                 const CudaArray<double>& wle,
-                                 Field<double>& T, Field3D<double>& J) ;
+    // Constant Cv: fills a 2D Cv field and calls the version above.
+    void solve_multi_band(const Grid& g, double dt, double Cv,
+                          const Field3D<double>& rhokappa_abs,
+                          const Field3D<double>& rhokappa_sca,
+                          const Field<double>& rho,
+                          const Field<double>& heat,
+                          const Field3D<double>& scattering,
+                          const CudaArray<double>& wle,
+                          Field<double>& T, Field3D<double>& J,
+                          bool use_reduced_system=false) ;
 
   private:
     double _T_ext ;
