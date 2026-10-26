@@ -66,6 +66,20 @@ __global__ void _compute_nu(GridRef g, double* nu, double nu0, double Mstar, dou
         nu[i] = alpha * nu0 * (g.Rc(i)/au) / sqrt(Mstar);
 }
 
+__global__ void _compute_alpha(GridRef g, const double* nu, FieldRef<double> alpha2D, FieldConstRef<double> cs2, double Mstar) {
+
+    int jidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int jstride = gridDim.x * blockDim.x ;
+    int istride = gridDim.y * blockDim.y ;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        double Om = sqrt(GMsun*Mstar/g.Rc(i))/g.Rc(i);
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride)
+            alpha2D(i,j) = nu[i] * Om / cs2(i,j);
+    }
+}
+
 __global__ void _compute_D(GridRef g, Field3DRef<double> D, FieldConstRef<Prims> wg, FieldConstRef<double> cs2, double Mstar, double alpha, double Sc) {
 
     int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
@@ -157,6 +171,11 @@ void compute_nu(const Grid& g, CudaArray<double>& nu, double nu0, double Mstar, 
     check_CUDA_errors("compute_nu") ;
 }
 
+void compute_alpha(const Grid& g, const CudaArray<double>& nu, Field<double>& alpha2D, const Field<double>& cs2, double Mstar) {
+    _compute_alpha<<<blocks2D(g), threads2D>>>(g, nu.get(), alpha2D, cs2, Mstar) ;
+    check_CUDA_errors("compute_alpha") ;
+}
+
 void compute_D(const Grid& g, Field3D<double>& D, const Field<Prims>& wg, const Field<double>& cs2, double Mstar, double alpha, double Sc) {
     _compute_D<<<blocks3D(g, D), threads3D>>>(g, D, wg, cs2, Mstar, alpha, Sc) ;
     check_CUDA_errors("compute_D") ;
@@ -194,6 +213,14 @@ void compute_nu_cpu(const Grid& g, CudaArray<double>& nu, const Field<double>& c
     for (int i=0; i<g.NR + 2*g.Nghost; i++) {
         double Om = std::sqrt(GMsun * Mstar / (g.Rc(i)*g.Rc(i)*g.Rc(i)));
         nu[i] = alpha * cs2(i,2) / Om;
+    }
+}
+
+void compute_alpha_cpu(const Grid& g, const CudaArray<double>& nu, Field<double>& alpha2D, const Field<double>& cs2, double Mstar) {
+    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
+        double Om = std::sqrt(GMsun*Mstar/g.Rc(i))/g.Rc(i);
+        for (int j=0; j<g.Nphi + 2*g.Nghost; j++)
+            alpha2D(i,j) = nu[i] * Om / cs2(i,j);
     }
 }
 

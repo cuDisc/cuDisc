@@ -278,7 +278,7 @@ int main() {
 
     compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g);
     calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor);   
-    set_all(g, alpha2D, alpha);
+    compute_alpha(g, nu, alpha2D, cs2, M_star);
 
     init_dust(g, Ws_d, Ws_g, Sig_g, sizes, cs, nu, M_star, 0.01, floor);
 
@@ -380,6 +380,7 @@ int main() {
         cs2_to_cs(g, cs, cs2);
         compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);
         compute_nu(g, nu, cs2, M_star, alpha);
+        compute_alpha(g, nu, alpha2D, cs2, M_star);
 
         sizes.update_sizes(Ws_g, Ws_d, CO.ice);
 
@@ -443,6 +444,7 @@ int main() {
         calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor);   
 
         compute_nu(g, nu, cs2, M_star, alpha);
+        compute_alpha(g, nu, alpha2D, cs2, M_star);
         compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);
 
         // Initialise CO
@@ -501,6 +503,7 @@ int main() {
         calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor);   
 
         compute_nu(g, nu, cs2, M_star, alpha);
+        compute_alpha(g, nu, alpha2D, cs2, M_star);
         compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);    
                         
         write_prims(dir, 0, g, Ws_d, Ws_g, Sig_g);
@@ -611,6 +614,7 @@ int main() {
                     compute_hydrostatic_equilibrium(star, g, Ws_g, cs2, Sig_g, Ws_d, CO, gas_floor, floor);
                     compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);
                     compute_nu(g, nu, cs2, M_star, alpha);
+                    compute_alpha(g, nu, alpha2D, cs2, M_star);
                     calc_gas_velocities(g, Sig_g, Ws_g, cs2, nu, alpha, star, gas_boundary, gas_floor);   
 
                     compute_stellar_UV_field(star, g, rhok_abs, rhok_sca, F_UV);
