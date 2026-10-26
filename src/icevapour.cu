@@ -382,8 +382,8 @@ __global__ void _calc_drhovdt(GridRef g, FieldRef<double> drhovdt, Field3DRef<do
     int istride = gridDim.x * blockDim.x ;
     int jstride = gridDim.y * blockDim.y ;
 
-    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
-        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
             drhovdt(i,j) = (rhos(i,j,rhos.Nd-1)-rhos_0(i,j,rhos.Nd-1))/dt;
         }
     }
