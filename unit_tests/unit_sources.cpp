@@ -15,6 +15,7 @@
 #include "hydrostatic.h"
 #include "file_io.h"
 #include "errorfuncs.h"
+#include "disc_helpers.h"
 
 double rhobench[] = {3.38538e-13,4.78197e-13,6.75471e-13,9.54129e-13,1.34774e-12,1.90374e-12,2.68912e-12,3.79851e-12,5.36561e-12,7.57935e-12,1.07067e-11,1.51254e-11,2.13702e-11,3.02001e-11,4.27137e-11,6.06415e-11,2.01825e-11,2.24911e-19,2.24911e-19,2.24911e-19};
 double vRbench[] = {3.47204,3.47203,3.47201,3.47197,3.47189,3.47174,3.47144,3.47083,3.46963,3.46723,3.46243,3.45286,3.43377,3.39568,3.27402,2.68371,0.333626,3.47204,3.47204,3.47204};
@@ -89,52 +90,6 @@ void set_up_dust(Grid& g, Field3D<Prims>& qd, Field<Prims>& wg, Field3D<double>&
         }
     }
 
-}
-
-void compute_cs2(const Grid &g, Field<double> &T, Field<double> &cs2, double mu) {
-
-    // Calculates square of the sound speed
-
-    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-        for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
-            cs2(i,j) = R_gas * T(i,j) / mu;
-        }
-    }
-}
-
-void compute_nu(const Grid &g, CudaArray<double> &nu, Field<double> &cs2, double Mstar, double alpha) {
-    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-        double Om = std::sqrt(GMsun * Mstar / (g.Rc(i)*g.Rc(i)*g.Rc(i)));
-        nu[i] = alpha * cs2(i,2) / Om;
-    }
-}
-
-void compute_D(const Grid &g, Field3D<double> &D, Field<Prims> &wg, Field<double> &cs2, double Mstar, double alpha, double Sc) {
-
-    // Calculates the dust diffusion constant
-
-    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-        double Om = std::sqrt(GMsun * Mstar / (g.Rc(i)*g.Rc(i)*g.Rc(i)));
-        for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
-            for (int k=0; k<D.Nd; k++) {
-                D(i,j,k) = wg(i,j).rho * alpha * cs2(i,j) / (Sc*Om) ;
-            }
-        }
-    }
-}
-
-void compute_nu(const Grid &g, CudaArray<double> &nu, double nu0, double Mstar, double alpha) {
-    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-        nu[i] = alpha * nu0 * (g.Rc(i)/au) / std::sqrt(Mstar);
-    }
-}
-
-void cs2_to_cs(Grid& g, Field<double> &cs, Field<double> &cs2) {
-    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-        for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
-            cs(i,j) = std::sqrt(cs2(i,j));
-        }
-    }
 }
 
 int main() {

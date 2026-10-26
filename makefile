@@ -62,7 +62,7 @@ HEADERS := grid.h field.h cuda_array.h reductions.h utils.h matrix_types.h scan.
 	pcg_solver.h radmc3d_utils.h star.h timing.h bins.h advection.h \
 	diffusion_device.h sources.h gas1d.h DSHARP_opacs.h file_io.h errorfuncs.h \
 	dustdynamics.h dustdynamics1D.h van_leer.h drag_const.h icevapour.h cuzzi_opacs.h \
-	interpolate.h flags.h matrix_utils.h super_stepping.h hydrostatic.h density_view.h $(COAG_HEADERS)
+	interpolate.h flags.h matrix_utils.h super_stepping.h hydrostatic.h density_view.h disc_helpers.h $(COAG_HEADERS)
 
 HEADERS := $(addprefix $(HEADER_DIR)/, $(HEADERS))
 
@@ -72,7 +72,7 @@ OBJ := grid.o integrate_z.o scan.o scan3d.o zero_bounds.o copy.o \
 	radmc3d_utils.o timing.o star.o bins.o check_tol.o advection.o diffusion.o \
 	coagulation.o coagulation_init.o coagulation_integrate.o  super_stepping.o \
 	sources.o gas1d.o DSHARP_opacs.o dustdynamics.o dustdynamics1D.o icevapour.o cuzzi_opacs.o \
-	errorfuncs.o
+	errorfuncs.o disc_helpers.o
 
 OBJ := $(addprefix $(BUILD_DIR)/, $(OBJ))
 
