@@ -104,13 +104,21 @@ class DustDynamics {
 
         void write_active(const Grid& g, std::filesystem::path dir) {
             std::ofstream f(dir / ("active_restart.dat"), std::ios::binary);
-            for (int i=0; i<g.NR; i++) {
-                for (int j=0; j<g.Nphi; j++) {
+
+            bool has_vap = (bool) _active_vap;
+            f.write((char*) &has_vap, sizeof(bool));
+
+            for (int i=0; i<g.NR+2*g.Nghost; i++) {
+                for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
+                    if (has_vap) {
+                        f.write((char*) &(*_active_vap)(i,j,0), sizeof(int));
+                    }
                     for (int k=0; k<(*_active).Nd; k++) {
                         f.write((char*) &(*_active)(i,j,k), sizeof(int));
                     }
                 }
             }
+
             f.close();
         }
 
@@ -123,8 +131,21 @@ class DustDynamics {
             }
 
             std::ifstream f(dir / ("active_restart.dat"), std::ios::binary);
-            for (int i=0; i<g.NR; i++) {
-                for (int j=0; j<g.Nphi; j++) {
+
+            bool has_vap = false;
+            f.read((char*) &has_vap, sizeof(bool));
+
+            if (has_vap && !_active_vap) {
+                _active_vap = std::make_unique<Field3D<int>>(g.NR+2*g.Nghost,
+                                                             g.Nphi+2*g.Nghost,
+                                                             1);
+            }
+
+            for (int i=0; i<g.NR+2*g.Nghost; i++) {
+                for (int j=0; j<g.Nphi+2*g.Nghost; j++) {
+                    if (has_vap) {
+                        f.read((char*) &(*_active_vap)(i,j,0), sizeof(int));
+                    }
                     for (int k=0; k<(*_active).Nd; k++) {
                         f.read((char*) &(*_active)(i,j,k), sizeof(int));
                     }
