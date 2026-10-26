@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en">
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Output and Analysis &mdash; cuDisc 1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css" />
+
+  
+  <!--[if lt IE 9]>
+    <script src="../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+        <script src="../_static/jquery.js"></script>
+        <script src="../_static/underscore.js"></script>
+        <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script src="../_static/doctools.js"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Physics and Numerics" href="../physics/index.html" />
+    <link rel="prev" title="Time-stepping" href="timestepping.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            cuDisc
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#prerequisites">Prerequisites</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#obtaining-the-code">Obtaining the code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#configuring-the-makefile">Configuring the makefile</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#compiling-the-tests">Compiling the tests</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#compiling-the-example-simulations">Compiling the example simulations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#building-cudisc-as-a-static-library">Building cuDisc as a static library</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#installing-the-python-dependencies">Installing the Python dependencies</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quickstart</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#running-the-2d-example">Running the 2D example</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#plotting-the-results">Plotting the results</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#running-the-1d-example">Running the 1D example</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#understanding-the-simulation-files">Understanding the simulation files</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#next-steps">Next steps</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Examples and Tests</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../examples/index.html">Examples</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../examples/steadyTD.html">steadyTD — 2D disc with coagulation and FLD</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../examples/steadyTD.html#physical-setup">Physical setup</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples/steadyTD.html#how-to-run">How to run</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples/steadyTD.html#visualisation">Visualisation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples/steadyTD.html#expected-results">Expected results</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../examples/isoPD.html">isoPD — isothermal disc</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../examples/isoPD.html#physical-setup">Physical setup</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples/isoPD.html#how-to-run">How to run</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples/isoPD.html#visualisation">Visualisation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples/isoPD.html#when-to-use-isopd">When to use isoPD</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../examples/1Ddisc.html">1Ddisc — 1D viscous disc with photoevaporation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../examples/1Ddisc.html#physical-setup">Physical setup</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples/1Ddisc.html#how-to-run">How to run</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples/1Ddisc.html#expected-results">Expected results</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../examples/index.html#d-transition-disc-steadytd">2D Transition Disc (<code class="docutils literal notranslate"><span class="pre">steadyTD</span></code>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../examples/index.html#d-isothermal-disc-isopd">2D Isothermal Disc (<code class="docutils literal notranslate"><span class="pre">isoPD</span></code>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../examples/index.html#d-disc-1ddisc">1D Disc (<code class="docutils literal notranslate"><span class="pre">1Ddisc</span></code>)</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../tests/index.html">Tests</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../tests/index.html#running-a-test">Running a test</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tests/index.html#test-details">Test details</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">User Guide</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="grid.html">The Grid</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="grid.html#creating-a-grid">Creating a Grid</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="grid.html#grid-spacing-options">Grid spacing options</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="grid.html#accessing-grid-quantities">Accessing grid quantities</a></li>
+<li class="toctree-l3"><a class="reference internal" href="grid.html#ghost-cells">Ghost cells</a></li>
+<li class="toctree-l3"><a class="reference internal" href="grid.html#multiple-grids-and-sub-grids">Multiple grids and sub-grids</a></li>
+<li class="toctree-l3"><a class="reference internal" href="grid.html#physical-constants">Physical constants</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="fields.html">Fields and Data Storage</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="fields.html#field-t-2d-cell-centred-data"><code class="docutils literal notranslate"><span class="pre">Field&lt;T&gt;</span></code> — 2D cell-centred data</a></li>
+<li class="toctree-l3"><a class="reference internal" href="fields.html#field3d-t-3d-data-2d-grid-size-bins"><code class="docutils literal notranslate"><span class="pre">Field3D&lt;T&gt;</span></code> — 3D data (2D grid + size bins)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="fields.html#cudaarray-t-1d-cuda-arrays"><code class="docutils literal notranslate"><span class="pre">CudaArray&lt;T&gt;</span></code> — 1D CUDA arrays</a></li>
+<li class="toctree-l3"><a class="reference internal" href="fields.html#the-prims-struct">The <code class="docutils literal notranslate"><span class="pre">Prims</span></code> struct</a></li>
+<li class="toctree-l3"><a class="reference internal" href="fields.html#copying-fields">Copying fields</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="gas.html">Gas Structure and Evolution</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="gas.html#the-star-object">The Star object</a></li>
+<li class="toctree-l3"><a class="reference internal" href="gas.html#gas-surface-density">Gas surface density</a></li>
+<li class="toctree-l3"><a class="reference internal" href="gas.html#hydrostatic-equilibrium">Hydrostatic equilibrium</a></li>
+<li class="toctree-l3"><a class="reference internal" href="gas.html#gas-velocities">Gas velocities</a></li>
+<li class="toctree-l3"><a class="reference internal" href="gas.html#d-gas-evolution">1D gas evolution</a></li>
+<li class="toctree-l3"><a class="reference internal" href="gas.html#boundary-conditions">Boundary conditions</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="dust.html">Dust Dynamics</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="dust.html#the-size-grid">The size grid</a></li>
+<li class="toctree-l3"><a class="reference internal" href="dust.html#setting-initial-conditions">Setting initial conditions</a></li>
+<li class="toctree-l3"><a class="reference internal" href="dust.html#constructing-the-solver">Constructing the solver</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="dust.html#setting-boundary-conditions">Setting boundary conditions</a></li>
+<li class="toctree-l4"><a class="reference internal" href="dust.html#the-time-step">The time step</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="dust.html#advancing-the-dust">Advancing the dust</a></li>
+<li class="toctree-l3"><a class="reference internal" href="dust.html#updating-the-diffusion-coefficient">Updating the diffusion coefficient</a></li>
+<li class="toctree-l3"><a class="reference internal" href="dust.html#restart-capability">Restart capability</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="opacity.html">Opacities</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="opacity.html#loading-an-opacity-table">Loading an opacity table</a></li>
+<li class="toctree-l3"><a class="reference internal" href="opacity.html#interpolating-onto-the-simulation-grid">Interpolating onto the simulation grid</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="opacity.html#setting-the-gas-opacity-floor">Setting the gas opacity floor</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="opacity.html#wavelength-binning-for-fld">Wavelength binning for FLD</a></li>
+<li class="toctree-l3"><a class="reference internal" href="opacity.html#writing-opacity-grids-to-file">Writing opacity grids to file</a></li>
+<li class="toctree-l3"><a class="reference internal" href="opacity.html#custom-opacity-tables">Custom opacity tables</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="temperature.html">Temperature and Radiative Transfer</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="temperature.html#creating-the-fld-solver">Creating the FLD solver</a></li>
+<li class="toctree-l3"><a class="reference internal" href="temperature.html#the-heat-and-j-fields">The heat and J fields</a></li>
+<li class="toctree-l3"><a class="reference internal" href="temperature.html#computing-stellar-heating">Computing stellar heating</a></li>
+<li class="toctree-l3"><a class="reference internal" href="temperature.html#solving-for-the-temperature">Solving for the temperature</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="temperature.html#iterating-to-convergence">Iterating to convergence</a></li>
+<li class="toctree-l4"><a class="reference internal" href="temperature.html#preconditioning">Preconditioning</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="temperature.html#updating-temperature-in-the-time-loop">Updating temperature in the time loop</a></li>
+<li class="toctree-l3"><a class="reference internal" href="temperature.html#sound-speed">Sound speed</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="coagulation.html">Dust Coagulation and Fragmentation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="coagulation.html#setting-up-the-kernel">Setting up the kernel</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="coagulation.html#setting-the-fragmentation-velocity">Setting the fragmentation velocity</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="coagulation.html#setting-up-the-integrator">Setting up the integrator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="coagulation.html#advancing-coagulation">Advancing coagulation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="coagulation.html#updating-the-kernel">Updating the kernel</a></li>
+<li class="toctree-l3"><a class="reference internal" href="coagulation.html#ice-in-coagulation-icevapour-chemistry">Ice in coagulation (ice–vapour chemistry)</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="timestepping.html">Time-stepping</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="timestepping.html#the-cfl-time-step">The CFL time step</a></li>
+<li class="toctree-l3"><a class="reference internal" href="timestepping.html#the-main-time-loop">The main time loop</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="timestepping.html#coagulation-cadence">Coagulation cadence</a></li>
+<li class="toctree-l4"><a class="reference internal" href="timestepping.html#temperature-cadence">Temperature cadence</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="timestepping.html#performance-notes">Performance notes</a></li>
+</ul>
+</li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Output and Analysis</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#writing-output">Writing output</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#output-file-structure">Output file structure</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#grid-and-opacity-metadata-files">Grid and opacity metadata files</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#restart-files">Restart files</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#python-analysis">Python analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="index.html#overview">Overview</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="index.html#typical-include-block">Typical include block</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Physics and Numerics</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../physics/index.html">Physics and Numerics</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../physics/grid_structure.html">Grid Structure</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../physics/grid_structure.html#coordinate-system">Coordinate system</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/grid_structure.html#cell-volumes-and-face-areas">Cell volumes and face areas</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/grid_structure.html#face-normals">Face normals</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/grid_structure.html#grid-spacing">Grid spacing</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../physics/grid_structure.html#radial-grid-spacing">Radial grid spacing</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../physics/grid_structure.html#polar-angle-grid-spacing">Polar-angle grid spacing</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/grid_structure.html#ghost-cells">Ghost cells</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/grid_structure.html#boundary-conditions">Boundary conditions</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../physics/dust_dynamics.html">Dust Dynamics</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../physics/dust_dynamics.html#governing-equations">Governing equations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/dust_dynamics.html#operator-splitting">Operator splitting</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/dust_dynamics.html#transport-solver">Transport solver</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../physics/dust_dynamics.html#delta-shock-treatment">Delta-shock treatment</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/dust_dynamics.html#aerodynamic-drag">Aerodynamic drag</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/dust_dynamics.html#turbulent-diffusion">Turbulent diffusion</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/dust_dynamics.html#cfl-condition">CFL condition</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/dust_dynamics.html#azimuthal-2-5d-treatment">Azimuthal (2.5D) treatment</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/dust_dynamics.html#gas-evolution">Gas evolution</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../physics/dust_dynamics.html#hydrostatic-equilibrium">Hydrostatic equilibrium</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../physics/radiative_transfer.html">Radiative Transfer</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../physics/radiative_transfer.html#the-hybrid-approach">The hybrid approach</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/radiative_transfer.html#energy-equations">Energy equations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/radiative_transfer.html#flux-limited-diffusion">Flux-limited diffusion</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../physics/radiative_transfer.html#multifrequency-treatment">Multifrequency treatment</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/radiative_transfer.html#stellar-irradiation">Stellar irradiation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/radiative_transfer.html#viscous-heating">Viscous heating</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/radiative_transfer.html#opacities">Opacities</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/radiative_transfer.html#temperature-convergence">Temperature convergence</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/radiative_transfer.html#benchmarks">Benchmarks</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../physics/coagulation.html">Dust Coagulation and Fragmentation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../physics/coagulation.html#the-smoluchowski-equation">The Smoluchowski equation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/coagulation.html#coagulation-kernel">Coagulation kernel</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/coagulation.html#fragmentation">Fragmentation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/coagulation.html#numerical-method">Numerical method</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/coagulation.html#operator-splitting-with-dynamics">Operator splitting with dynamics</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/coagulation.html#comparison-with-dustpy">Comparison with DustPy</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../physics/ice_chemistry.html">Ice–Vapour Chemistry</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../physics/ice_chemistry.html#physical-model">Physical model</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../physics/ice_chemistry.html#adsorption-rate">Adsorption rate</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../physics/ice_chemistry.html#thermal-desorption-rate">Thermal desorption rate</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../physics/ice_chemistry.html#surface-coverage">Surface coverage</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../physics/ice_chemistry.html#photodesorption-rate">Photodesorption rate</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../physics/ice_chemistry.html#implicit-solver">Implicit solver</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/ice_chemistry.html#ice-in-the-grain-size-distribution">Ice in the grain-size distribution</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/ice_chemistry.html#opacities-with-ice">Opacities with ice</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/ice_chemistry.html#vapour-remapping">Vapour remapping</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../physics/ice_chemistry.html#snow-line-instability">Snow-line instability</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api/index.html">API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/grid.html">1. Grid</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/grid.html#grid-class">1.1. Grid class</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/grid.html#construction">1.1.1. Construction</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/grid.html#grid-params">1.1.2. Grid::params</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/grid.html#cell-accessors">1.1.3. Cell accessors</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/grid.html#volume-and-face-areas">1.1.4. Volume and face areas</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/grid.html#dimension-members">1.1.5. Dimension members</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/grid.html#enumerations">1.2. Enumerations</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/grid.html#radialspacing">1.2.1. RadialSpacing</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/grid.html#thetaspacing">1.2.2. ThetaSpacing</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/grid.html#staggering">1.2.3. Staggering</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/grid.html#physical-constants-headers-constants-h">1.3. Physical constants (<code class="docutils literal notranslate"><span class="pre">headers/constants.h</span></code>)</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../api/fields.html">2. Fields</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/fields.html#field-t">2.1. Field&lt;T&gt;</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/fields.html#field-t-factory">2.1.1. Field&lt;T&gt; factory</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/fields.html#field-t-element-access">2.1.2. Field&lt;T&gt; element access</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/fields.html#data-transfer">2.1.3. Data transfer</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/fields.html#field3d-t">2.2. Field3D&lt;T&gt;</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/fields.html#field3d-t-factory">2.2.1. Field3D&lt;T&gt; factory</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/fields.html#field3d-t-element-access">2.2.2. Field3D&lt;T&gt; element access</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/fields.html#cudaarray-t">2.3. CudaArray&lt;T&gt;</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/fields.html#cudaarray-t-factory">2.3.1. CudaArray&lt;T&gt; factory</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/fields.html#element-access-host">2.3.2. Element access (host)</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/fields.html#primitive-variables-struct-prims">2.4. Primitive variables struct (<code class="docutils literal notranslate"><span class="pre">Prims</span></code>)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/fields.html#field-utilities">2.5. Field utilities</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../api/dust_dynamics.html">3. Dust Dynamics</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/dust_dynamics.html#sizegrid">3.1. SizeGrid</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/dust_dynamics.html#sizegrid-constructor">3.1.1. SizeGrid constructor</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/dust_dynamics.html#accessors">3.1.2. Accessors</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/dust_dynamics.html#sources">3.2. Sources</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/dust_dynamics.html#sources-constructor">3.2.1. Sources constructor</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/dust_dynamics.html#dustdynamics">3.3. DustDynamics</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/dust_dynamics.html#dustdynamics-constructor">3.3.1. DustDynamics constructor</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/dust_dynamics.html#advance-one-time-step">3.3.2. Advance one time step</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/dust_dynamics.html#cfl-limit">3.3.3. CFL limit</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/dust_dynamics.html#floor-utilities">3.3.4. Floor utilities</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/dust_dynamics.html#restart">3.3.5. Restart</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../api/radiative_transfer.html">4. Radiative Transfer</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/radiative_transfer.html#star">4.1. Star</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/radiative_transfer.html#star-constructor">4.1.1. Star constructor</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/radiative_transfer.html#star-methods">4.1.2. Star methods</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/radiative_transfer.html#dsharp-opacs">4.2. DSHARP_opacs</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/radiative_transfer.html#constructors">4.2.1. Constructors</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/radiative_transfer.html#dsharp-opacs-methods">4.2.2. DSHARP_opacs methods</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/radiative_transfer.html#wavelengthbinner">4.3. WavelengthBinner</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/radiative_transfer.html#wavelengthbinner-constructor">4.3.1. WavelengthBinner constructor</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/radiative_transfer.html#wavelengthbinner-methods">4.3.2. WavelengthBinner methods</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/radiative_transfer.html#fld-solver">4.4. FLD_Solver</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/radiative_transfer.html#fld-solver-constructor">4.4.1. FLD_Solver constructor</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/radiative_transfer.html#fld-solver-methods">4.4.2. FLD_Solver methods</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/radiative_transfer.html#stellar-heating">4.4.3. Stellar heating</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../api/coagulation.html">5. Coagulation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/coagulation.html#birnstielkernel">5.1. BirnstielKernel</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/coagulation.html#birnstielkernel-constructor">5.1.1. BirnstielKernel constructor</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/coagulation.html#methods">5.1.2. Methods</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/coagulation.html#simpleerosion">5.2. SimpleErosion</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/coagulation.html#simpleerosion-constructor">5.2.1. SimpleErosion constructor</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/coagulation.html#coagulationrate">5.3. CoagulationRate</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/coagulation.html#factory-function">5.3.1. Factory function</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/coagulation.html#bs32integration">5.4. BS32Integration</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/coagulation.html#bs32integration-constructor">5.4.1. BS32Integration constructor</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/coagulation.html#advance-over-a-time-interval">5.4.2. Advance over a time interval</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/coagulation.html#typical-usage">5.4.3. Typical usage</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../api/output.html">6. Output and Restart</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/output.html#write-file">6.1. write_file</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/output.html#write-grids">6.2. write_grids</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/output.html#read-active">6.3. read_active</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/output.html#binary-file-format">6.4. Binary file format</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Project</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../citation.html">Citation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../citation.html#methods-papers">Methods papers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../citation.html#bibtex-entries">BibTeX entries</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../citation.html#third-party-methods">Third-party methods</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../citation.html#publications-using-cudisc">Publications using cuDisc</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../changelog.html">Changelog</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../changelog.html#v2-0-0-2026">v2.0.0 (2026)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../changelog.html#v1-0-0-2024">v1.0.0 (2024)</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">cuDisc</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">User Guide</a></li>
+      <li class="breadcrumb-item active">Output and Analysis</li>
+      <li class="wy-breadcrumbs-aside">
+              <a href="https://github.com/cuDisc/cuDisc/blob/main/docs/user_guide/output.rst" class="fa fa-github"> Edit on GitHub</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="output-and-analysis">
+<span id="user-guide-output"></span><h1>Output and Analysis<a class="headerlink" href="#output-and-analysis" title="Permalink to this heading"></a></h1>
+<p>cuDisc writes output in a binary format for efficiency. A set of Python
+utilities in <code class="docutils literal notranslate"><span class="pre">codes/python/</span></code> reads these files and provides tools for
+visualisation and post-processing.</p>
+<section id="writing-output">
+<h2>Writing output<a class="headerlink" href="#writing-output" title="Permalink to this heading"></a></h2>
+<p>At the start of every simulation, write the grid and opacity metadata once:</p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="n">std</span><span class="o">::</span><span class="n">filesystem</span><span class="o">::</span><span class="n">path</span> <span class="n">dir</span> <span class="o">=</span> <span class="s">&quot;./codes/outputs/my_run&quot;</span><span class="p">;</span>
+<span class="n">std</span><span class="o">::</span><span class="n">filesystem</span><span class="o">::</span><span class="n">create_directories</span><span class="p">(</span><span class="n">dir</span><span class="p">);</span>
+
+<span class="n">write_grids</span><span class="p">(</span><span class="n">dir</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">g</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">sizes</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">opacs</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">bins</span><span class="p">);</span>
+</pre></div>
+</div>
+<p>Within the time loop, write a snapshot at each output time:</p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="n">write_file</span><span class="p">(</span><span class="n">dir</span><span class="p">,</span> <span class="n">Nout</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">Ws_d</span><span class="p">,</span> <span class="n">Ws_g</span><span class="p">,</span> <span class="n">Sig_g</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">J</span><span class="p">);</span>
+<span class="n">Nout</span><span class="o">++</span><span class="p">;</span>
+</pre></div>
+</div>
+<p>The snapshot index <code class="docutils literal notranslate"><span class="pre">Nout</span></code> starts at 0 (the initial condition) and
+increments by 1 for each output. The output times are written to a plain
+text file for reference:</p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="n">std</span><span class="o">::</span><span class="n">ofstream</span> <span class="n">f_times</span><span class="p">(</span><span class="n">dir</span> <span class="o">/</span> <span class="s">&quot;2Dtimes.txt&quot;</span><span class="p">);</span>
+<span class="n">f_times</span> <span class="o">&lt;&lt;</span> <span class="mf">0.</span> <span class="o">&lt;&lt;</span> <span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">;</span>                    <span class="c1">// initial snapshot</span>
+<span class="k">for</span> <span class="p">(</span><span class="kt">double</span> <span class="nl">t_out</span> <span class="p">:</span> <span class="n">output_times</span><span class="p">)</span>
+    <span class="n">f_times</span> <span class="o">&lt;&lt;</span> <span class="n">t_out</span> <span class="o">&lt;&lt;</span> <span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">;</span>
+<span class="n">f_times</span><span class="p">.</span><span class="n">close</span><span class="p">();</span>
+</pre></div>
+</div>
+<section id="output-file-structure">
+<h3>Output file structure<a class="headerlink" href="#output-file-structure" title="Permalink to this heading"></a></h3>
+<p>For each snapshot, cuDisc writes three binary files:</p>
+<table class="colwidths-given docutils align-default">
+<colgroup>
+<col style="width: 30%" />
+<col style="width: 70%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>File</p></th>
+<th class="head"><p>Contents</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dustXXXX.bin</span></code></p></td>
+<td><p>Dust primitive variables (ρ, v<sub>R</sub>, v<sub>φ</sub>, v<sub>Z</sub>)
+for all grain sizes and grid cells</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">gasXXXX.bin</span></code></p></td>
+<td><p>Gas primitive variables (ρ<sub>g</sub>, v<sub>R</sub>, v<sub>Z</sub>),
+surface density Σ<sub>g</sub>, and temperature <em>T</em></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">radXXXX.bin</span></code></p></td>
+<td><p>Multiband mean radiation intensity <em>J</em> (n_bands values per cell)</p></td>
+</tr>
+</tbody>
+</table>
+<p>The <code class="docutils literal notranslate"><span class="pre">XXXX</span></code> suffix is the zero-padded snapshot index.</p>
+</section>
+<section id="grid-and-opacity-metadata-files">
+<h3>Grid and opacity metadata files<a class="headerlink" href="#grid-and-opacity-metadata-files" title="Permalink to this heading"></a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">write_grids</span></code> call produces:</p>
+<table class="colwidths-given docutils align-default">
+<colgroup>
+<col style="width: 30%" />
+<col style="width: 70%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>File</p></th>
+<th class="head"><p>Contents</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">grid.bin</span></code></p></td>
+<td><p>Cell-centre R and Z coordinates (cm)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">sizes.bin</span></code></p></td>
+<td><p>Grain radii and masses for each size bin</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">opacs.bin</span></code></p></td>
+<td><p>Absorption and scattering opacities (n_spec × n_wavelengths)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">bins.bin</span></code></p></td>
+<td><p>Wavelength bin edges and centres</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="restart-files">
+<h3>Restart files<a class="headerlink" href="#restart-files" title="Permalink to this heading"></a></h3>
+<p>Every 1000 time steps, cuDisc writes restart files so that a simulation can
+be resumed if interrupted:</p>
+<table class="colwidths-given docutils align-default">
+<colgroup>
+<col style="width: 30%" />
+<col style="width: 70%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>File</p></th>
+<th class="head"><p>Contents</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">restart_params.dat</span></code></p></td>
+<td><p>Scalar parameters: step count, time, CFL step, coagulation and
+temperature timers</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">restart_dust.bin</span></code></p></td>
+<td><p>Dust primitive variable field</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">restart_gas.bin</span></code></p></td>
+<td><p>Gas primitive variable and surface density field</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">restart_T.bin</span></code></p></td>
+<td><p>Temperature field</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">restart_J.bin</span></code></p></td>
+<td><p>Radiation field</p></td>
+</tr>
+</tbody>
+</table>
+<p>To restart, cuDisc checks for the existence of <code class="docutils literal notranslate"><span class="pre">restart_params.dat</span></code> and
+reads the restart fields if it is found:</p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="n">std</span><span class="o">::</span><span class="n">ifstream</span> <span class="n">f</span><span class="p">(</span><span class="n">dir</span> <span class="o">/</span> <span class="s">&quot;restart_params.dat&quot;</span><span class="p">,</span> <span class="n">std</span><span class="o">::</span><span class="n">ios</span><span class="o">::</span><span class="n">binary</span><span class="p">);</span>
+<span class="k">if</span> <span class="p">(</span><span class="n">f</span><span class="p">)</span> <span class="p">{</span>
+    <span class="n">read_restart_file</span><span class="p">(</span><span class="n">dir</span> <span class="o">/</span> <span class="s">&quot;restart_params.dat&quot;</span><span class="p">,</span> <span class="n">count</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">dt_CFL</span><span class="p">,</span>
+                      <span class="n">t_coag</span><span class="p">,</span> <span class="n">t_temp</span><span class="p">,</span> <span class="n">dt_coag</span><span class="p">,</span> <span class="n">dt_1perc</span><span class="p">,</span> <span class="n">dummy</span><span class="p">);</span>
+    <span class="n">read_restart_quants</span><span class="p">(</span><span class="n">dir</span><span class="p">,</span> <span class="n">Ws_d</span><span class="p">,</span> <span class="n">Ws_g</span><span class="p">,</span> <span class="n">Sig_g</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">J</span><span class="p">);</span>
+    <span class="n">dyn</span><span class="p">.</span><span class="n">read_active</span><span class="p">(</span><span class="n">g</span><span class="p">,</span> <span class="n">dir</span><span class="p">);</span>
+    <span class="c1">// recompute cs2, cs, D, nu from the restarted T and Sig_g</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="python-analysis">
+<h2>Python analysis<a class="headerlink" href="#python-analysis" title="Permalink to this heading"></a></h2>
+<p>The Jupyter notebook <code class="docutils literal notranslate"><span class="pre">codes/python/disc_plotter.ipynb</span></code> shows how to read
+the binary output and make standard disc plots. Key functions provided in the
+accompanying Python module include:</p>
+<ul class="simple">
+<li><p>Reading the grid metadata and constructing 2D (R, Z) coordinate arrays.</p></li>
+<li><p>Loading a snapshot’s dust and gas fields.</p></li>
+<li><p>Computing surface densities from the 3D density field by vertical integration.</p></li>
+<li><p>Computing the grain-size distribution at a given radius.</p></li>
+<li><p>Plotting dust surface density maps, temperature maps, and size distributions.</p></li>
+</ul>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>The Python analysis tools require NumPy, Matplotlib, and (optionally)
+SciPy. Install them with:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip install -r requirements.txt
+</pre></div>
+</div>
+</div>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="timestepping.html" class="btn btn-neutral float-left" title="Time-stepping" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../physics/index.html" class="btn btn-neutral float-right" title="Physics and Numerics" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2024, Alfie Robinson, Richard Booth.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
