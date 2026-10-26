@@ -89,19 +89,12 @@ class WavelengthBinner {
     PlanckInegral _planck ;
 } ;
 
-inline void bin_central(const Grid& g, Field3D<double>& input_field, Field3D<double>& binned_field, int num_wle, int num_bands) {
-
-    int n = num_wle/num_bands;
-
-    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-        for (int j=0; j<g.Nphi + 2*g.Nghost; j++) { 
-            for (int k=0; k<num_bands; k++) {
-                int idx = binned_field.index(i,j,k);
-                int idx0 = input_field.index(i,j,(k*n)+(n/2));
-                binned_field[idx] = input_field[idx0];
-            }
-        }
-    }
-}
+/* bin_central
+ *
+ * Bin a field by taking the value at the central wavelength of each band.
+ * Runs on the GPU; bin_central_cpu is the original host loop.
+ */
+void bin_central(const Grid& g, Field3D<double>& input_field, Field3D<double>& binned_field, int num_wle, int num_bands) ;
+void bin_central_cpu(const Grid& g, Field3D<double>& input_field, Field3D<double>& binned_field, int num_wle, int num_bands) ;
 
 #endif// _CUDISC_HEADERS_BINS_H_

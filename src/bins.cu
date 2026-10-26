@@ -197,3 +197,41 @@ void WavelengthBinner::write_wle(std::filesystem::path folder) const {
 
         f.close();
     }
+__global__ void _bin_central(GridRef g, Field3DConstRef<double> input_field, Field3DRef<double> binned_field, int n, int num_bands) {
+
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
+    int jstride = gridDim.y * blockDim.y ;
+    int istride = gridDim.z * blockDim.z ;
+
+    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride)
+        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride)
+            for (int k=kidx; k<num_bands; k+=kstride)
+                binned_field(i,j,k) = input_field(i,j,(k*n)+(n/2)) ;
+}
+
+void bin_central(const Grid& g, Field3D<double>& input_field, Field3D<double>& binned_field, int num_wle, int num_bands) {
+
+    dim3 threads(32,4,2) ;
+    dim3 blocks((num_bands+31)/32, (g.Nphi+2*g.Nghost+3)/4, (g.NR+2*g.Nghost+1)/2) ;
+
+    _bin_central<<<blocks, threads>>>(g, input_field, binned_field, num_wle/num_bands, num_bands) ;
+    check_CUDA_errors("bin_central") ;
+}
+
+void bin_central_cpu(const Grid& g, Field3D<double>& input_field, Field3D<double>& binned_field, int num_wle, int num_bands) {
+
+    int n = num_wle/num_bands;
+
+    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
+        for (int j=0; j<g.Nphi + 2*g.Nghost; j++) { 
+            for (int k=0; k<num_bands; k++) {
+                int idx = binned_field.index(i,j,k);
+                int idx0 = input_field.index(i,j,(k*n)+(n/2));
+                binned_field[idx] = input_field[idx0];
+            }
+        }
+    }
+}

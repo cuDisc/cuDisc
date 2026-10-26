@@ -51,7 +51,10 @@ inline __host__ __device__ double get_rho(const Quants& q) { return q.rho ; }
 inline __host__ __device__ double& get_rho(Quants& q) { return q.rho ; }
 
 __global__
-void _set_boundaries(GridRef g, Field3DRef<Prims> w, int bound) ;
+void _set_boundaries(GridRef g, Field3DRef<Prims> w, int bound, bool radial) ;
+
+// Fill the dust ghost cells: the vertical boundaries, then the radial ones
+void set_dust_boundaries(GridRef g, Field3DRef<Prims> w, int bound, dim3 blocks, dim3 threads) ;
 
 class DustDynamics {
 

@@ -18,6 +18,7 @@
 #include "bins.h"
 #include "file_io.h"
 #include "errorfuncs.h"
+#include "disc_helpers.h"
 #include "dustdynamics.h"
 
 #include "coagulation/coagulation.h"
@@ -159,59 +160,6 @@ void init_dust(Grid& g, Field3D<Prims>& wd, Field<Prims>& wg, CudaArray<double>&
     }
 }
 
-void compute_cs2(const Grid &g, Field<double> &T, Field<double> &cs2, Field<double> &mu) {
-
-    // Calculates square of the sound speed
-
-    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-        for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
-            cs2(i,j) = R_gas * T(i,j) / mu(i,j);
-        }
-    }
-}
-
-void compute_alpha(Grid& g, CudaArray<double>& nuCA, Field<double>& alpha2D, Field<double>& cs2, double M_star) {
-
-    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-        double Omk = std::sqrt(GMsun*M_star/g.Rc(i))/g.Rc(i);
-        for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
-            alpha2D(i,j) = nuCA[i] * Omk / cs2(i,j);
-        }
-    }
-}
-
-void compute_nu(const Grid &g, CudaArray<double> &nu, Field<double> &cs2, double Mstar, double alpha) {
-    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-        double Om = std::sqrt(GMsun * Mstar / (g.Rc(i)*g.Rc(i)*g.Rc(i)));
-        nu[i] = alpha * cs2(i,2) / Om;
-    }
-}
-
-void compute_D(const Grid &g, Field3D<double> &D, Field<Prims> &wg, Field<double> &cs2, double Mstar, double alpha, double Sc) {
-
-    // Calculates the dust diffusion constant
-
-    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-        double Om = std::sqrt(GMsun * Mstar / (g.Rc(i)*g.Rc(i)*g.Rc(i)));
-        for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
-            for (int k=0; k<D.Nd; k++) {
-                D(i,j,k) = wg(i,j).rho * alpha * cs2(i,j) / (Sc*Om) ;
-            }
-        }
-    }
-}
-
-void compute_Cv(const Grid &g, Field<double> &Cv, Field<double>& mu) {
-
-    // Specific heat at const. vol.
-
-    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-        for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
-            Cv(i,j) = 2.5*R_gas / mu(i,j);
-        }
-    }
-}
-
 void compute_total_density(Grid& g, Field<Prims>& w_g, Field3D<Prims>& w_d, Field<double>& rho_tot, Molecule& mol) {
 
     for (int i=0; i<g.NR + 2*g.Nghost; i++) {
@@ -221,14 +169,6 @@ void compute_total_density(Grid& g, Field<Prims>& w_g, Field3D<Prims>& w_d, Fiel
                 rho_tot_temp += w_d(i,j,k).rho + mol.ice(i,j,k);
             }    
             rho_tot(i,j) = w_g(i,j).rho + rho_tot_temp + mol.vap(i,j);
-        }
-    }
-}
-
-void cs2_to_cs(Grid& g, Field<double> &cs, Field<double> &cs2) {
-    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-        for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
-            cs(i,j) = std::sqrt(cs2(i,j));
         }
     }
 }
@@ -440,6 +380,7 @@ int main() {
         cs2_to_cs(g, cs, cs2);
         compute_D(g, D, Ws_g, cs2, M_star, alpha, 1.);
         compute_nu(g, nu, cs2, M_star, alpha);
+        compute_alpha(g, nu, alpha2D, cs2, M_star);
 
         sizes.update_sizes(Ws_g, Ws_d, CO.ice);
 

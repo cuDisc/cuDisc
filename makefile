@@ -62,7 +62,7 @@ HEADERS := grid.h field.h cuda_array.h reductions.h utils.h matrix_types.h scan.
 	pcg_solver.h radmc3d_utils.h star.h timing.h bins.h advection.h \
 	diffusion_device.h sources.h gas1d.h DSHARP_opacs.h file_io.h errorfuncs.h \
 	dustdynamics.h dustdynamics1D.h van_leer.h drag_const.h icevapour.h cuzzi_opacs.h \
-	interpolate.h flags.h matrix_utils.h super_stepping.h hydrostatic.h density_view.h $(COAG_HEADERS)
+	interpolate.h flags.h matrix_utils.h super_stepping.h hydrostatic.h density_view.h disc_helpers.h $(COAG_HEADERS)
 
 HEADERS := $(addprefix $(HEADER_DIR)/, $(HEADERS))
 
@@ -71,7 +71,8 @@ OBJ := grid.o integrate_z.o scan.o scan3d.o zero_bounds.o copy.o \
 	jacobi.o ILU_precond.o gmres.o block_jacobi.o sparse_utils.o \
 	radmc3d_utils.o timing.o star.o bins.o check_tol.o advection.o diffusion.o \
 	coagulation.o coagulation_init.o coagulation_integrate.o  super_stepping.o \
-	sources.o gas1d.o DSHARP_opacs.o dustdynamics.o dustdynamics1D.o icevapour.o cuzzi_opacs.o
+	sources.o gas1d.o DSHARP_opacs.o dustdynamics.o dustdynamics1D.o icevapour.o cuzzi_opacs.o \
+	errorfuncs.o disc_helpers.o
 
 OBJ := $(addprefix $(BUILD_DIR)/, $(OBJ))
 
@@ -141,18 +142,22 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cu $(HEADERS) makefile
 	$(GPU_COMPILER) $(GPU_FLAGS) $(GPU_INCLUDE) -c $< -o $@
 # =========================
 # Test binaries
+#
+# Executables are linked to $@.tmp and renamed into place, so rebuilding
+# never modifies a binary that a running job is using (which would crash it
+# with SIGBUS); the job keeps the old file.
 # =========================
 # CPU-only tests (.cpp)
 test_%: $(PWD)/tests/codes/test_%.cpp $(LIBRARY) $(HEADERS) makefile
-	$(CPP) $(CFLAGS) -I./$(HEADER_DIR) $< -o $@ $(LIBRARY) $(GPU_LIBS)
+	$(CPP) $(CFLAGS) -I./$(HEADER_DIR) $< -o $@.tmp $(LIBRARY) $(GPU_LIBS) && mv -f $@.tmp $@
 
 # GPU tests (.cu) – from tests/codes in CUDA, from hip_tests in HIP
 test_%: $(PWD)/$(TEST_GPU_DIR)/test_%.cu $(LIBRARY) $(HEADERS) makefile
-	$(GPU_COMPILER) $(GPU_FLAGS) $(GPU_INCLUDE) $< -o $@ $(LIBRARY) $(GPU_LIBS)
+	$(GPU_COMPILER) $(GPU_FLAGS) $(GPU_INCLUDE) $< -o $@.tmp $(LIBRARY) $(GPU_LIBS) && mv -f $@.tmp $@
 
 # Standalone codes in codes/
 %: codes/%.cpp $(LIBRARY) $(HEADERS) makefile
-	$(CPP) $(CFLAGS) -I./$(HEADER_DIR) $< -o $@ $(LIBRARY) $(GPU_LIBS)
+	$(CPP) $(CFLAGS) -I./$(HEADER_DIR) $< -o $@.tmp $(LIBRARY) $(GPU_LIBS) && mv -f $@.tmp $@
 
 # Standalone GPU codes in codes/ (copied, or hipified in HIP mode, to build/codes)
 $(BUILD_DIR)/codes/%.cu: codes/%.cu
@@ -166,11 +171,11 @@ $(BUILD_DIR)/codes/%.cu: codes/%.cu
 	fi
 
 %: $(BUILD_DIR)/codes/%.cu $(LIBRARY) $(HEADERS) makefile
-	$(GPU_COMPILER) $(GPU_FLAGS) $(GPU_INCLUDE) $< -o $@ $(LIBRARY) $(GPU_LIBS)
+	$(GPU_COMPILER) $(GPU_FLAGS) $(GPU_INCLUDE) $< -o $@.tmp $(LIBRARY) $(GPU_LIBS) && mv -f $@.tmp $@
 
 # Unit tests (CPU binaries, but link with GPU libs so HIP/CUDA symbols resolve)
 unit_%: unit_tests/unit_%.cpp $(LIBRARY) $(HEADERS) makefile
-	$(CPP) $(CFLAGS) -I./$(HEADER_DIR) $< -o $@ $(LIBRARY) $(GPU_LIBS)
+	$(CPP) $(CFLAGS) -I./$(HEADER_DIR) $< -o $@.tmp $(LIBRARY) $(GPU_LIBS) && mv -f $@.tmp $@
 
 run_units: $(UNIT_TESTS)
 	@for executable in $(UNIT_TESTS); do \

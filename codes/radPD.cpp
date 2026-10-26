@@ -15,6 +15,7 @@
 #include "hydrostatic.h"
 #include "file_io.h"
 #include "errorfuncs.h"
+#include "disc_helpers.h"
 #include "stellar_irradiation.h"
 #include "DSHARP_opacs.h"
 #include "FLD.h"
@@ -111,52 +112,6 @@ void setup_init_J(const Grid &g, Field<double> &heat, Field3D<double> &J) {
         }
     }
 
-}
-
-void compute_cs2(const Grid &g, Field<double> &T, Field<double> &cs2, double mu) {
-
-    // Calculates square of the sound speed
-
-    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-        for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
-            cs2(i,j) = R_gas * T(i,j) / mu;
-        }
-    }
-}
-
-void compute_nu(const Grid &g, CudaArray<double> &nu, Field<double> &cs2, double Mstar, double alpha) {
-    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-        double Om = std::sqrt(GMsun * Mstar / (g.Rc(i)*g.Rc(i)*g.Rc(i)));
-        nu[i] = alpha * cs2(i,2) / Om;
-    }
-}
-
-void compute_D(const Grid &g, Field3D<double> &D, Field<Prims> &wg, Field<double> &cs2, double Mstar, double alpha, double Sc) {
-
-    // Calculates the dust diffusion constant
-
-    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-        double Om = std::sqrt(GMsun * Mstar / (g.Rc(i)*g.Rc(i)*g.Rc(i)));
-        for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
-            for (int k=0; k<D.Nd; k++) {
-                D(i,j,k) = wg(i,j).rho * alpha * cs2(i,j) / (Sc*Om) ;
-            }
-        }
-    }
-}
-
-void compute_nu(const Grid &g, CudaArray<double> &nu, double nu0, double Mstar, double alpha) {
-    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-        nu[i] = alpha * nu0 * (g.Rc(i)/au) / std::sqrt(Mstar);
-    }
-}
-
-void cs2_to_cs(Grid& g, Field<double> &cs, Field<double> &cs2) {
-    for (int i=0; i<g.NR + 2*g.Nghost; i++) {
-        for (int j=0; j<g.Nphi + 2*g.Nghost; j++) {
-            cs(i,j) = std::sqrt(cs2(i,j));
-        }
-    }
 }
 
 

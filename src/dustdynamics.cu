@@ -20,21 +20,46 @@
 // Advection-Diffusion Solver
 
 
-__global__
-void _set_boundaries(GridRef g, Field3DRef<Prims> w, int bound) {
+/* Launch configuration for the 3D dust kernels.
+ *
+ * The grain-size index k is contiguous in memory, so the kernels map it to
+ * threadIdx.x, with the vertical and radial indices on y and z. The block
+ * shape adapts to the number of species (e.g. 1 for a vapour tracer).
+ */
+static dim3 dust_threads(int Nd) {
+    int tx = 1 ;
+    while (tx < Nd && tx < 32) tx *= 2 ;
+    int ty = 128/tx < 32 ? 128/tx : 32 ;
+    return dim3(tx, ty, 256/(tx*ty)) ;
+}
+static dim3 dust_blocks(const Grid& g, int Nd, dim3 threads) {
+    return dim3((Nd + threads.x - 1)/threads.x,
+                (g.Nphi + 2*g.Nghost + threads.y - 1)/threads.y,
+                (g.NR + 2*g.Nghost + threads.z - 1)/threads.z) ;
+}
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+/* _set_boundaries
+ *
+ * Fill the ghost cells at the vertical (radial=false) or radial (radial=true)
+ * boundaries, including the corners. Launched once for each, vertical first
+ * (see set_dust_boundaries): each pass reads only cells the other pass writes,
+ * so the corners are set deterministically.
+ */
+__global__
+void _set_boundaries(GridRef g, Field3DRef<Prims> w, int bound, bool radial) {
+
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
             for (int k=kidx; k<w.Nd; k+=kstride) {
 
-                if (i < g.Nghost) {
+                if (radial && i < g.Nghost) {
                     if (bound & BoundaryFlags::open_R_inner) {  //outflow
                         if (w(g.Nghost,j,k).v_R < 0.) {
                             w(i,j,k) = w(g.Nghost,j,k) ;
@@ -51,7 +76,7 @@ void _set_boundaries(GridRef g, Field3DRef<Prims> w, int bound) {
                     }
                 }
 
-                if (j>=g.Nphi+g.Nghost) {
+                if (!radial && j>=g.Nphi+g.Nghost) {
                     if (bound & BoundaryFlags::open_Z_outer) {
                         if (w(i,g.Nphi+g.Nghost-1,k).v_R*g.face_normal_Z(i,g.Nphi+g.Nghost).R + 
                             w(i,g.Nphi+g.Nghost-1,k).v_Z*g.face_normal_Z(i,g.Nphi+g.Nghost).Z > 0.) {
@@ -78,7 +103,7 @@ void _set_boundaries(GridRef g, Field3DRef<Prims> w, int bound) {
                     }
                 }        
 
-                if (i>=g.NR+g.Nghost) {
+                if (radial && i>=g.NR+g.Nghost) {
                     if (bound & BoundaryFlags::open_R_outer) {
                         if (w(g.NR+g.Nghost-1,j,k).v_R > 0.) {
                             w(i,j,k) = w(g.NR+g.Nghost-1,j,k);
@@ -95,7 +120,7 @@ void _set_boundaries(GridRef g, Field3DRef<Prims> w, int bound) {
                     }
                 }    
                 
-                if (j < g.Nghost) {
+                if (!radial && j < g.Nghost) {
                     if (bound & BoundaryFlags::open_Z_inner) {  
                         if (w(i,g.Nghost,k).v_R*g.face_normal_Z(i,g.Nghost).R + 
                             w(i,g.Nghost,k).v_Z*g.face_normal_Z(i,g.Nghost).Z < 0.) {
@@ -130,16 +155,22 @@ void _set_boundaries(GridRef g, Field3DRef<Prims> w, int bound) {
     }
 }
 
+void set_dust_boundaries(GridRef g, Field3DRef<Prims> w, int bound, dim3 blocks, dim3 threads) {
+    _set_boundaries<<<blocks,threads>>>(g, w, bound, false) ;
+    _set_boundaries<<<blocks,threads>>>(g, w, bound, true) ;
+    check_CUDA_errors("_set_boundaries") ;
+}
+
 
 __global__
 void _calc_conserved(GridRef g, Field3DRef<Quants> q, Field3DRef<Prims> w) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {   
@@ -156,12 +187,12 @@ void _calc_conserved(GridRef g, Field3DRef<Quants> q, Field3DRef<Prims> w) {
 __global__
 void _calc_prim(GridRef g, Field3DRef<Quants> q, Field3DRef<Prims> w) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {   
@@ -181,12 +212,12 @@ __global__
 void _fix_negative_density(GridRef g, Field3DRef<T> w, FieldConstRef<Prims> w_gas,
                            double floor) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {   
@@ -444,12 +475,12 @@ template<bool do_diffusion>
 __global__ void _calc_donor_flux(GridRef g, Field3DConstRef<Prims> w, FieldConstRef<Prims> w_gas, FieldConstRef<double> cs,
                                 Field3DRef<Quants> fluxR, Field3DRef<Quants> fluxZ, Field3DConstRef<double> D, double gas_floor, int bound) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost+1; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost+1; j+=jstride) {
@@ -473,12 +504,12 @@ template<bool do_diffusion>
 __global__ void _calc_diff_flux_vl(GridRef g, Field3DConstRef<Prims> w, FieldConstRef<Prims> w_gas, FieldConstRef<double> cs,
                                     Field3DRef<Quants> fluxR, Field3DRef<Quants> fluxZ, Field3DConstRef<double> D, double gas_floor, int bound) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost+1; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost+1; j+=jstride) {
@@ -530,12 +561,12 @@ double calc_massq(Grid& g, Field3D<Quants>& q) {
 __global__ void _update_quants(GridRef g, Field3DRef<Quants> q_mids, Field3DRef<Quants> q, double dt,
                                         Field3DRef<Quants> fluxR, Field3DRef<Quants> fluxZ) {
     
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
@@ -553,12 +584,12 @@ __global__ void _update_quants(GridRef g, Field3DRef<Quants> q_mids, Field3DRef<
 __global__ void _update_quants(GridRef g, Field3DRef<Quants> q_mids, Field3DRef<Quants> q, Field3DRef<Quants> q_mids_trac, Field3DRef<Quants> q_trac, double dt,
                                         Field3DRef<Quants> fluxR, Field3DRef<Quants> fluxZ, Field3DRef<Quants> fluxR_trac, Field3DRef<Quants> fluxZ_trac) {
     
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
@@ -594,12 +625,12 @@ __global__ void _update_quants(GridRef g, Field3DRef<Quants> q_mids, Field3DRef<
 
 __global__ void _set_boundary_flux(GridRef g, int bound, Field3DRef<Quants> fluxR, Field3DRef<Quants> fluxZ) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
@@ -656,12 +687,12 @@ __global__ void _set_boundary_flux(GridRef g, int bound, Field3DRef<Quants> flux
 
 __global__ void set_flux_to_zero(GridRef g, Field3DRef<Quants> flux) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
@@ -675,12 +706,12 @@ __global__ void set_flux_to_zero(GridRef g, Field3DRef<Quants> flux) {
 
 __global__ void _initialize_active_cells(GridRef g, Field3DConstRef<Prims> w_dust, FieldConstRef<Prims> w_gas, Field3DRef<int> active, double floor) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
@@ -696,12 +727,12 @@ __global__ void _initialize_active_cells(GridRef g, Field3DConstRef<Prims> w_dus
 
 __global__ void _initialize_active_cells(GridRef g, FieldConstRef<double> w, FieldConstRef<Prims> w_gas, Field3DRef<int> active, double floor) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
@@ -718,12 +749,12 @@ void _update_active_cells(GridRef g, Field3DRef<Prims> w_dust,
                           FieldConstRef<Prims> w_gas, Field3DRef<int> active,
                           double floor, double reactivation_factor) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
@@ -747,12 +778,12 @@ void _update_active_cells(GridRef g, Field3DRef<Prims> w_dust,
 
 __global__ void _zero_inactive_fluxes(GridRef g, Field3DRef<Quants> fluxR, Field3DRef<Quants> fluxZ, Field3DConstRef<int> active) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) { 
@@ -783,8 +814,7 @@ void DustDynamics::donor_cell_update(
         Field3D<Quants>& q, Field3D<Quants>& fluxR, Field3D<Quants>& fluxZ,
         Field3D<int>& active, dim3 blocks, dim3 threads)
 {
-    _set_boundaries<<<blocks,threads>>>(g, w, _boundary);
-    check_CUDA_errors("_set_boundaries") ;
+    set_dust_boundaries(g, w, _boundary, blocks, threads);
     _calc_conserved<<<blocks,threads>>>(g, q, w);
     check_CUDA_errors("_calc_conserved") ;
 
@@ -805,8 +835,7 @@ void DustDynamics::van_leer_update(
         Field3D<Quants>& fluxR, Field3D<Quants>& fluxZ,
         Field3D<int>& active, dim3 blocks, dim3 threads)
 {
-    _set_boundaries<<<blocks,threads>>>(g, w, _boundary);
-    check_CUDA_errors("_set_boundaries") ;
+    set_dust_boundaries(g, w, _boundary, blocks, threads);
 
     if (_DoDiffusion)
         _calc_diff_flux_vl<true><<<blocks,threads>>>(g, w, w_gas, _cs, fluxR, fluxZ, _D, _gas_floor, _boundary);
@@ -854,8 +883,8 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     Field3D<Quants> fluxR = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, w_dust.Nd);
     Field3D<Quants> fluxZ = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, w_dust.Nd);
 
-    dim3 threads(16,8,4) ;
-    dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (q.Nd+3)/4) ;
+    dim3 threads = dust_threads(q.Nd) ;
+    dim3 blocks = dust_blocks(g, q.Nd, threads) ;
 
     if (!_active) {
         _active = std::make_unique<Field3D<int>>(g.NR+2*g.Nghost,
@@ -892,10 +921,8 @@ void DustDynamics::reinitialize_active(Grid& g, const Field3D<Prims>& w_dust,
                                                   w_dust.Nd);
     }
 
-    dim3 threads(16,8,4) ;
-    dim3 blocks((g.NR + 2*g.Nghost+15)/16,
-                (g.Nphi + 2*g.Nghost+7)/8,
-                (w_dust.Nd+3)/4) ;
+    dim3 threads = dust_threads(w_dust.Nd) ;
+    dim3 blocks = dust_blocks(g, w_dust.Nd, threads) ;
     _initialize_active_cells<<<blocks,threads>>>(g, w_dust, w_gas, *_active, _floor);
     check_CUDA_errors("reinitialize_active") ;
 }
@@ -1000,10 +1027,8 @@ double DustDynamics::get_CFL_limit(const Grid& g, const Field3D<Prims>& w, const
         _active = std::make_unique<Field3D<int>>(g.NR+2*g.Nghost,
                                                   g.Nphi+2*g.Nghost,
                                                   w.Nd);
-        dim3 active_threads(16,8,4) ;
-        dim3 active_blocks((g.NR + 2*g.Nghost+15)/16,
-                           (g.Nphi + 2*g.Nghost+7)/8,
-                           (w.Nd+3)/4) ;
+        dim3 active_threads = dust_threads(w.Nd) ;
+        dim3 active_blocks = dust_blocks(g, w.Nd, active_threads) ;
         _initialize_active_cells<<<active_blocks,active_threads>>>(g, w, w_gas, *_active, _floor);
         check_CUDA_errors("initialize_active_cells") ;
     }
@@ -1033,10 +1058,8 @@ double DustDynamics::get_CFL_limit(const Grid& g, const Field3D<Prims>& w, const
         _active = std::make_unique<Field3D<int>>(g.NR+2*g.Nghost,
                                                   g.Nphi+2*g.Nghost,
                                                   w.Nd);
-        dim3 active_threads(16,8,4) ;
-        dim3 active_blocks((g.NR + 2*g.Nghost+15)/16,
-                           (g.Nphi + 2*g.Nghost+7)/8,
-                           (w.Nd+3)/4) ;
+        dim3 active_threads = dust_threads(w.Nd) ;
+        dim3 active_blocks = dust_blocks(g, w.Nd, active_threads) ;
         _initialize_active_cells<<<active_blocks,active_threads>>>(g, w, w_gas, *_active, _floor);
         check_CUDA_errors("initialize_active_cells") ;
     }
@@ -1045,8 +1068,8 @@ double DustDynamics::get_CFL_limit(const Grid& g, const Field3D<Prims>& w, const
         _active_vap = std::make_unique<Field3D<int>>(g.NR+2*g.Nghost,
                                                     g.Nphi+2*g.Nghost,
                                                     1);
-        dim3 threads_vap(16,32,1) ;
-        dim3 blocks_vap((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+31)/32, 1) ;
+        dim3 threads_vap = dust_threads(1) ;
+        dim3 blocks_vap = dust_blocks(g, 1, threads_vap) ;
 
         _initialize_active_cells<<<blocks_vap,threads_vap>>>(g, mol.vap, w_gas, *_active_vap, 1e-100*_floor);
         check_CUDA_errors("initialize_active_cells") ;
@@ -1077,10 +1100,8 @@ double DustDynamics::get_CFL_limit_debug(const Grid& g, const Field3D<Prims>& w,
         _active = std::make_unique<Field3D<int>>(g.NR+2*g.Nghost,
                                                   g.Nphi+2*g.Nghost,
                                                   w.Nd);
-        dim3 active_threads(16,8,4) ;
-        dim3 active_blocks((g.NR + 2*g.Nghost+15)/16,
-                           (g.Nphi + 2*g.Nghost+7)/8,
-                           (w.Nd+3)/4) ;
+        dim3 active_threads = dust_threads(w.Nd) ;
+        dim3 active_blocks = dust_blocks(g, w.Nd, active_threads) ;
         _initialize_active_cells<<<active_blocks,active_threads>>>(g, w, w_gas, *_active, _floor);
         check_CUDA_errors("initialize_active_cells") ;
     }
@@ -1145,12 +1166,12 @@ __global__ void _extract_gas_floor_height(GridRef g, FieldRef<double> height, do
 
 __global__ void _floor_above(GridRef g, Field3DRef<Prims> w, FieldRef<Prims> w_g, double* h, Field3DRef<int> active, double _floor) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ; 
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {   
@@ -1186,8 +1207,8 @@ void DustDynamics::compute_gas_floor_height(Grid& g, Field<Prims>& w_gas, CudaAr
 
 void DustDynamics::floor_above(Grid& g, Field3D<Prims>& w_dust, Field<Prims>& w_gas, CudaArray<double>& h) const {
 
-    dim3 threads(16,8,8) ;
-    dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (w_dust.Nd+7)/8) ;
+    dim3 threads = dust_threads(w_dust.Nd) ;
+    dim3 blocks = dust_blocks(g, w_dust.Nd, threads) ;
 
     if (!_active) {
         _active = std::make_unique<Field3D<int>>(g.NR+2*g.Nghost,
@@ -1205,12 +1226,12 @@ void DustDynamics::floor_above(Grid& g, Field3D<Prims>& w_dust, Field<Prims>& w_
 __global__ 
 void _enforce_floor_for_inactive(GridRef g, Field3DRef<Prims> w, FieldConstRef<Prims> w_gas, Field3DConstRef<int> active, double _floor) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ; 
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {   
@@ -1228,8 +1249,8 @@ void _enforce_floor_for_inactive(GridRef g, Field3DRef<Prims> w, FieldConstRef<P
 
 void DustDynamics::enforce_floor_for_inactive(Grid& g, Field3D<Prims>& w_dust, const Field<Prims>& w_gas) const {
 
-    dim3 threads(16,8,8) ;
-    dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (w_dust.Nd+7)/8) ;
+    dim3 threads = dust_threads(w_dust.Nd) ;
+    dim3 blocks = dust_blocks(g, w_dust.Nd, threads) ;
 
     if (!_active) {
         _active = std::make_unique<Field3D<int>>(g.NR+2*g.Nghost,
@@ -1278,12 +1299,12 @@ __global__ void _init_tracer_prims(GridRef g, Field3DRef<Prims> w, FieldConstRef
 
 __global__ void _update_tracers(GridRef g, Field3DRef<Prims> w_trac, Field3DRef<double> tracers) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
@@ -1299,12 +1320,12 @@ __global__ void _update_tracers(GridRef g, Field3DRef<Prims> w_trac, Field3DRef<
 
 __global__ void _update_tracers(GridRef g, Field3DRef<Quants> w_trac, FieldConstRef<Prims> w_gas, Field3DRef<double> tracers, double floor) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
@@ -1342,12 +1363,12 @@ __global__ void _update_tracer_vap(GridRef g, Field3DRef<Prims> w_trac, Molecule
 
 __global__ void _copy_dust_vels(GridRef g, Field3DRef<Prims> wd, Field3DRef<Prims> wtrac, Field3DRef<Quants> qtrac) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ; 
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {   
@@ -1377,14 +1398,14 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
     Field3D<Quants> fluxR_trac = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, w_dust.Nd);
     Field3D<Quants> fluxZ_trac = Field3D<Quants>(g.NR+2*g.Nghost, g.Nphi+2*g.Nghost, w_dust.Nd);
 
-    dim3 threads(16,8,4) ;
-    dim3 blocks((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+7)/8, (q.Nd+3)/4) ;
+    dim3 threads = dust_threads(q.Nd) ;
+    dim3 blocks = dust_blocks(g, q.Nd, threads) ;
 
     dim3 threads2D(32,32,1) ;
     dim3 blocks2D((g.NR + 2*g.Nghost+31)/32,(g.Nphi + 2*g.Nghost+31)/32,1) ;
 
-    dim3 threads_vap(16,32,1) ;
-    dim3 blocks_vap((g.NR + 2*g.Nghost+15)/16,(g.Nphi + 2*g.Nghost+31)/32, 1) ;
+    dim3 threads_vap = dust_threads(1) ;
+    dim3 blocks_vap = dust_blocks(g, 1, threads_vap) ;
 
     // Initialise tracers
 
@@ -1429,8 +1450,7 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
 
     _sources.source_imp(g, w_dust, active, dt/2.);
     
-    _set_boundaries<<<blocks,threads>>>(g, w_dust, _boundary);
-    check_CUDA_errors("_set_boundaries") ;
+    set_dust_boundaries(g, w_dust, _boundary, blocks, threads);
 
     // Copy dust velocities to tracers
     _copy_dust_vels<<<blocks,threads>>>(g, w_dust, w_trac, q_mids_trac);
