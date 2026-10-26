@@ -313,7 +313,7 @@ __global__ void _copy_rhos(GridRef g, Field3DRef<double> rhos, Field3DRef<double
 
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
-            for (int k=kidx; k<rhos.Nd+1; k+=kstride) {
+            for (int k=kidx; k<rhos.Nd; k+=kstride) {
             
                 rhos_0(i,j,k) = rhos(i,j,k);
             }
@@ -486,10 +486,10 @@ void IceVapChem1D::imp_update(double dt, double& dt_chem) {
     size_t blocks = (_g.NR + 2*_g.Nghost+511)/512 ;
           
     dim3 threads2(32,1,32) ;
-    dim3 blocks2((_g.NR + 2*_g.Nghost+15)/16,(_g.Nphi + 2*_g.Nghost),(_W.Nd+1 + 31)/32) ;
+    dim3 blocks2((_g.NR + 2*_g.Nghost+31)/32,(_g.Nphi + 2*_g.Nghost),(_W.Nd+1 + 31)/32) ;
 
     dim3 threads3(32,1,32) ;
-    dim3 blocks3((_g.NR + 2*_g.Nghost+15)/16,(_g.Nphi + 2*_g.Nghost), (_W.Nd + 31)/32);
+    dim3 blocks3((_g.NR + 2*_g.Nghost+31)/32,(_g.Nphi + 2*_g.Nghost), (_W.Nd + 31)/32);
           
     Field3D<double> Sigs = Field3D<double>(_g.NR + 2*_g.Nghost, _g.Nphi + 2*_g.Nghost, _W.Nd+1);
     Field3D<double> Sigs_1 = Field3D<double>(_g.NR + 2*_g.Nghost, _g.Nphi + 2*_g.Nghost, _W.Nd+1);
@@ -511,7 +511,7 @@ void IceVapChem1D::imp_update(double dt, double& dt_chem) {
 
         _implicit_update<<<blocks,threads>>>(_g, Field3DRef<Prims1D>(W_nofloor), _Wg, _T, _sizes.grain_props, _sizes.grain_masses(), N_s, _mol, Sigs, Sigs_0, _mu, _alpha, _GMstar, dt);
 
-        get_tol<<<blocks2,threads2>>>(Sigs, Sigs_1, _g, _W.Nd, err, _floor, _Wg);
+        get_tol<<<blocks,threads>>>(Sigs, Sigs_1, _g, _W.Nd, err, _floor, _Wg);
         Reduction::scan_R_sum(_g,err);
         Reduction::scan_Z_sum(_g,err);
         cudaDeviceSynchronize();
@@ -522,7 +522,7 @@ void IceVapChem1D::imp_update(double dt, double& dt_chem) {
         cudaDeviceSynchronize();
     }
     set_tol<<<blocks,threads>>>(_g, err);
-    get_tol<<<blocks2,threads2>>>(Sigs, Sigs_0, _g, _W.Nd, err, _floor, _Wg);
+    get_tol<<<blocks,threads>>>(Sigs, Sigs_0, _g, _W.Nd, err, _floor, _Wg);
     Reduction::scan_R_sum(_g,err);
     Reduction::scan_Z_sum(_g,err);
     cudaDeviceSynchronize();
