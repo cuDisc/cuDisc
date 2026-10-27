@@ -170,12 +170,12 @@ ChemRate R_a_jac(GridRef g, MoleculeRef mol, FieldConstRef<double> T, Field3DRef
 
 __global__ void _update_sizegrid(GridRef g, Field3DRef<Grain> grains, DensityView rho_dust, DensityView rho_ice, const RealType* m, RealType rho_ms, RealType rho_mi) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
@@ -195,46 +195,88 @@ __global__ void _update_sizegrid(GridRef g, Field3DRef<Grain> grains, DensityVie
 }
 
 
-__global__ void _implicit_update(GridRef g, Field3DRef<Prims> W, FieldRef<Prims> Wg, FieldConstRef<double> T, Field3DConstRef<double> J, Field3DRef<Grain> grains,
-                                    const RealType* m, double N_s, MoleculeRef mol, Field3DRef<double> rhos, Field3DRef<double> rhos_0, FieldRef<double> F_UV, int Jbin_idx, double* lam_bins, double dt) {
+/* The implicit ice-vapour update (2D) is split into per-species and per-cell
+ * steps, so the per-species work runs in parallel with the species index
+ * (contiguous in memory) on threadIdx.x. The sums over species are done with
+ * Reduction::sum_species:
+ *   1. area_tot = sum_k pi a_k^2 n_k
+ *   2. adsorption / desorption rates R_a, R_d of each species, and
+ *        A = sum_k R_d dt rho0_k / (1 + R_d dt),  B = sum_k R_a dt / (1 + R_d dt)
+ *   3. vapour: rho_v = (rho0_v + A) / (1 + B)
+ *   4. ice:    rho_k = (rho0_k + R_a dt rho_v) / (1 + R_d dt)
+ */
+
+// Grain surface area of each species, pi a^2 n
+__global__ void _area_terms(GridRef g, Field3DRef<Prims> W, Field3DRef<Grain> grains, const RealType* m, Field3DRef<double> area) {
+
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.x * blockDim.x ;
+
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride)
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride)
+            for (int k=kidx; k<area.Nd; k+=kstride)
+                area(i,j,k) = M_PI * grains(i,j,k).a * grains(i,j,k).a * W(i,j,k)[0]/ m[k];
+}
+
+// Adsorption and desorption rates of each species, and their contributions to A and B
+__global__ void _rates(GridRef g, Field3DRef<Prims> W, FieldRef<Prims> Wg, FieldConstRef<double> T, Field3DConstRef<double> J, Field3DRef<Grain> grains,
+                       const RealType* m, double N_s, MoleculeRef mol, Field3DRef<double> rhos, Field3DRef<double> rhos_0, FieldRef<double> F_UV, int Jbin_idx, double* lam_bins,
+                       FieldRef<double> area_tot, double dt, 
+                       Field3DRef<double> R_ads, Field3DRef<double> R_des, Field3DRef<double> A_terms, Field3DRef<double> B_terms) {
+
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.x * blockDim.x ;
+
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
+            for (int k=kidx; k<mol.ice.Nd; k+=kstride) {
+
+                ChemRate R_a = R_a_jac(mol, T, W, grains, m, i, j, k);
+                ChemRate R_d = R_d_ph_jac(mol, rhos, N_s, T, grains, W, m, J, Wg, F_UV, Jbin_idx, lam_bins, area_tot(i,j), i,j,k);
+
+                R_ads(i,j,k) = R_a.rate ;
+                R_des(i,j,k) = R_d.rate ;
+                A_terms(i,j,k) = (R_d.rate) * dt * rhos_0(i,j,k) / (1. + (R_d.rate) * dt);
+                B_terms(i,j,k) = R_a.rate * dt / (1. + (R_d.rate) * dt);
+            }
+        }
+    }
+}
+
+__global__ void _update_vapour(GridRef g, Field3DRef<double> rhos, Field3DRef<double> rhos_0, FieldRef<double> A, FieldRef<double> B, int ndust) {
 
     int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
     int istride = gridDim.x * blockDim.x ;
     int jstride = gridDim.y * blockDim.y ;
 
-    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
-        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride)
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride)
+            rhos(i,j,ndust) = (rhos_0(i,j,ndust) + A(i,j)) / (1. + B(i,j));
+}
 
-            double A = 0., B = 0., area_tot=0.;
-            int ndust = mol.ice.Nd;
+__global__ void _update_ice(GridRef g, Field3DRef<double> rhos, Field3DRef<double> rhos_0, 
+                            Field3DRef<double> R_ads, Field3DRef<double> R_des, int ndust, double dt) {
 
-            for (int k=0; k < ndust; k++) {
-                area_tot += M_PI * grains(i,j,k).a * grains(i,j,k).a * W(i,j,k)[0]/ m[k];   
-            }
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
+    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
+    int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.x * blockDim.x ;
 
-            for (int k=0; k < ndust; k++) {
-                
-                ChemRate R_a = R_a_jac(mol, T, W, grains, m, i, j, k);
-                ChemRate R_d = R_d_ph_jac(mol, rhos, N_s, T, grains, W, m, J, Wg, F_UV, Jbin_idx, lam_bins, area_tot, i,j,k);
-                A += (R_d.rate) * dt * rhos_0(i,j,k) / (1. + (R_d.rate) * dt);
-                B += R_a.rate * dt / (1. + (R_d.rate) * dt);
-            }
-
-            rhos(i,j,ndust) = (rhos_0(i,j,ndust) + A) / (1. + B);
-
-            for (int k=0; k < ndust; k++) {
-
-                ChemRate R_a = R_a_jac(mol, T, W, grains, m, i, j, k);
-                ChemRate R_d = R_d_ph_jac(mol, rhos, N_s, T, grains, W, m, J, Wg, F_UV, Jbin_idx, lam_bins, area_tot, i,j,k);
-
-                rhos(i,j,k) = (rhos_0(i,j,k) + R_a.rate * dt * rhos(i,j,ndust))  / (1. + (R_d.rate) * dt);
-
-            }
-
-        }
-    }
-
+    for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride)
+        for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride)
+            for (int k=kidx; k<ndust; k+=kstride)
+                rhos(i,j,k) = (rhos_0(i,j,k) + R_ads(i,j,k) * dt * rhos(i,j,ndust))  / (1. + R_des(i,j,k) * dt);
 }
 
 __global__ void _implicit_update(GridRef g, Field3DRef<Prims1D> W, FieldRef<Prims1D> Wg, FieldConstRef<double> T, Field3DRef<Grain> grains,
@@ -280,18 +322,23 @@ __global__ void _implicit_update(GridRef g, Field3DRef<Prims1D> W, FieldRef<Prim
 template<typename T>
 __global__ void copy_initial_values(GridRef g, Field3DRef<double> rhos, MoleculeRef mol, Field3DRef<T> w_nof, Field3DRef<T> w, FieldRef<T> wg, double floor) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.x * blockDim.x ;
 
     int n_grains = mol.ice.Nd;
 
+    // k = n_grains is the vapour
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
-            
-            rhos(i,j,n_grains) = max(mol.vap(i,j) - 1.1e-100*floor*wg(i,j)[0], 0.);
-            for (int k=0; k<n_grains; k++) {
+            for (int k=kidx; k<=n_grains; k+=kstride) {
+                if (k == n_grains) {
+                    rhos(i,j,n_grains) = max(mol.vap(i,j) - 1.1e-100*floor*wg(i,j)[0], 0.);
+                    continue ;
+                }
                 w_nof(i,j,k)[0] = max(w(i,j,k)[0] - 1.1*floor*wg(i,j)[0], 0.);
                 rhos(i,j,k) = max(mol.ice(i,j,k) - 1.1e-100*floor*wg(i,j)[0], 0.);
                 if (w_nof(i,j,k)[0] == 0.) {
@@ -304,12 +351,12 @@ __global__ void copy_initial_values(GridRef g, Field3DRef<double> rhos, Molecule
 }
 __global__ void _copy_rhos(GridRef g, Field3DRef<double> rhos, Field3DRef<double> rhos_0) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int kidx = threadIdx.z + blockIdx.z*blockDim.z ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
-    int kstride = gridDim.z * blockDim.z ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
@@ -325,55 +372,77 @@ __global__ void _copy_rhos(GridRef g, Field3DRef<double> rhos, Field3DRef<double
 template<typename T>
 __global__ void copy_final_values(GridRef g, Field3DRef<double> rhos, MoleculeRef mol, double floor, FieldRef<T> wg) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.x * blockDim.x ;
 
     int n_grains = mol.ice.Nd;
 
+    // k = n_grains is the vapour
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
-            
-            mol.vap(i,j) = rhos(i,j,n_grains)+floor*1e-100*wg(i,j)[0];
-
-            for (int k=0; k<n_grains; k++) {
-                mol.ice(i,j,k) = rhos(i,j,k)+floor*1e-100*wg(i,j)[0];
+            for (int k=kidx; k<=n_grains; k+=kstride) {
+                if (k == n_grains)
+                    mol.vap(i,j) = rhos(i,j,n_grains)+floor*1e-100*wg(i,j)[0];
+                else
+                    mol.ice(i,j,k) = rhos(i,j,k)+floor*1e-100*wg(i,j)[0];
             }
         }
     }
 
 }
 
+namespace {
+
+// Relative change of each species (k = ngrains is the vapour) in the interior cells
 template<typename T>
-__global__ void get_tol(Field3DRef<double> rhos, Field3DRef<double> rhos_0, GridRef g, int ngrains, FieldRef<double> err, double floor, FieldRef<T> wg) {
+__global__ void _relative_change_terms(GridRef g, Field3DConstRef<double> rhos, Field3DConstRef<double> rhos_0, 
+                                       int ngrains, double floor, FieldRef<T> wg, Field3DRef<double> terms) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx+g.Nghost; i<g.NR+g.Nghost; i+=istride) {
         for (int j=jidx+g.Nghost; j<g.Nphi+g.Nghost; j+=jstride) {
-            for (int k=0; k<ngrains+1; k++) {
-                err(i,j) += abs(max(rhos(i,j,k),floor*wg(i,j)[0]) - max(rhos_0(i,j,k),floor*wg(i,j)[0])) / max(rhos_0(i,j,k),floor*wg(i,j)[0]) / ((ngrains + 1) * g.NR * g.Nphi);
+            for (int k=kidx; k<=ngrains; k+=kstride) {
+                double rho_floor = floor*wg(i,j)[0] ;
+                double r0 = max(rhos_0(i,j,k), rho_floor) ;
+                terms(i,j,k) = (max(rhos(i,j,k), rho_floor) - r0) / r0 ;
             }
         }
     }
 }
-__global__ void set_tol(GridRef g, FieldRef<double> err) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
-    int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int istride = gridDim.x * blockDim.x ;
-    int jstride = gridDim.y * blockDim.y ;
+/* _relative_change
+ *
+ * Mean relative change between rhos and rhos_0 over the interior cells and
+ * all species, i.e. sum |max(rhos, floor) - max(rhos_0, floor)| / max(rhos_0, floor) / N.
+ * The ghost cells and padding of the terms are zeroed, so the whole buffer is summed.
+ */
+template<typename T>
+double _relative_change(GridRef g, Field3DRef<double> rhos, Field3DRef<double> rhos_0, int ngrains, double floor, FieldRef<T> wg) {
 
-    for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
-        for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
-            err(i,j) = 0.;
-        }
-    }
+    Field3D<double> terms(g.NR + 2*g.Nghost, g.Nphi + 2*g.Nghost, ngrains+1) ;
+    int size = (g.NR + 2*g.Nghost) * terms.stride_Zd ;
+    (void) cudaMemset(terms.get().get(), 0, size*sizeof(double)) ;
+
+    dim3 threads(32,4,2) ;
+    dim3 blocks((ngrains+1 + 31)/32, (g.Nphi + 2*g.Nghost + 3)/4, (g.NR + 2*g.Nghost + 1)/2) ;
+    _relative_change_terms<T><<<blocks, threads>>>(g, rhos, rhos_0, ngrains, floor, wg, terms) ;
+    check_CUDA_errors("_relative_change_terms") ;
+
+    double sum = Reduction::sum_abs(terms.get(), size) ;
+    return sum / ((double)g.NR * g.Nphi * (ngrains+1)) ;
 }
+
+} // namespace
 
 __global__ void _calc_drhovdt(GridRef g, FieldRef<double> drhovdt, Field3DRef<double> rhos, Field3DRef<double> rhos_0, double dt) {
 
@@ -428,11 +497,12 @@ void IceVapChem::imp_update(double dt, double& dt_chem) {
     dim3 threads(32,16,1) ;
     dim3 blocks((_g.NR + 2*_g.Nghost+31)/32,(_g.Nphi + 2*_g.Nghost+15)/16,1) ;
           
-    dim3 threads2(16,16,4) ;
-    dim3 blocks2((_g.NR + 2*_g.Nghost+15)/16,(_g.Nphi + 2*_g.Nghost+15)/16,(_W.Nd+1 + 3)/4) ;
+    // 3D kernels: grain size (contiguous in memory) on x
+    dim3 threads2(32,4,2) ;
+    dim3 blocks2((_W.Nd+1 + 31)/32,(_g.Nphi + 2*_g.Nghost+3)/4,(_g.NR + 2*_g.Nghost+1)/2) ;
 
-    dim3 threads3(16,16,4) ;
-    dim3 blocks3((_g.NR + 2*_g.Nghost+15)/16,(_g.Nphi + 2*_g.Nghost+15)/16, (_W.Nd + 3)/4);
+    dim3 threads3(32,4,2) ;
+    dim3 blocks3((_W.Nd + 31)/32,(_g.Nphi + 2*_g.Nghost+3)/4,(_g.NR + 2*_g.Nghost+1)/2) ;
           
     Field3D<double> rhos = Field3D<double>(_g.NR + 2*_g.Nghost, _g.Nphi + 2*_g.Nghost, _W.Nd+1);
     Field3D<double> rhos_1 = Field3D<double>(_g.NR + 2*_g.Nghost, _g.Nphi + 2*_g.Nghost, _W.Nd+1);
@@ -441,41 +511,50 @@ void IceVapChem::imp_update(double dt, double& dt_chem) {
 
     _floor_above_phdiss<<<blocks,threads>>>(_g, _Wg, _mol, _h_phdiss.get(), _floor);
 
-    copy_initial_values<<<blocks, threads>>>(_g, rhos, _mol, Field3DRef<Prims>(W_nofloor), _W, _Wg, _floor) ; 
+    // Temporaries for the implicit update
+    Field3D<double> area = Field3D<double>(_g.NR + 2*_g.Nghost, _g.Nphi + 2*_g.Nghost, _W.Nd);
+    Field3D<double> R_ads = Field3D<double>(_g.NR + 2*_g.Nghost, _g.Nphi + 2*_g.Nghost, _W.Nd);
+    Field3D<double> R_des = Field3D<double>(_g.NR + 2*_g.Nghost, _g.Nphi + 2*_g.Nghost, _W.Nd);
+    Field3D<double> A_terms = Field3D<double>(_g.NR + 2*_g.Nghost, _g.Nphi + 2*_g.Nghost, _W.Nd);
+    Field3D<double> B_terms = Field3D<double>(_g.NR + 2*_g.Nghost, _g.Nphi + 2*_g.Nghost, _W.Nd);
+    Field<double> area_tot = create_field<double>(_g);
+    Field<double> A_sum = create_field<double>(_g);
+    Field<double> B_sum = create_field<double>(_g);
+
+    copy_initial_values<<<blocks2, threads2>>>(_g, rhos, _mol, Field3DRef<Prims>(W_nofloor), _W, _Wg, _floor) ; 
     _copy_rhos<<<blocks2,threads2>>>(_g, rhos, rhos_0);
 
     int it = 0;
-    Field<double> err = Field<double>(_g.NR + 2*_g.Nghost, _g.Nphi + 2*_g.Nghost);
     double err_tot= 1;
 
     while (err_tot > 1e-5) {
 
-        set_tol<<<blocks,threads>>>(_g, err);
-
         _copy_rhos<<<blocks2,threads2>>>(_g, rhos, rhos_1);
 
-        _implicit_update<<<blocks,threads>>>(_g, Field3DRef<Prims>(W_nofloor), _Wg, _T, _J, _sizes.grain_props, _sizes.grain_masses(), N_s, _mol, rhos, rhos_0, _F_UV, _Jbin_idx, _bins.bands.get(), dt);
+        // Implicit update (see _area_terms): per-species rates and sums over species,
+        // then the vapour and the ice
+        _area_terms<<<blocks2,threads2>>>(_g, Field3DRef<Prims>(W_nofloor), _sizes.grain_props, _sizes.grain_masses(), area);
+        Reduction::sum_species(_g, area, area_tot);
 
-        get_tol<<<blocks,threads>>>(rhos, rhos_1, _g, _W.Nd, err, _floor, _Wg);
-        Reduction::scan_R_sum(_g,err);
-        Reduction::scan_Z_sum(_g,err);
-        cudaDeviceSynchronize();
-        err_tot = err(_g.NR + 2*_g.Nghost-1,_g.Nphi + 2*_g.Nghost-1);
+        _rates<<<blocks2,threads2>>>(_g, Field3DRef<Prims>(W_nofloor), _Wg, _T, _J, _sizes.grain_props, _sizes.grain_masses(), N_s, _mol, rhos, rhos_0, _F_UV, _Jbin_idx, _bins.bands.get(),
+                                     area_tot, dt, R_ads, R_des, A_terms, B_terms);
+        Reduction::sum_species(_g, A_terms, A_sum);
+        Reduction::sum_species(_g, B_terms, B_sum);
+
+        _update_vapour<<<blocks,threads>>>(_g, rhos, rhos_0, A_sum, B_sum, _W.Nd);
+        _update_ice<<<blocks2,threads2>>>(_g, rhos, rhos_0, R_ads, R_des, _W.Nd, dt);
+
+        err_tot = _relative_change(_g, rhos, rhos_1, _W.Nd, _floor, _Wg);
         
         it++;
         _update_sizegrid<<<blocks3,threads3>>>(_g, _sizes.grain_props, density_view(_W), density_view(rhos), _sizes.grain_masses(), _sizes.solid_density(), _sizes.ice_density());
     }
 
-    set_tol<<<blocks,threads>>>(_g, err);
-    get_tol<<<blocks,threads>>>(rhos, rhos_0, _g, _W.Nd, err, _floor, _Wg);
-    Reduction::scan_R_sum(_g,err);
-    Reduction::scan_Z_sum(_g,err);
-    cudaDeviceSynchronize();
-    dt_chem = dt * 0.01/err(_g.NR + 2*_g.Nghost-1,_g.Nphi + 2*_g.Nghost-1);
+    dt_chem = dt * 0.01/_relative_change(_g, rhos, rhos_0, _W.Nd, _floor, _Wg);
 
     _calc_drhovdt<<<blocks,threads>>>(_g, _drhovdt, rhos, rhos_0, dt);
 
-    copy_final_values<<<blocks,threads>>>(_g, rhos, _mol, _floor, _Wg);
+    copy_final_values<<<blocks2,threads2>>>(_g, rhos, _mol, _floor, _Wg);
 
     _compute_mu<<<blocks,threads>>>(_g, _Wg, _mol.vap, _mu, _mu_HHe, _mol.m_mol/m_H);
 }
@@ -485,56 +564,45 @@ void IceVapChem1D::imp_update(double dt, double& dt_chem) {
     size_t threads = 512;
     size_t blocks = (_g.NR + 2*_g.Nghost+511)/512 ;
           
+    // 3D kernels: grain size (contiguous in memory) on x
     dim3 threads2(32,1,32) ;
-    dim3 blocks2((_g.NR + 2*_g.Nghost+31)/32,(_g.Nphi + 2*_g.Nghost),(_W.Nd+1 + 31)/32) ;
+    dim3 blocks2((_W.Nd+1 + 31)/32,(_g.Nphi + 2*_g.Nghost),(_g.NR + 2*_g.Nghost+31)/32) ;
 
     dim3 threads3(32,1,32) ;
-    dim3 blocks3((_g.NR + 2*_g.Nghost+31)/32,(_g.Nphi + 2*_g.Nghost), (_W.Nd + 31)/32);
+    dim3 blocks3((_W.Nd + 31)/32,(_g.Nphi + 2*_g.Nghost),(_g.NR + 2*_g.Nghost+31)/32) ;
           
     Field3D<double> Sigs = Field3D<double>(_g.NR + 2*_g.Nghost, _g.Nphi + 2*_g.Nghost, _W.Nd+1);
     Field3D<double> Sigs_1 = Field3D<double>(_g.NR + 2*_g.Nghost, _g.Nphi + 2*_g.Nghost, _W.Nd+1);
     Field3D<double> Sigs_0 = Field3D<double>(_g.NR + 2*_g.Nghost, _g.Nphi + 2*_g.Nghost, _W.Nd+1);
     Field3D<Prims1D> W_nofloor = Field3D<Prims1D>(_g.NR + 2*_g.Nghost, _g.Nphi + 2*_g.Nghost, _W.Nd);
 
-    copy_initial_values<<<blocks, threads>>>(_g, Sigs, _mol, Field3DRef<Prims1D>(W_nofloor), _W, _Wg, _floor) ; 
+    copy_initial_values<<<blocks2, threads2>>>(_g, Sigs, _mol, Field3DRef<Prims1D>(W_nofloor), _W, _Wg, _floor) ; 
     _copy_rhos<<<blocks2,threads2>>>(_g, Sigs, Sigs_0);
 
     int it = 0;
-    Field<double> err = Field<double>(_g.NR + 2*_g.Nghost, _g.Nphi + 2*_g.Nghost);
     double err_tot= 1;
 
     while (err_tot > 1e-5) {
-
-        set_tol<<<blocks,threads>>>(_g, err);
 
         _copy_rhos<<<blocks2,threads2>>>(_g, Sigs, Sigs_1);
 
         _implicit_update<<<blocks,threads>>>(_g, Field3DRef<Prims1D>(W_nofloor), _Wg, _T, _sizes.grain_props, _sizes.grain_masses(), N_s, _mol, Sigs, Sigs_0, _mu, _alpha, _GMstar, dt);
 
-        get_tol<<<blocks,threads>>>(Sigs, Sigs_1, _g, _W.Nd, err, _floor, _Wg);
-        Reduction::scan_R_sum(_g,err);
-        Reduction::scan_Z_sum(_g,err);
-        cudaDeviceSynchronize();
-        err_tot = err(_g.NR + 2*_g.Nghost-1,_g.Nphi + 2*_g.Nghost-1);
+        err_tot = _relative_change(_g, Sigs, Sigs_1, _W.Nd, _floor, _Wg);
 
         it++;
         _update_sizegrid<<<blocks3,threads3>>>(_g, _sizes.grain_props, density_view(_W), density_view(Sigs), _sizes.grain_masses(), _sizes.solid_density(), _sizes.ice_density());
         cudaDeviceSynchronize();
     }
-    set_tol<<<blocks,threads>>>(_g, err);
-    get_tol<<<blocks,threads>>>(Sigs, Sigs_0, _g, _W.Nd, err, _floor, _Wg);
-    Reduction::scan_R_sum(_g,err);
-    Reduction::scan_Z_sum(_g,err);
-    cudaDeviceSynchronize();
-    dt_chem = dt * 0.01/err(_g.NR + 2*_g.Nghost-1,_g.Nphi + 2*_g.Nghost-1);
+    dt_chem = dt * 0.01/_relative_change(_g, Sigs, Sigs_0, _W.Nd, _floor, _Wg);
 
-    copy_final_values<<<blocks,threads>>>(_g, Sigs, _mol, _floor, _Wg);
+    copy_final_values<<<blocks2,threads2>>>(_g, Sigs, _mol, _floor, _Wg);
 }
 
 void SizeGridIce::launch_update_sizegrid(DensityView rho_dust, DensityView rho_ice) {
 
-    dim3 threads3(16,16,4) ;
-    dim3 blocks3((_g.NR + 2*_g.Nghost+15)/16,(_g.Nphi + 2*_g.Nghost+15)/16, (rho_dust.Nd + 3)/4);
+    dim3 threads3(32,4,2) ;  // grain size (contiguous in memory) on x
+    dim3 blocks3((rho_dust.Nd + 31)/32,(_g.Nphi + 2*_g.Nghost+3)/4,(_g.NR + 2*_g.Nghost+1)/2) ;
 
     _update_sizegrid<<<blocks3,threads3>>>(_g, grain_props, rho_dust, rho_ice,
                                             grain_masses(), solid_density(), ice_density());
@@ -604,6 +672,4 @@ template __global__ void copy_initial_values<Prims1D>(GridRef g, Field3DRef<doub
 template __global__ void copy_final_values<Prims>(GridRef g, Field3DRef<double> rhos, MoleculeRef mol, double floor, FieldRef<Prims> wg);
 template __global__ void copy_final_values<Prims1D>(GridRef g, Field3DRef<double> rhos, MoleculeRef mol, double floor, FieldRef<Prims1D> wg);
 
-template __global__ void get_tol(Field3DRef<double> rhos, Field3DRef<double> rhos_0, GridRef g, int ngrains, FieldRef<double> err, double floor, FieldRef<Prims> wg);
-template __global__ void get_tol(Field3DRef<double> rhos, Field3DRef<double> rhos_0, GridRef g, int ngrains, FieldRef<double> err, double floor, FieldRef<Prims1D> wg);
 

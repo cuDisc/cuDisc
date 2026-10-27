@@ -72,7 +72,7 @@ OBJ := grid.o integrate_z.o scan.o scan3d.o zero_bounds.o copy.o \
 	radmc3d_utils.o timing.o star.o bins.o check_tol.o advection.o diffusion.o \
 	coagulation.o coagulation_init.o coagulation_integrate.o  super_stepping.o \
 	sources.o gas1d.o DSHARP_opacs.o dustdynamics.o dustdynamics1D.o icevapour.o cuzzi_opacs.o \
-	errorfuncs.o disc_helpers.o
+	errorfuncs.o disc_helpers.o reductions.o
 
 OBJ := $(addprefix $(BUILD_DIR)/, $(OBJ))
 

@@ -296,14 +296,13 @@ __global__ void compute_diffusion_coeff(GridRef g, Field3DConstRef<double> J,
                                         Field3DConstRef<double> rhoksca,
                                         Field3DRef<double> D) {
                                              
-    int j = threadIdx.x + blockIdx.x*blockDim.x ;
-    int i = threadIdx.y + blockIdx.y*blockDim.y ;
+    int k = threadIdx.x + blockIdx.x*blockDim.x ;
+    int j = threadIdx.y + blockIdx.y*blockDim.y ;
+    int i = threadIdx.z + blockIdx.z*blockDim.z ;
 
-    if (i < g.NR + 2*g.Nghost && j < g.Nphi + 2*g.Nghost) {
-        for (int k=0; k < J.Nd; k++) {
-            double krho = rhokabs(i,j,k) + rhoksca(i,j,k) ;          
-            D(i,j,k) = diffusion_coeff(g, J, krho, i, j, k) ;
-        }
+    if (i < g.NR + 2*g.Nghost && j < g.Nphi + 2*g.Nghost && k < J.Nd) {
+        double krho = rhokabs(i,j,k) + rhoksca(i,j,k) ;          
+        D(i,j,k) = diffusion_coeff(g, J, krho, i, j, k) ;
     }
 }
 
@@ -631,7 +630,10 @@ void FLD_Solver::solve_multi_band(const Grid& g, double dt, const Field<double>&
     copy_initial_values<<<blocks, threads>>>(g, T, J, sol) ; 
 
     Field3D<double> D = create_field3D<double>(g, J.Nd) ;
-    compute_diffusion_coeff<<<blocks, threads>>>(g, J, rhokappa_abs, rhokappa_sca, D) ;
+    // Bands (contiguous in memory) on x
+    dim3 threads_D(32,4,2) ;
+    dim3 blocks_D((J.Nd+31)/32, (g.Nphi + 2*g.Nghost+3)/4, (g.NR + 2*g.Nghost+1)/2) ;
+    compute_diffusion_coeff<<<blocks_D, threads_D>>>(g, J, rhokappa_abs, rhokappa_sca, D) ;
     check_CUDA_errors("compute_diffusion_coeff") ;           
 
     dim3 threads2(16,16,1) ;
