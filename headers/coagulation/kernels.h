@@ -31,9 +31,37 @@ class BirnstielKernel {
         _alpha_t(alpha), _mu(mu) , _GMstar(Mstar*GMsun)
     { } ;
 
+    /* The kernel is evaluated in two stages, so that the quantities that
+     * depend on only one cell, or on one grain size in one cell, are computed
+     * once rather than once for every pair of sizes:
+     *   CellProps : quantities of the cell
+     *   SizeProps : quantities of one grain size in the cell
+     */
+    // The types follow those used when the kernel is evaluated directly
+    struct CellProps {
+        RealType rho, cs, R, Omega, sqrtRe_1 ;
+        double alpha, mu ;
+    } ;
+    struct SizeProps {
+        RealType a, St, St_star, m, i_to_t_rat ;
+        double v_R, v_Z, v_phi ;
+    } ;
+
+    __device__ __host__
+    CellProps cell_props(int i, int j) const ;
+    __device__ __host__
+    SizeProps size_props(int i, int j, int k, const CellProps& cell) const ;
+
+    // Compute the kernel for a pair of sizes in a cell.
+    __device__ __host__
+    KernelResult operator()(const CellProps& cell, const SizeProps& s1, const SizeProps& s2) const ;
+
     // Compute the kernel for cell i,j and species k1 and k2.
     __device__ __host__
-    KernelResult operator()(int i, int j, int k1, int k2) const ;
+    KernelResult operator()(int i, int j, int k1, int k2) const {
+        CellProps cell = cell_props(i,j) ;
+        return (*this)(cell, size_props(i,j,k1,cell), size_props(i,j,k2,cell)) ;
+    }
 
     __device__ __host__
     int NR() const {
@@ -76,9 +104,31 @@ class BirnstielKernelVertInt {
       _alpha_t(alpha), _GMstar(Mstar*GMsun), _mu(mu)
     { } ;
 
+    // Two-stage evaluation, as for BirnstielKernel
+    struct CellProps {
+        RealType Sig_g, cs, R, Omega, sqrtRe_1 ;
+        double alpha, Hp2 ;
+    } ;
+    struct SizeProps {
+        RealType a, St, St_star, m, i_to_t_rat ;
+        double v_R, v_phi, h2, v_settle ;
+    } ;
+
+    __device__ __host__
+    CellProps cell_props(int i, int j) const ;
+    __device__ __host__
+    SizeProps size_props(int i, int j, int k, const CellProps& cell) const ;
+
+    // Compute the kernel for a pair of sizes in a cell.
+    __device__ __host__
+    KernelResult operator()(const CellProps& cell, const SizeProps& s1, const SizeProps& s2) const ;
+
     // Compute the kernel for cell i,j and species k1 and k2.
     __device__ __host__
-    KernelResult operator()(int i, int j, int k1, int k2) const ;
+    KernelResult operator()(int i, int j, int k1, int k2) const {
+        CellProps cell = cell_props(i,j) ;
+        return (*this)(cell, size_props(i,j,k1,cell), size_props(i,j,k2,cell)) ;
+    }
 
     __device__ __host__
     int NR() const {
@@ -114,6 +164,24 @@ class ConstantKernel {
     ConstantKernel(const Grid& g)
      : _g(g)
     { } 
+
+    // Two-stage evaluation, as for BirnstielKernel
+    struct CellProps { } ;
+    struct SizeProps { } ;
+
+    __device__ __host__
+    CellProps cell_props(int, int) const {
+        return {} ;
+    }
+    __device__ __host__
+    SizeProps size_props(int, int, int, const CellProps&) const {
+        return {} ;
+    }
+
+    __device__ __host__
+    KernelResult operator()(const CellProps&, const SizeProps&, const SizeProps&) const {
+        return {4., 1., 0.} ;
+    }
 
     // Compute the kernel for cell i,j and species k1 and k2.
     __device__ __host__
