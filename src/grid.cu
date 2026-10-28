@@ -477,14 +477,16 @@ template<typename T>
 __global__
 void _copy_to_subgrid(GridRef g_sub, int idx_in, int /*idx_out*/, Field3DConstRef<T> F_main, Field3DRef<T> F_sub) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx; i<g_sub.NR+2*g_sub.Nghost; i+=istride) {
         for (int j=jidx; j<g_sub.Nphi+2*g_sub.Nghost; j+=jstride) { 
-            for (int k=0; k<F_main.Nd; k++) { 
+            for (int k=kidx; k<F_main.Nd; k+=kstride) { 
                 F_sub(i,j,k) = F_main(idx_in+i,j,k);
             }
         }
@@ -500,8 +502,9 @@ void GridManager::copy_to_subgrid(Grid& g_sub, const Field<T>& F_main, Field<T>&
         throw std::runtime_error("Incorrect subgrid passed to copier.");
     }
 
-    dim3 threads(32,32,1);
-    dim3 blocks((g_sub.NR + 2*g_sub.Nghost+31)/32,(g_sub.Nphi + 2*g_sub.Nghost+31)/32, 1) ;
+    // A single value per cell: vertical index on y, radial on z
+    dim3 threads(1,32,8);
+    dim3 blocks(1,(g_sub.Nphi + 2*g_sub.Nghost+31)/32,(g_sub.NR + 2*g_sub.Nghost+7)/8) ;
 
     _copy_to_subgrid<<<blocks,threads>>>(g_sub, in_idx[sg_idx], out_idx[sg_idx], Field3DConstRef<T>(F_main), Field3DRef<T>(F_sub));
     check_CUDA_errors("_copy_from_subgrid");
@@ -516,8 +519,9 @@ void GridManager::copy_to_subgrid(Grid& g_sub, const Field3D<T>& F_main, Field3D
         throw std::runtime_error("Incorrect subgrid passed to copier.");
     }
 
-    dim3 threads(32,32,1);
-    dim3 blocks((g_sub.NR + 2*g_sub.Nghost+31)/32,(g_sub.Nphi + 2*g_sub.Nghost+31)/32, 1) ;
+    // Species (contiguous in memory) on x
+    dim3 threads(32,4,2);
+    dim3 blocks((F_main.Nd+31)/32,(g_sub.Nphi + 2*g_sub.Nghost+3)/4,(g_sub.NR + 2*g_sub.Nghost+1)/2) ;
 
     _copy_to_subgrid<<<blocks,threads>>>(g_sub, in_idx[sg_idx], out_idx[sg_idx], Field3DConstRef<T>(F_main), Field3DRef<T>(F_sub));
     check_CUDA_errors("_copy_from_subgrid");
@@ -527,10 +531,12 @@ template<typename T>
 __global__
 void _copy_from_subgrid(GridRef g_main, GridRef g_sub, int idx_in, int idx_out, Field3DRef<T> F_main, Field3DConstRef<T> F_sub) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx; i<g_sub.NR+2*g_sub.Nghost; i+=istride) {
 
@@ -542,7 +548,7 @@ void _copy_from_subgrid(GridRef g_main, GridRef g_sub, int idx_in, int idx_out, 
         }
         else {  
             for (int j=jidx; j<g_sub.Nphi+2*g_sub.Nghost; j+=jstride) { 
-                for (int k=0; k<F_main.Nd; k++) { 
+                for (int k=kidx; k<F_main.Nd; k+=kstride) { 
                     F_main(idx_in+i,j,k) = F_sub(i,j,k);
                 }
             }
@@ -559,8 +565,9 @@ void GridManager::copy_from_subgrid(Grid& g_sub, Field<T>& F_main, const Field<T
         throw std::runtime_error("Incorrect subgrid passed to copier.");
     }
 
-    dim3 threads(32,32,1);
-    dim3 blocks((g_sub.NR + 2*g_sub.Nghost+31)/32,(g_sub.Nphi + 2*g_sub.Nghost+31)/32, 1) ;
+    // A single value per cell: vertical index on y, radial on z
+    dim3 threads(1,32,8);
+    dim3 blocks(1,(g_sub.Nphi + 2*g_sub.Nghost+31)/32,(g_sub.NR + 2*g_sub.Nghost+7)/8) ;
 
     _copy_from_subgrid<<<blocks,threads>>>(g, g_sub, in_idx[sg_idx], out_idx[sg_idx], Field3DRef<T>(F_main), Field3DConstRef<T>(F_sub));
     check_CUDA_errors("_copy_from_subgrid");
@@ -575,8 +582,9 @@ void GridManager::copy_from_subgrid(Grid& g_sub, Field3D<T>& F_main, const Field
         throw std::runtime_error("Incorrect subgrid passed to copier.");
     }
 
-    dim3 threads(32,32,1);
-    dim3 blocks((g_sub.NR + 2*g_sub.Nghost+31)/32,(g_sub.Nphi + 2*g_sub.Nghost+31)/32, 1) ;
+    // Species (contiguous in memory) on x
+    dim3 threads(32,4,2);
+    dim3 blocks((F_main.Nd+31)/32,(g_sub.Nphi + 2*g_sub.Nghost+3)/4,(g_sub.NR + 2*g_sub.Nghost+1)/2) ;
 
     _copy_from_subgrid<<<blocks,threads>>>(g, g_sub, in_idx[sg_idx], out_idx[sg_idx], Field3DRef<T>(F_main), Field3DConstRef<T>(F_sub));
     check_CUDA_errors("_copy_from_subgrid");

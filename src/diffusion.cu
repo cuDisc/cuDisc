@@ -83,19 +83,19 @@ __global__ void compute_diffusive_flux_update(GridRef g, FieldConstRef<double> D
                                        Field3DRef<double> rho_new,
                                        double dt) {
 
-    int j = threadIdx.x + blockIdx.x*blockDim.x ;
-    int i = threadIdx.y + blockIdx.y*blockDim.y ;
+    // One thread per cell and species, species (contiguous in memory) on x
+    int k = threadIdx.x + blockIdx.x*blockDim.x ;
+    int j = threadIdx.y + blockIdx.y*blockDim.y ;
+    int i = threadIdx.z + blockIdx.z*blockDim.z ;
 
     if (i >= g.Nghost && i < g.NR + g.Nghost  &&
-        j >= g.Nghost && j < g.Nphi + g.Nghost) {
+        j >= g.Nghost && j < g.Nphi + g.Nghost && k < rho_d.Nd) {
         
         // Temporary storage for diffusion matrix elements
         double Dij[3][3] ;
         compute_diffusion_matrix(g, D, Dij, BoundaryFlags::all_closed, i, j) ;
 
-        for (int k=0; k < rho_d.Nd; k++) {
-            rho_new(i,j,k) = rho_d(i,j,k) + dt * _compute_diffusion_rate(g, Dij, rho_g, rho_d, i, j, k) ;
-        }
+        rho_new(i,j,k) = rho_d(i,j,k) + dt * _compute_diffusion_rate(g, Dij, rho_g, rho_d, i, j, k) ;
     }
 }
 
@@ -114,8 +114,9 @@ void Diffusion::operator()(const Grid& g, Field<double>& rho_dust,
     compute_Drho_gas<<<blocks, threads>>>(g, D, rho_gas, Drho) ;
     check_CUDA_errors("compute_Drho_gas") ;           
 
-    dim3 threads2(16,16,1) ;
-    dim3 blocks2((g.Nphi + 2*g.Nghost + 15)/16,(g.NR + 2*g.Nghost + 15)/16,1) ;
+    // A single species: vertical index on y, radial on z
+    dim3 threads2(1,32,8) ;
+    dim3 blocks2(1,(g.Nphi + 2*g.Nghost + 31)/32,(g.NR + 2*g.Nghost + 7)/8) ;
 
     Field<double> rho_new = create_field<double>(g) ;
     compute_diffusive_flux_update<<<blocks2, threads2>>>(g, Drho, rho_gas, 
@@ -142,8 +143,9 @@ void Diffusion::operator()(const Grid& g, Field3D<double>& rho_dust,
     compute_Drho_gas<<<blocks, threads>>>(g, D, rho_gas, Drho) ;
     check_CUDA_errors("compute_Drho_gas") ;           
 
-    dim3 threads2(16,16,1) ;
-    dim3 blocks2((g.Nphi + 2*g.Nghost + 15)/16,(g.NR + 2*g.Nghost + 15)/16,1) ;
+    // Species (contiguous in memory) on x
+    dim3 threads2(32,4,2) ;
+    dim3 blocks2((rho_dust.Nd + 31)/32,(g.Nphi + 2*g.Nghost + 3)/4,(g.NR + 2*g.Nghost + 1)/2) ;
 
     Field3D<double> rho_new = create_field3D<double>(g,rho_dust.Nd) ;
     compute_diffusive_flux_update<<<blocks2, threads2>>>(g, Drho, rho_gas, 
@@ -160,18 +162,18 @@ __global__ void compute_diffusion_rate(GridRef g, FieldConstRef<double> D,
                                        Field3DConstRef<double> rho_d,
                                        Field3DRef<double> drho_dt) {
 
-    int j = threadIdx.x + blockIdx.x*blockDim.x ;
-    int i = threadIdx.y + blockIdx.y*blockDim.y ;
+    // One thread per cell and species, species (contiguous in memory) on x
+    int k = threadIdx.x + blockIdx.x*blockDim.x ;
+    int j = threadIdx.y + blockIdx.y*blockDim.y ;
+    int i = threadIdx.z + blockIdx.z*blockDim.z ;
 
     if (i >= g.Nghost && i < g.NR + g.Nghost  &&
-        j >= g.Nghost && j < g.Nphi + g.Nghost) {
+        j >= g.Nghost && j < g.Nphi + g.Nghost && k < rho_d.Nd) {
 
         double Dij[3][3] ;
         compute_diffusion_matrix(g, D, Dij, BoundaryFlags::all_closed, i, j) ;
 
-        for (int k=0; k < rho_d.Nd; k++) {
-            drho_dt(i,j,k) = _compute_diffusion_rate(g, Dij, rho_g, rho_d, i, j, k) ;
-        }
+        drho_dt(i,j,k) = _compute_diffusion_rate(g, Dij, rho_g, rho_d, i, j, k) ;
     }
 }
 
@@ -195,8 +197,9 @@ int Diffusion::update_sts(const Grid& g, Field<double>& rho_dust,
     compute_Drho_gas<<<blocks, threads>>>(g, D, rho_gas, Drho) ;
     check_CUDA_errors("compute_Drho_gas") ;           
 
-    threads = dim3(16,16,1) ;
-    blocks  = dim3((g.Nphi + 2*g.Nghost + 15)/16,(g.NR + 2*g.Nghost + 15)/16,1) ;
+    // A single species: vertical index on y, radial on z
+    threads = dim3(1,32,8) ;
+    blocks  = dim3(1,(g.Nphi + 2*g.Nghost + 31)/32,(g.NR + 2*g.Nghost + 7)/8) ;
 
     auto rate = [blocks, threads, &g, &rho_gas, &Drho](
         const Field<double>& rho_d, Field<double>& drho_dt) {
@@ -236,8 +239,9 @@ int Diffusion::update_sts(const Grid& g, Field3D<double>& rho_dust,
     check_CUDA_errors("compute_Drho_gas") ;   
 
     // Create wrapper to the diffusion rate
-    threads = dim3(16,16,1) ;
-    blocks = dim3((g.Nphi + 2*g.Nghost + 15)/16,(g.NR + 2*g.Nghost + 15)/16,1) ;
+    // Species (contiguous in memory) on x
+    threads = dim3(32,4,2) ;
+    blocks = dim3((rho_dust.Nd + 31)/32,(g.Nphi + 2*g.Nghost + 3)/4,(g.NR + 2*g.Nghost + 1)/2) ;
 
     auto rate = [blocks, threads, &g, &rho_gas, &Drho](
         const Field3D<double>& rho_d, Field3D<double>& drho_dt) {

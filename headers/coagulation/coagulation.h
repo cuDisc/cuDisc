@@ -31,6 +31,10 @@ class CoagulationCache {
         _Cijk_frag = make_CudaArray<double>(size * stride) ;
     }
 
+    /* index and Cijk are stored with i varying fastest, as the threads that
+     * use them handle consecutive sizes i for the same j. Cijk_frag is read
+     * with consecutive j, so it is stored with j varying fastest.
+     */
     struct id {
         int coag, frag, remnant ;
     } ;
@@ -39,17 +43,17 @@ class CoagulationCache {
     } ;
 
     id& index(int i, int j) {
-        return _id[i*stride + j] ;
+        return _id[j*stride + i] ;
     }
     id index(int i, int j) const {
-        return _id[i*stride + j] ;
+        return _id[j*stride + i] ;
     }
 
     coeff& Cijk(int i, int j) {
-        return _Cijk[i*stride + j] ;
+        return _Cijk[j*stride + i] ;
     }
     coeff Cijk(int i, int j) const {
-        return _Cijk[i*stride + j] ;
+        return _Cijk[j*stride + i] ;
     }
 
     double& Cijk_frag(int i, int j) {

@@ -135,7 +135,9 @@ double vl_Z2D(GridRef& g, FieldConstRef<double>& Qty, int i, int j) {
     return _vl_slope(dQF, dQB, cF, cB) ;
 }
 
-void _set_bounds(Grid& g, double* Sig_g, int bound, double floor, double* nu) {
+// Gas surface density boundaries. Run by a single GPU thread, so that Sig_g and
+// nu stay on the device and the update is ordered after the preceding kernels.
+__global__ void _set_bounds_device(GridRef g, double* Sig_g, int bound, double floor, const double* nu) {
 
     if (bound & BoundaryFlags::open_R_inner) {
         Sig_g[g.Nghost-2] = Sig_g[g.Nghost-1];
@@ -154,14 +156,18 @@ void _set_bounds(Grid& g, double* Sig_g, int bound, double floor, double* nu) {
     }
     else if (bound & BoundaryFlags::set_ext_R_inner) {} //set externally (e.g. inflow)
     else if (bound & BoundaryFlags::const_Mdot_R_outer) {
-        double S_2 = Sig_g[g.NR+g.Nghost]*nu[g.NR+g.Nghost]*std::sqrt(g.Rc(g.NR+g.Nghost));
-        double S_3 = Sig_g[g.NR+g.Nghost-1]*nu[g.NR+g.Nghost-1]*std::sqrt(g.Rc(g.NR+g.Nghost-1));
-        Sig_g[g.NR+g.Nghost+1] = S_2 * S_2 / S_3 / (nu[g.NR+g.Nghost+1]*std::sqrt(g.Rc(g.NR+g.Nghost+1)));
+        double S_2 = Sig_g[g.NR+g.Nghost]*nu[g.NR+g.Nghost]*sqrt(g.Rc(g.NR+g.Nghost));
+        double S_3 = Sig_g[g.NR+g.Nghost-1]*nu[g.NR+g.Nghost-1]*sqrt(g.Rc(g.NR+g.Nghost-1));
+        Sig_g[g.NR+g.Nghost+1] = S_2 * S_2 / S_3 / (nu[g.NR+g.Nghost+1]*sqrt(g.Rc(g.NR+g.Nghost+1)));
     }
     else {
         Sig_g[g.NR+g.Nghost+1] = floor;
     }
 
+}
+
+void _set_bounds(Grid& g, double* Sig_g, int bound, double floor, double* nu) {
+    _set_bounds_device<<<1,1>>>(g, Sig_g, bound, floor, nu) ;
 }
 
 __global__

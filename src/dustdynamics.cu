@@ -1270,21 +1270,26 @@ void DustDynamics::enforce_floor_for_inactive(Grid& g, Field3D<Prims>& w_dust, c
 
 __global__ void _init_tracer_prims(GridRef g, Field3DRef<Prims> w, FieldConstRef<Prims> wg, Field3DRef<Prims> w_trac, Field3DRef<Prims> w_trac_vap, Field3DRef<double> tracers, MoleculeRef mol) {
 
-    int iidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int iidx = threadIdx.z + blockIdx.z*blockDim.z ;
     int jidx = threadIdx.y + blockIdx.y*blockDim.y ;
-    int istride = gridDim.x * blockDim.x ;
+    int kidx = threadIdx.x + blockIdx.x*blockDim.x ;
+    int istride = gridDim.z * blockDim.z ;
     int jstride = gridDim.y * blockDim.y ;
+    int kstride = gridDim.x * blockDim.x ;
 
     for (int i=iidx; i<g.NR+2*g.Nghost; i+=istride) {
         for (int j=jidx; j<g.Nphi+2*g.Nghost; j+=jstride) {
 
-            w_trac_vap(i,j,0).rho = mol.vap(i,j);
+            // The vapour, once per cell
+            if (kidx == 0) {
+                w_trac_vap(i,j,0).rho = mol.vap(i,j);
 
-            for (int l=1; l<4; l++) {
-                w_trac_vap(i,j,0)[l] = wg(i,j)[l];
+                for (int l=1; l<4; l++) {
+                    w_trac_vap(i,j,0)[l] = wg(i,j)[l];
+                }
             }
 
-            for (int k=0; k<w.Nd; k++) {
+            for (int k=kidx; k<w.Nd; k+=kstride) {
 
                 w_trac(i,j,k).rho = tracers(i,j,k);
                 for (int l=1; l<4; l++) {
@@ -1411,7 +1416,7 @@ void DustDynamics::operator() (Grid& g, Field3D<Prims>& w_dust, const Field<Prim
 
     Field3D<Prims> w_trac = create_field3D<Prims>(g, w_dust.Nd);
     Field3D<Prims> w_trac_vap = create_field3D<Prims>(g, 1);
-    _init_tracer_prims<<<blocks2D,threads2D>>>(g, w_dust, w_gas, w_trac, w_trac_vap, mol.ice, mol);
+    _init_tracer_prims<<<blocks,threads>>>(g, w_dust, w_gas, w_trac, w_trac_vap, mol.ice, mol);
     check_CUDA_errors("_init_tracer_prims") ;
 
     if (!_active) {
