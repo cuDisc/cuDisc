@@ -676,7 +676,15 @@ void FLD_Solver::solve_multi_band(const Grid& g, double dt, const Field<double>&
 
     // Solve the linear system
     //BlockJacobi_precond pc(FLD_mat, 1+J.Nd) ;
-    PCG_Solver pcg(std::unique_ptr<CheckConvergence>(new CheckTemperatureResidual(_tol, J.Nd, _tol)), _max_iter) ;
+    //
+    // The reduced system has no temperature rows (J.Nd rows per cell rather
+    // than 1+J.Nd), so every row is checked against the J tolerance.
+    std::unique_ptr<CheckConvergence> check ;
+    if (use_reduced_system)
+        check.reset(new CheckResidual(_tol)) ;
+    else
+        check.reset(new CheckTemperatureResidual(_tol, J.Nd, _tol)) ;
+    PCG_Solver pcg(std::move(check), _max_iter) ;
 
     // Solve the linear system
     if (_ILU_order < 0) {
