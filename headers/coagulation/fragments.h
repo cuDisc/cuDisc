@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 /* SimpleErosion
  *
@@ -47,6 +48,20 @@ class SimpleErosion {
   // Fraction of fragments with mass < m for the mass scale provided, m_scale
   double cumulative_fragment_distribution(double m, double m_scale) const {
     return _integ(std::min(m, m_scale)) / _integ(m_scale) ;
+  }
+
+  /* breakpoints
+   *
+   * The masses m of one particle at which remnant_mass(m, m_p) or
+   * mass_scale(m, m_p) has a kink, for a collision partner of mass m_p. Between
+   * consecutive breakpoints both are affine in m. Used by CoagulationRateMHL.
+   *
+   * Here they change form where the particles swap roles (m = m_p) and where
+   * the target is just destroyed (m = Xi m_p as the larger particle,
+   * m = m_p / Xi as the smaller one).
+   */
+  void breakpoints(double m_p, std::vector<double>& b) const {
+    b.assign({m_p, _Xi * m_p, m_p / _Xi}) ;
   }
 
  private:

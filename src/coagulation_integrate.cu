@@ -778,6 +778,18 @@ template class BS32Integration<CoagulationRate<BirnstielKernelVertInt<false>,Sim
 template class BS32Integration<CoagulationRate<BirnstielKernelVertInt<true>,SimpleErosion>> ;
 template class BS32Integration<CoagulationRate<ConstantKernel,SimpleErosion>> ;
 
+template class Rk2Integration<CoagulationRateMHL<BirnstielKernel<true>,SimpleErosion>> ;
+template class Rk2Integration<CoagulationRateMHL<BirnstielKernel<false>,SimpleErosion>> ;
+template class Rk2Integration<CoagulationRateMHL<BirnstielKernelVertInt<false>,SimpleErosion>> ;
+template class Rk2Integration<CoagulationRateMHL<BirnstielKernelVertInt<true>,SimpleErosion>> ;
+template class Rk2Integration<CoagulationRateMHL<ConstantKernel,SimpleErosion>> ;
+
+template class BS32Integration<CoagulationRateMHL<BirnstielKernel<true>,SimpleErosion>> ;
+template class BS32Integration<CoagulationRateMHL<BirnstielKernel<false>,SimpleErosion>> ;
+template class BS32Integration<CoagulationRateMHL<BirnstielKernelVertInt<false>,SimpleErosion>> ;
+template class BS32Integration<CoagulationRateMHL<BirnstielKernelVertInt<true>,SimpleErosion>> ;
+template class BS32Integration<CoagulationRateMHL<ConstantKernel,SimpleErosion>> ;
+
 
 template int TimeIntegration::integrate_debug<Prims>(Grid& g, Field3D<Prims>& ws, Field<Prims>& wg, double tmax, double& dt_coag, double floor) const;
 template int TimeIntegration::integrate_debug<Prims1D>(Grid& g, Field3D<Prims1D>& ws, Field<Prims1D>& wg, double tmax, double& dt_coag, double floor) const;
