@@ -7,11 +7,16 @@
 #include "utils.h"
 
 
+// The tree reduction uses shared memory with a __syncthreads at every level.
+// It must not rely on the threads of a warp running in lock-step, which is
+// not guaranteed since Volta: doing so gave the wrong maximum in most calls,
+// so that the per-row convergence tests were effectively never applied.
+//
 // Assumptions:
-//    blockDim.x must be 1024
+//    blockDim.x must be a power of 2
 __global__ void __max_block_wise(int size, const double* x, double* max_block) {
-    
-    const unsigned int idx = threadIdx.x ; 
+
+    const unsigned int idx = threadIdx.x ;
 
     extern __shared__ double ptr[] ;
 
@@ -23,29 +28,14 @@ __global__ void __max_block_wise(int size, const double* x, double* max_block) {
         i += blockDim.x * gridDim.x ;
     } ;
     ptr[idx] = val ;
-
-    // Collect the values from each warp
-    const unsigned int lane = idx & 31; // index of thread in warp (0..31)
     __syncthreads();
-    
-    if (lane < 16) ptr[idx] = max(ptr[idx + 16], ptr[idx]);
-    if (lane <  8) ptr[idx] = max(ptr[idx +  8], ptr[idx]);
-    if (lane <  4) ptr[idx] = max(ptr[idx +  4], ptr[idx]);
-    if (lane <  2) ptr[idx] = max(ptr[idx +  2], ptr[idx]);
-    if (lane <  1) ptr[idx] = max(ptr[idx +  1], ptr[idx]);
 
-    __syncthreads() ;
-
-    // Collect values accross the 32 warps
-    if (idx < 32) {
-        ptr[idx] = ptr[idx*32] ;
-
-        if (lane < 16) ptr[idx] = max(ptr[idx + 16], ptr[idx]);
-        if (lane <  8) ptr[idx] = max(ptr[idx +  8], ptr[idx]);
-        if (lane <  4) ptr[idx] = max(ptr[idx +  4], ptr[idx]);
-        if (lane <  2) ptr[idx] = max(ptr[idx +  2], ptr[idx]);
-        if (lane <  1) ptr[idx] = max(ptr[idx +  1], ptr[idx]);
+    // Collect the values across the block
+    for (unsigned int n=blockDim.x/2; n > 0; n/=2) {
+        if (idx < n) ptr[idx] = max(ptr[idx + n], ptr[idx]);
+        __syncthreads() ;
     }
+
     // Store the result
     if (idx == 0) max_block[blockIdx.x] = ptr[0] ;
 
