@@ -154,7 +154,7 @@ __global__ void _set_bounds_device(GridRef g, double* Sig_g, int bound, double f
     if (bound & BoundaryFlags::open_R_outer) {
         Sig_g[g.NR+g.Nghost+1] = Sig_g[g.NR+g.Nghost];
     }
-    else if (bound & BoundaryFlags::set_ext_R_inner) {} //set externally (e.g. inflow)
+    else if (bound & BoundaryFlags::set_ext_R_outer) {} //set externally (e.g. inflow)
     else if (bound & BoundaryFlags::const_Mdot_R_outer) {
         double S_2 = Sig_g[g.NR+g.Nghost]*nu[g.NR+g.Nghost]*sqrt(g.Rc(g.NR+g.Nghost));
         double S_3 = Sig_g[g.NR+g.Nghost-1]*nu[g.NR+g.Nghost-1]*sqrt(g.Rc(g.NR+g.Nghost-1));
@@ -886,7 +886,10 @@ void _normalise_vR(GridRef g, FieldRef<double> rho, FieldRef<Prims> wg) {
 /**
  * Calculates the gas radial velocity using a temperature profile derived from the inputted viscosity, nu.
  * This T is used to calculate the 2D gas density from Sig_g via hydrostatic equilibrium.
- * The final radial velocities are adjusted so that the radial Mdot is correct given the actual 2D gas density.
+ * The final radial velocities are adjusted so that the radial Mdot is correct given the actual 2D gas density:
+ *  
+ *  vR = vR_param * rho_g_param / rho_g_actual
+ * 
  * The azimuthal velocity is still calculated from the full temperature profile.
  */
 void calc_gas_velocities_from_nu(Grid& g, CudaArray<double>& Sig_g, Field<Prims>& wg, Field<double>& cs2, CudaArray<double>& nu, double alpha, Star& star, int bound, double floor, double cav) {
@@ -926,13 +929,7 @@ void calc_gas_velocities_from_nu(Grid& g, CudaArray<double>& Sig_g, Field<Prims>
 }
 
 /**
- * Calculates the gas radial velocity using a temperature profile derived from the inputted viscosity, nu.
- * This T is used to calculate the 2D gas density from Sig_g via hydrostatic equilibrium.
- * The final radial velocities are adjusted so that the radial Mdot is correct given the actual 2D gas density:
- *  
- *  vR = vR_param * rho_g_param / rho_g_actual
- * 
- * The azimuthal velocity is still calculated from the full temperature profile.
+ * Same as above calculation but overloaded to allow for a spatially varying alpha 
  */
 void calc_gas_velocities_from_nu(Grid& g, CudaArray<double>& Sig_g, Field<Prims>& wg, Field<double>& cs2, CudaArray<double>& nu, CudaArray<double>& alpha, Star& star, int bound, double floor, double cav) {
 
@@ -1110,17 +1107,11 @@ void calc_gas_velocities(Grid& g, CudaArray<double>& Sig_g, Field<Prims>& wg, Fi
     _calc_p<<<blocks,threads>>>(g, wg, cs2, p);
     _calc_vphi<<<blocks,threads>>>(g, p, wg, vphig, star.GM, floor, buff, cav);
     _set_v_bounds<<<blocks,threads>>>(g, wg, bound, 2, buff);    
+    
+    _set_vphi_bounds<<<blocks,threads>>>(g, vphig, bound);     
+    _calc_T<<<blocks,threads>>>(g, Trphi, TZphi, vphig, drvphidr, dvphidZ, wg, nu.get(), 2);
+    _calc_vr<<<blocks,threads>>>(g, Trphi, TZphi, vphig, drvphidr, dvphidZ, wg, floor, vrbuff, cav);
 
-    // Calc v_R from parametrised profiles
-
-    _calc_rho<<<blocks,threads>>>(g, Sig_g.get(), star.GM, star.L, rho);
-    _calc_p<<<blocks,threads>>>(g, rho, nu.get(), alpha, star.GM, p);
-    _calc_vphi<<<blocks,threads>>>(g, p, rho, vphig, star.GM, floor, buff, cav);
-    _set_vphi_bounds<<<blocks,threads>>>(g, vphig, bound);        
-    _calc_T<<<blocks,threads>>>(g, Trphi, TZphi, vphig, drvphidr, dvphidZ, wg, rho, nu.get(), 2);
-    _calc_vr<<<blocks,threads>>>(g, Trphi, TZphi, vphig, drvphidr, dvphidZ, wg, rho, floor, vrbuff, cav);
-
-    _correct_vr_cav<<<blocks,threads>>>(g, wg, cav);
     _set_v_bounds<<<blocks,threads>>>(g, wg, bound, 1, vrbuff);
 }
 
