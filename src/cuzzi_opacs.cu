@@ -379,6 +379,97 @@ void CuzziOpacs<CompMix>::calc_opacs(SizeGrid& sizes, double por) {
     }
 }
 
+// ---------------------------------------------------------------------------
+//  Helpers for _calc_rho_kappa_vol
+//
+//  The Garnett EMT only needs  vfsig = sum_l vf_l*sig_l  and  vfgam = sum_l vf_l*gam_l, because
+//      sum_l sum_m vf_l vf_m (sig_l sig_m + 9 gam_l gam_m) = vfsig^2 + 9 vfgam^2 .
+//  sig_l and gam_l depend only on wavelength, and vf_l depends on the cell / grain only through
+//  the ice mass fraction f:
+//      vf_l    = (1-por) * rho_av * (1-f) * mf_l / dens_l      (l < n_comp-1)
+//      vf_last = (1-por) * f / dens_last
+//  so the sums split into a few wavelength-only coefficients (computed once per thread) plus a
+//  couple of multiply-adds per grain size, instead of an O(n_comp^2) loop per grain size.
+// ---------------------------------------------------------------------------
+
+struct _EMTCoeffs {
+    double S_A, G_A;   // sum_{l<last} mf_l * sig_l / dens_l   (and the same for gam)
+    double S_B, G_B;   // sig_last / dens_last                 (and the same for gam)
+    double C_A, C_B;   // sum_{l<last} mf_l / dens_l ,  1 / dens_last
+};
+
+template<typename CompRef>
+__device__ inline _EMTCoeffs _emt_coeffs(CompRef& comps, int n_comp, int k) {
+
+    _EMTCoeffs c = {0., 0., 0., 0., 0., 0.};
+
+    for (int l = 0; l < n_comp; l++) {
+        double nr = comps[l].opt[k].n;
+        double ni = comps[l].opt[k].k;
+        double nr2 = nr*nr, ni2 = ni*ni;
+        double d = nr2 - ni2 + 2.;
+        double inv_den = 1. / (d*d + 4.*nr2*ni2);
+        double sig = ((nr2 - ni2 - 1.)*d + 4.*nr2*ni2) * inv_den;
+        double gam = 2.*nr*ni * inv_den;
+        double w = 1. / comps[l].dens;
+
+        if (l < n_comp - 1) {
+            w *= comps[l].mf;
+            c.S_A += w*sig;
+            c.G_A += w*gam;
+            c.C_A += w;
+        }
+        else {
+            c.S_B = w*sig;
+            c.G_B = w*gam;
+            c.C_B = w;
+        }
+    }
+    return c;
+}
+
+// Q_abs and Q_sca*(1-g) (both unclamped) for a grain with ice mass fraction f and size parameter x.
+__device__ inline void _grain_Q(const _EMTCoeffs& c, double f, double por, double x, double& Q_a, double& Q_s) {
+
+    double rho_av = 1. / ((1.-f)*c.C_A + f*c.C_B);
+    double wA = (1.-por) * rho_av * (1.-f);
+    double wB = (1.-por) * rho_av * f;              
+
+    double vfsig = wA*c.S_A + wB*c.S_B;
+    double vfgam = wA*c.G_A + wB*c.G_B;
+    double vf2sig2gam2 = vfsig*vfsig + 9.*vfgam*vfgam;
+
+    // 1 - 2 vfsig + vf2sig2gam2, written in a form that cannot cancel
+    double inv_D = 1. / ((1.-vfsig)*(1.-vfsig) + 9.*vfgam*vfgam);
+    double eps1 = (1. + vfsig - 2.*vf2sig2gam2) * inv_D;
+    double eps2 = 9.*vfgam * inv_D;
+
+    double half_mod = 0.5*sqrt(eps1*eps1 + eps2*eps2);
+    double n2 = sqrt(half_mod - 0.5*eps1);
+
+    double ep2 = eps1 + 2.;
+    double inv_den = 1. / (ep2*ep2 + eps2*eps2);
+
+    Q_a = 12.*x*eps2*inv_den;
+
+    double x2 = x*x;
+    if (x < 1.3) {
+        double em1 = eps1 - 1.;
+        Q_s = (8./3.)*x2*x2*(em1*em1 + eps2*eps2)*inv_den;
+    }
+    else {
+        // (n1-1)^2 (1 + (n2/(n1-1))^2) == (n1-1)^2 + n2^2
+        double n1m1 = sqrt(half_mod + 0.5*eps1) - 1.;
+        Q_s = 2.*x2*(n1m1*n1m1 + n2*n2);
+    }
+
+    double g_asym;
+    if (n2 < 1.) { g_asym = (x < 3.) ? 0.7*x2/9. : 0.7; }
+    else         { g_asym = (x < 3.) ? -0.2 : 0.5; }
+
+    Q_s *= (1. - g_asym);
+}
+
 template<typename CompRef>
 __global__ void _calc_rho_kappa_vol(GridRef g, Field3DConstRef<Prims> qd, FieldConstRef<Prims> wg, SizeGridRef sizes, double por,
                                 CompRef comps, int n_comp, double* lam, int n_lam, Field3DRef<double> rhokabs, Field3DRef<double> rhoksca, MoleculeRef mol) {
@@ -388,108 +479,35 @@ __global__ void _calc_rho_kappa_vol(GridRef g, Field3DConstRef<Prims> qd, FieldC
     int i = threadIdx.z + blockIdx.z*blockDim.z ;
 
     if (k < n_lam && j < g.Nphi + 2*g.Nghost && i < g.NR+2*g.Nghost) {
-        // if (i==10 && j==10 && k==10) {printf("enter kern\n");}
+
+        const _EMTCoeffs c = _emt_coeffs(comps, n_comp, k);
+        const double x_fac = 2.*M_PI/(lam[k]/1.e4);
 
         double rhok_dust_abs = 0;
         double rhok_dust_sca = 0;
         double k_abs_g=0;
         double k_sca_g=0;
-        
+
         for (int n = 0; n < qd.Nd; n++) {
 
-            double eps1, eps2, n1, n2;
+            double ice = mol.ice(i,j,n);
+            double rho_n = qd(i,j,n).rho + ice;
+            Grain gp = sizes.grain_props(i,j,n);
 
-            double vol_mf = mol.ice(i, j, n) / (qd(i, j, n).rho + mol.ice(i, j, n));
+            double Q_a, Q_s;
+            _grain_Q(c, ice/rho_n, por, x_fac*gp.a, Q_a, Q_s);
+            Q_a = max(min(1., Q_a), 0.);
+            Q_s = max(min(Q_s, 1.), 0.);
 
-            double rho_1 = 0;
-            for (int l = 0; l < n_comp - 1; l++) {
-                rho_1 += (comps[l].mf * (1. - vol_mf)) / comps[l].dens;
-            }
-            rho_1 += vol_mf / comps[n_comp - 1].dens;
-            double rho_av = 1. / rho_1;
-
-            double vfsig = 0, vf2sig2gam2 = 0, vfgam = 0;
-            double n_temp, k_temp, vf_l, vf_m, den, nr2, ni2, sig_l, gam_l, sig_m, gam_m;
-
-            // Aggregate values without storing them in arrays
-            // if (i==10 && j==10 && k==10 && n==0) {printf("start loop\n");}
-            for (int l = 0; l < n_comp; l++) {
-                n_temp = comps[l].opt[k].n;
-                k_temp = comps[l].opt[k].k;
-                vf_l = (l < n_comp - 1) ? 
-                  (1. - por) * rho_av * (comps[l].mf * (1. - vol_mf)) / comps[l].dens :
-                  (1. - por) * vol_mf / comps[n_comp - 1].dens;
-
-                nr2 = n_temp * n_temp;
-                ni2 = k_temp * k_temp;
-                den = ((nr2 - ni2 + 2.) * (nr2 - ni2 + 2.) + 4. * nr2 * ni2);
-                sig_l = ((nr2 - ni2 - 1.) * (nr2 - ni2 + 2.) + 4. * nr2 * ni2) / den;
-                gam_l = 2. * n_temp * k_temp / den;
-
-                vfsig += vf_l * sig_l;
-                vfgam += vf_l * gam_l;
-
-                // Inner loop to calculate vf2sig2gam2
-                for (int m = 0; m < n_comp; m++) {
-                    n_temp = comps[m].opt[k].n;
-                    k_temp = comps[m].opt[k].k;
-                    vf_m = (m < n_comp - 1) ? 
-                      (1. - por) * rho_av * (comps[m].mf * (1. - vol_mf)) / comps[m].dens :
-                      (1. - por) * vol_mf / comps[n_comp - 1].dens;
-
-                    nr2 = n_temp * n_temp;
-                    ni2 = k_temp * k_temp;
-                    den = ((nr2 - ni2 + 2.) * (nr2 - ni2 + 2.) + 4. * nr2 * ni2);
-                    sig_m = ((nr2 - ni2 - 1.) * (nr2 - ni2 + 2.) + 4. * nr2 * ni2) / den;
-                    gam_m = 2. * n_temp * k_temp / den;
-
-                    vf2sig2gam2 += vf_l * vf_m * (sig_l * sig_m + 9. * gam_l * gam_m);
-                }
-            }
-
-            // if (i==10 && j==10 && k==10 && n==0) {printf("after loop\n");}
-
-            double x = 1.-2.*vfsig+vf2sig2gam2;
-            eps1 = (1.+vfsig-2.*vf2sig2gam2)/x;
-            eps2 = 9.*vfgam/x;
-
-            x = sqrt(eps1*eps1+eps2*eps2)/2.;
-            n1 = sqrt(x+eps1/2.);
-            n2 = sqrt(x-eps1/2.);
-
-            x = 2.*M_PI*sizes.grain_props(i,j,n).a/(lam[k]/1.e4);
-
-            double Q_a = min(1.,12.*x*eps2/((eps1+2.)*(eps1+2.)+eps2*eps2));
-            double Q_s, g_asym;
-            
-            if (x < 1.3) {
-                Q_s = 8./3.*pow(x,4.)*((eps1-1.)*(eps1-1.)+eps2*eps2)/((eps1+2.)*(eps1+2.)+eps2*eps2);
-            }
-            else {
-                Q_s = 2.*x*x*(n1-1.)*(n1-1.)*(1.+(n2/(n1-1.))*(n2/(n1-1.)));
-            }
-
-            if (n2 < 1.) {
-                if (x < 3.) { g_asym = 0.7*(x/3.)*(x/3.); }
-                else { g_asym = 0.7; }
-            }
-            else {
-                if (x < 3.) { g_asym = -0.2; }
-                else { g_asym = 0.5; } 
-            }
-
-            Q_s = min(Q_s*(1.-g_asym),1.);
-
-            // x = M_PI*sizes.grain_props(i,j,n).a*sizes.grain_props(i,j,n).a/(4.188790205*);
-            x = 0.75/(sizes.grain_props(i,j,n).a*sizes.grain_props(i,j,n).rho);
+            double kap = 0.75/(gp.a*gp.rho);
 
             if (n==0) {
-                k_abs_g = x*Q_a * 1e-10;
-                k_sca_g = x*Q_s * 1e-10;
+                k_abs_g = kap*Q_a * 1e-10;
+                k_sca_g = kap*Q_s * 1e-10;
             }
 
-            rhok_dust_abs += (qd(i,j,n).rho + mol.ice(i,j,n))*x*Q_a;
-            rhok_dust_sca += (qd(i,j,n).rho + mol.ice(i,j,n))*x*Q_s;
+            rhok_dust_abs += rho_n*kap*Q_a;
+            rhok_dust_sca += rho_n*kap*Q_s;
         }
 
         rhokabs(i,j,k) = wg(i,j).rho*k_abs_g + rhok_dust_abs;
@@ -506,134 +524,60 @@ __global__ void _calc_rho_kappa_vol(GridRef g, GridRef g_in, Field3DConstRef<dou
     int i = threadIdx.z + blockIdx.z*blockDim.z ;
 
     if (k < n_lam && j < g.Nphi + 2*g.Nghost && i < g.NR+2*g.Nghost) {
-        // if (i==10 && j==10 && k==10) {printf("enter kern\n");}
 
         double rhok_dust_abs = 0;
         double rhok_dust_sca = 0;
         double k_abs_g=0;
         double k_sca_g=0;
-        
-        for (int n = 0; n < rho_d.Nd; n++) {
 
-            if (i > g_in.NR+g_in.Nghost-1) {
+        if (i > g_in.NR+g_in.Nghost-1) {
 
-                double eps1, eps2, n1, n2;
-    
-                double vol_mf = mol.ice(i-g_in.NR, j, n) / rho_d(i, j, n);
-                
-                double rho_1 = 0;
-                for (int l = 0; l < n_comp - 1; l++) {
-                    rho_1 += (comps[l].mf * (1. - vol_mf)) / comps[l].dens;
-                }
-                rho_1 += vol_mf / comps[n_comp - 1].dens;
-                double rho_av = 1. / rho_1;
+            const _EMTCoeffs c = _emt_coeffs(comps, n_comp, k);
+            const double x_fac = 2.*M_PI/(lam[k]/1.e4);
+            const int ii = i - g_in.NR;
 
-                double vfsig = 0, vf2sig2gam2 = 0, vfgam = 0;
-                double n_temp, k_temp, vf_l, vf_m, den, nr2, ni2, sig_l, gam_l, sig_m, gam_m;
+            for (int n = 0; n < rho_d.Nd; n++) {
 
-                // Aggregate values without storing them in arrays
-                // if (i==10 && j==10 && k==10 && n==0) {printf("start loop\n");}
-                for (int l = 0; l < n_comp; l++) {
-                    n_temp = comps[l].opt[k].n;
-                    k_temp = comps[l].opt[k].k;
-                    vf_l = (l < n_comp - 1) ? 
-                    (1. - por) * rho_av * (comps[l].mf * (1. - vol_mf)) / comps[l].dens :
-                    (1. - por) * vol_mf / comps[n_comp - 1].dens;
+                double rho_n = rho_d(i,j,n);
+                Grain gp = sizes.grain_props(ii,j,n);
 
-                    nr2 = n_temp * n_temp;
-                    ni2 = k_temp * k_temp;
-                    den = ((nr2 - ni2 + 2.) * (nr2 - ni2 + 2.) + 4. * nr2 * ni2);
-                    sig_l = ((nr2 - ni2 - 1.) * (nr2 - ni2 + 2.) + 4. * nr2 * ni2) / den;
-                    gam_l = 2. * n_temp * k_temp / den;
+                double Q_a, Q_s;
+                _grain_Q(c, mol.ice(ii,j,n)/rho_n, por, x_fac*gp.a, Q_a, Q_s);
+                Q_a = max(min(1., Q_a), 0.);
+                Q_s = max(min(Q_s, 1.), 0.);
 
-                    vfsig += vf_l * sig_l;
-                    vfgam += vf_l * gam_l;
-
-                    // Inner loop to calculate vf2sig2gam2
-                    for (int m = 0; m < n_comp; m++) {
-                        n_temp = comps[m].opt[k].n;
-                        k_temp = comps[m].opt[k].k;
-                        vf_m = (m < n_comp - 1) ? 
-                        (1. - por) * rho_av * (comps[m].mf * (1. - vol_mf)) / comps[m].dens :
-                        (1. - por) * vol_mf / comps[n_comp - 1].dens;
-
-                        nr2 = n_temp * n_temp;
-                        ni2 = k_temp * k_temp;
-                        den = ((nr2 - ni2 + 2.) * (nr2 - ni2 + 2.) + 4. * nr2 * ni2);
-                        sig_m = ((nr2 - ni2 - 1.) * (nr2 - ni2 + 2.) + 4. * nr2 * ni2) / den;
-                        gam_m = 2. * n_temp * k_temp / den;
-
-                        vf2sig2gam2 += vf_l * vf_m * (sig_l * sig_m + 9. * gam_l * gam_m);
-                    }
-                }
-
-                // if (i==10 && j==10 && k==10 && n==0) {printf("after loop\n");}
-
-                double x = 1.-2.*vfsig+vf2sig2gam2;
-                eps1 = (1.+vfsig-2.*vf2sig2gam2)/x;
-                eps2 = 9.*vfgam/x;
-
-                x = sqrt(eps1*eps1+eps2*eps2)/2.;
-                n1 = sqrt(x+eps1/2.);
-                n2 = sqrt(x-eps1/2.);
-
-                x = 2.*M_PI*sizes.grain_props(i-g_in.NR,j,n).a/(lam[k]/1.e4);
-
-                double Q_a = max(min(1.,12.*x*eps2/((eps1+2.)*(eps1+2.)+eps2*eps2)),0.);
-                double Q_s, g_asym;
-                
-                if (x < 1.3) {
-                    Q_s = 8./3.*pow(x,4.)*((eps1-1.)*(eps1-1.)+eps2*eps2)/((eps1+2.)*(eps1+2.)+eps2*eps2);
-                }
-                else {
-                    Q_s = 2.*x*x*(n1-1.)*(n1-1.)*(1.+(n2/(n1-1.))*(n2/(n1-1.)));
-                }
-
-                if (n2 < 1.) {
-                    if (x < 3.) { g_asym = 0.7*(x/3.)*(x/3.); }
-                    else { g_asym = 0.7; }
-                }
-                else {
-                    if (x < 3.) { g_asym = -0.2; }
-                    else { g_asym = 0.5; } 
-                }
-
-                Q_s = max(min(Q_s*(1.-g_asym),1.),0.);
-
-                // x = M_PI*sizes.grain_props(i,j,n).a*sizes.grain_props(i,j,n).a/(4.188790205*);
-                x = 0.75/(sizes.grain_props(i-g_in.NR,j,n).a*sizes.grain_props(i-g_in.NR,j,n).rho);
+                double kap = 0.75/(gp.a*gp.rho);
 
                 if (n==0) {
-                    k_abs_g = x*Q_a * 1e-12;
-                    k_sca_g = x*Q_s * 1e-12;
+                    k_abs_g = kap*Q_a * 1e-10;
+                    k_sca_g = kap*Q_s * 1e-10;
                 }
-                // if (i==50 && j==2 && k==50 && n==0) {
-                //     printf("%g, ", x*Q_a);
-                // }
 
-                rhok_dust_abs += rho_d(i,j,n)*x*Q_a;
-                // if (i==601 && j==82 && k==0) {printf("%g\n",sizes.grain_props(i-g_in.NR,j,n).a);}
-
-                rhok_dust_sca += rho_d(i,j,n)*x*Q_s;
+                rhok_dust_abs += rho_n*kap*Q_a;
+                rhok_dust_sca += rho_n*kap*Q_s;
             }
+        }
+        else {
 
-            else {
+            for (int n = 0; n < rho_d.Nd; n++) {
+
+                double ka = k_abs[n*n_lam + k];
+                double ks = k_sca[n*n_lam + k];
 
                 if (n==0) {
-                    k_abs_g = k_abs[n*n_lam + k] * 1e-12;
-                    k_sca_g = k_sca[n*n_lam + k] * 1e-12;
+                    k_abs_g = ka * 1e-10;
+                    k_sca_g = ks * 1e-10;
                 }
 
-                rhok_dust_abs += rho_d(i,j,n)*k_abs[n*n_lam + k];
-                rhok_dust_sca += rho_d(i,j,n)*k_sca[n*n_lam + k];
-
+                rhok_dust_abs += rho_d(i,j,n)*ka;
+                rhok_dust_sca += rho_d(i,j,n)*ks;
             }
         }
 
         rhokabs(i,j,k) = wg(i,j).rho*k_abs_g + rhok_dust_abs;
         rhoksca(i,j,k) = wg(i,j).rho*k_sca_g + rhok_dust_sca;
     }
-} 
+}
 
 __global__ void _calc_rho_tot_vol(GridRef g, Field3DConstRef<Prims> wd, FieldConstRef<Prims> wg, MoleculeRef mol, FieldRef<double> rho_tot) {
 
